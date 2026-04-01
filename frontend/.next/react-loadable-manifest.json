@@ -1,0 +1,74 @@
+{
+  "components\\Dashboard\\Dashboard.tsx -> ../Brochures/Brochures": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Brochures/Brochures",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Brochures_Brochures_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Leasing/Leasing": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Leasing/Leasing",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Leasing_Leasing_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../LegalDocs/LegalDocs": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../LegalDocs/LegalDocs",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_LegalDocs_LegalDocs_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Map/GoogleMapWrapper": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Map/GoogleMapWrapper",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Map_GoogleMapWrapper_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Map/MapProperties": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Map/MapProperties",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Map_MapProperties_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../PropertyFunds/PropertyFunds": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../PropertyFunds/PropertyFunds",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_PropertyFunds_PropertyFunds_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Reminders/Reminders": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Reminders/Reminders",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Reminders_Reminders_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Sales/Sales": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Sales/Sales",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Sales_Sales_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Sales/Sales2": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Sales/Sales2",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Sales_Sales2_tsx.js"
+    ]
+  },
+  "components\\Dashboard\\Dashboard.tsx -> ../Settings/Settings": {
+    "id": "components\\Dashboard\\Dashboard.tsx -> ../Settings/Settings",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Settings_Settings_tsx.js"
+    ]
+  },
+  "components\\Map\\MapProperties.tsx -> ./GoogleMapWrapper": {
+    "id": "components\\Map\\MapProperties.tsx -> ./GoogleMapWrapper",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Map_GoogleMapWrapper_tsx.js"
+    ]
+  },
+  "context\\RealtimeContext.tsx -> socket.io-client": {
+    "id": "context\\RealtimeContext.tsx -> socket.io-client",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_socket_io-client_build_esm_index_js.js"
+    ]
+  }
+}

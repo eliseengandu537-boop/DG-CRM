@@ -1,0 +1,73 @@
+
+> react-tailwind-dashbord@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.7
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 4s
+ ○ Compiling / ...
+ ✓ Compiled / in 35.3s (1120 modules)
+ GET /?id=2fb62fc2-676c-4812-beb7-0db2d048f57d&vscodeBrowserReqId=1772443661098 200 in 37113ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 2.3s (1128 modules)
+ GET /login 200 in 247ms
+ GET /login 200 in 142ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 1614ms (651 modules)
+ GET /favicon.ico 200 in 1916ms
+ ✓ Compiled in 8.2s (1158 modules)
+ ✓ Compiled in 1863ms (1158 modules)
+ GET / 200 in 2039ms
+ GET /favicon.ico 200 in 136ms
+ ✓ Compiled in 2.1s (1158 modules)
+ ✓ Compiled in 7.2s (1160 modules)
+ ✓ Compiled in 1667ms (1160 modules)
+ ✓ Compiled in 6.7s (1130 modules)
+ ✓ Compiled in 725ms (508 modules)
+ ✓ Compiled in 1706ms (1130 modules)
+ ✓ Compiled in 1291ms (1130 modules)
+ GET / 200 in 3937ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 523ms (652 modules)
+ GET /favicon.ico 200 in 670ms
+ ✓ Compiled in 8.9s (1156 modules)
+ ✓ Compiled in 1774ms (1156 modules)
+ ✓ Compiled in 1227ms (1156 modules)
+ ✓ Compiled in 1672ms (1156 modules)
+ ✓ Compiled in 971ms (1156 modules)
+ ✓ Compiled in 1293ms (1156 modules)
+ ✓ Compiled in 1085ms (1156 modules)
+ GET / 200 in 1446ms
+ GET /favicon.ico 200 in 115ms
+ GET / 200 in 170ms
+ GET /favicon.ico 200 in 31ms
+ ✓ Compiled in 6.8s (1156 modules)
+ ✓ Compiled in 950ms (1156 modules)
+ ✓ Compiled in 1001ms (1156 modules)
+ ✓ Compiled in 871ms (1156 modules)
+ GET / 200 in 1842ms
+ GET /favicon.ico 200 in 56ms
+ ✓ Compiled in 4.9s (1156 modules)
+ ✓ Compiled in 766ms (506 modules)
+ ✓ Compiled in 6.9s (1156 modules)
+ ✓ Compiled in 1035ms (1156 modules)
+ ✓ Compiled in 1009ms (1156 modules)
+ GET / 200 in 2998ms
+ GET /favicon.ico 200 in 82ms
+ ✓ Compiled in 7.1s (1156 modules)
+ GET /?id=2fb62fc2-676c-4812-beb7-0db2d048f57d&vscodeBrowserReqId=1772456805268 200 in 565ms
+ ✓ Compiled in 3.4s (1156 modules)
+ GET /?id=2fb62fc2-676c-4812-beb7-0db2d048f57d&vscodeBrowserReqId=1772456978709 200 in 490ms
+ ✓ Compiled in 5.9s (1156 modules)
+ ✓ Compiled in 3.3s (1156 modules)
+ ✓ Compiled in 3.7s (1156 modules)
+ ✓ Compiled in 6.4s (1156 modules)
+ ✓ Compiled in 3.1s (506 modules)
+ ✓ Compiled in 3.2s (1156 modules)
+ ✓ Compiled in 5.9s (1156 modules)
+ GET /login 200 in 779ms
+ GET /favicon.ico 200 in 97ms
+ GET /?id=2fb62fc2-676c-4812-beb7-0db2d048f57d&vscodeBrowserReqId=1772458627318 200 in 2578ms

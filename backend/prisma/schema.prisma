@@ -1,0 +1,599 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DealStatus {
+  LOI
+  OTP
+  OTL
+  LEASE_AGREEMENT
+  SALE_AGREEMENT
+  CLOSED
+  WON
+  AWAITING_PAYMENT
+}
+
+enum DealDocumentType {
+  LOI
+  OTP
+  OTL
+  AGREEMENT
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  password     String
+  name         String
+  role         String        @default("viewer")
+  refreshToken RefreshToken?
+  auditLogs    AuditLog[]     @relation("AuditLogActor")
+  notifications Notification[] @relation("NotificationActor")
+  dealStatusChanges DealStatusHistory[] @relation("DealStatusHistoryActor")
+  dealDocumentLinks DealStatusDocument[] @relation("DealStatusDocumentActor")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  tokenHash String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Lead {
+  id              String    @id @default(cuid())
+  name            String
+  email           String
+  phone           String
+  moduleType      String?   @map("module_type")
+  stage           String?
+  company         String?
+  leadSource      String?   @map("lead_source")
+  dealType        String?   @map("deal_type")
+  probability     Int?
+  closingTimeline String?   @map("closing_timeline")
+  notes           String?
+  comment         String?   @map("comment")
+  contactId       String?   @map("contact_id")
+  brokerAssigned  String?   @map("broker_assigned")
+  additionalBroker String?  @map("additional_broker")
+  commissionSplit Json?     @map("commission_split")
+  propertyAddress String?   @map("property_address")
+  leadType        String?   @map("lead_type")
+  linkedStockId   String?   @map("linked_stock_id")
+  dealId          String?   @map("deal_id")
+  forecastDealId  String?   @map("forecast_deal_id")
+  legalDocumentId String?   @map("legal_document_id")
+  status          String    @default("new")
+  value           Float?
+  brokerId        String?
+  createdByBrokerId String? @map("created_by_broker_id")
+  propertyId      String?
+  broker          Broker?   @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  createdByBroker Broker?   @relation("LeadCreatedByBroker", fields: [createdByBrokerId], references: [id], onDelete: SetNull)
+  property        Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  legalDocument   LegalDocument? @relation("LeadLegalDocument", fields: [legalDocumentId], references: [id], onDelete: SetNull)
+  deals           Deal[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([brokerId])
+  @@index([createdByBrokerId])
+  @@index([propertyId])
+  @@index([legalDocumentId])
+  @@index([status])
+}
+
+model Deal {
+  id                 String         @id @default(cuid())
+  title              String
+  description        String?
+  status             DealStatus     @default(LOI)
+  type               String
+  value              Float
+  assetValue         Float          @default(0) @map("asset_value")
+  commissionPercent  Float          @default(0) @map("commission_percent")
+  grossCommission    Float          @default(0) @map("gross_commission")
+  companyCommission  Float          @default(0) @map("company_commission")
+  brokerCommission   Float          @default(0) @map("broker_commission")
+  brokerSplitPercent Float          @default(45) @map("broker_split_percent")
+  auctionReferralPercent Float      @default(35) @map("auction_referral_percent")
+  auctionCommissionPercent Float    @default(10) @map("auction_commission_percent")
+  coBrokerSplits     Json?          @map("co_broker_splits")
+  lastActivityAt     DateTime       @default(now()) @map("last_activity_at")
+  inactivityNotifiedAt DateTime?    @map("inactivity_notified_at")
+  targetClosureDate  DateTime?
+  closedDate         DateTime?
+  leadId             String
+  propertyId         String
+  brokerId           String
+  createdByBrokerId  String?        @map("created_by_broker_id")
+  legalDocumentId    String?        @map("legal_document_id")
+  lead               Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  property           Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  broker             Broker         @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  createdByBroker    Broker?        @relation("DealCreatedByBroker", fields: [createdByBrokerId], references: [id], onDelete: SetNull)
+  legalDocument      LegalDocument? @relation("DealLegalDocument", fields: [legalDocumentId], references: [id], onDelete: SetNull)
+  forecastDeals      ForecastDeal[]
+  activities         DealActivity[]
+  statusHistory      DealStatusHistory[]
+  statusDocuments    DealStatusDocument[]
+  reminders          Reminder[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([leadId])
+  @@index([propertyId])
+  @@index([brokerId])
+  @@index([createdByBrokerId])
+  @@index([legalDocumentId])
+  @@index([status])
+  @@index([lastActivityAt])
+  @@index([inactivityNotifiedAt])
+}
+
+model DealStatusHistory {
+  id              String     @id @default(cuid())
+  dealId          String     @map("deal_id")
+  status          DealStatus
+  changedAt       DateTime   @default(now()) @map("changed_at")
+  changedByUserId String?    @map("changed_by_user_id")
+  metadata        Json?
+  deal            Deal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  changedByUser   User?      @relation("DealStatusHistoryActor", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([dealId])
+  @@index([status])
+  @@index([changedAt])
+  @@index([changedByUserId])
+}
+
+model DealStatusDocument {
+  id                       String           @id @default(cuid())
+  dealId                   String           @map("deal_id")
+  status                   DealStatus
+  documentType             DealDocumentType @map("document_type")
+  legalDocumentId          String           @map("legal_document_id")
+  linkedByUserId           String?          @map("linked_by_user_id")
+  filledDocumentRecordId   String?          @map("filled_document_record_id")
+  filledDocumentDownloadUrl String?         @map("filled_document_download_url")
+  filledDocumentName       String?          @map("filled_document_name")
+  uploadedAt               DateTime         @default(now()) @map("uploaded_at")
+  completedAt              DateTime?        @map("completed_at")
+  version                  Int              @default(1)
+  metadata                 Json?
+  deal                     Deal             @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  legalDocument            LegalDocument    @relation(fields: [legalDocumentId], references: [id], onDelete: Restrict)
+  linkedByUser             User?            @relation("DealStatusDocumentActor", fields: [linkedByUserId], references: [id], onDelete: SetNull)
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  @@unique([dealId, status])
+  @@index([dealId])
+  @@index([status])
+  @@index([documentType])
+  @@index([legalDocumentId])
+  @@index([linkedByUserId])
+}
+
+model DealActivity {
+  id             String   @id @default(cuid())
+  dealId         String   @map("deal_id")
+  brokerId       String   @map("broker_id")
+  brokerName     String   @map("broker_name")
+  previousStatus String   @map("previous_status")
+  newStatus      String   @map("new_status")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  deal           Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([brokerId])
+  @@index([createdAt])
+}
+
+model Broker {
+  id               String         @id @default(cuid())
+  name             String
+  email            String         @unique
+  phone            String
+  company          String?
+  department       String?
+  billingTarget    Float          @default(0)
+  avatar           String?
+  status           String         @default("active")
+  archivedAt       DateTime?
+  archivedByUserId String?
+  archivedByName   String?
+  archivedByEmail  String?
+  pin              String?
+  pinExpiresAt     DateTime?
+  leads            Lead[]
+  createdLeads     Lead[]           @relation("LeadCreatedByBroker")
+  deals            Deal[]
+  createdDeals     Deal[]           @relation("DealCreatedByBroker")
+  properties       Property[]
+  createdProperties Property[]      @relation("PropertyCreatedByBroker")
+  assignedContacts Contact[]        @relation("ContactAssignedBroker")
+  createdContacts  Contact[]        @relation("ContactCreatedByBroker")
+  createdStockItems StockItem[]   @relation("BrokerCreatedStockItems")
+  assignedStockItems StockItem[]  @relation("BrokerAssignedStockItems")
+  forecastDeals    ForecastDeal[]
+  reminders        Reminder[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([status])
+  @@index([archivedAt])
+}
+
+model Contact {
+  id                String   @id @default(cuid())
+  name              String
+  firstName         String?  @map("first_name")
+  lastName          String?  @map("last_name")
+  email             String
+  phone             String
+  type              String
+  status            String   @default("active")
+  linkedLeadId      String?
+  company           String?
+  position          String?
+  notes             String?
+  moduleType        String?  @map("module_type")
+  brokerId          String?  @map("broker_id")
+  createdByBrokerId String?  @map("created_by_broker_id")
+  broker            Broker?  @relation("ContactAssignedBroker", fields: [brokerId], references: [id], onDelete: SetNull)
+  createdByBroker   Broker?  @relation("ContactCreatedByBroker", fields: [createdByBrokerId], references: [id], onDelete: SetNull)
+  linkedPropertyIds Json?    @map("linked_property_ids")
+  linkedDealIds     Json?    @map("linked_deal_ids")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([moduleType])
+  @@index([brokerId])
+  @@index([createdByBrokerId])
+}
+
+model Property {
+  id          String    @id @default(cuid())
+  title       String
+  description String    @default("")
+  address     String
+  city        String
+  province    String
+  postalCode  String
+  type        String
+  price       Float
+  area        Float
+  latitude    Float?
+  longitude   Float?
+  status      String    @default("For Sale")
+  moduleType  String?   @map("module_type")
+  brokerId    String?   @map("broker_id")
+  createdByBrokerId String? @map("created_by_broker_id")
+  broker      Broker?   @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  createdByBroker Broker? @relation("PropertyCreatedByBroker", fields: [createdByBrokerId], references: [id], onDelete: SetNull)
+  bedrooms    Int?
+  bathrooms   Int?
+  metadata    Json?
+  deletedAt   DateTime? @map("deleted_at")
+  leads       Lead[]
+  deals       Deal[]
+  auctions    Auction[]
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("properties")
+  @@index([city])
+  @@index([type])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([moduleType])
+  @@index([brokerId])
+  @@index([createdByBrokerId])
+}
+
+model StockItem {
+  id         String   @id @default(cuid())
+  propertyId String   @map("property_id")
+  name       String   @default("")
+  address    String   @default("")
+  latitude   Float?
+  longitude  Float?
+  createdBy  String?  @map("created_by")
+  assignedBrokerId String? @map("assigned_broker_id")
+  module     String
+  details    Json
+  createdByBroker Broker? @relation("BrokerCreatedStockItems", fields: [createdBy], references: [id], onDelete: SetNull)
+  assignedBroker  Broker? @relation("BrokerAssignedStockItems", fields: [assignedBrokerId], references: [id], onDelete: SetNull)
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("stock_items")
+  @@index([propertyId])
+  @@index([createdBy])
+  @@index([assignedBrokerId])
+  @@index([module])
+}
+
+model Tenant {
+  id                 String   @id @default(cuid())
+  companyName        String?
+  firstName          String?
+  lastName           String?
+  businessName       String?
+  email              String?
+  phone              String?
+  contactId          String?
+  propertyId         String?
+  linkedAssetId      String?
+  linkedStockItemId  String?
+  unitNumber         String?
+  leaseStartDate     String?
+  leaseEndDate       String?
+  monthlyRent        Float?
+  securityDeposit    Float?
+  leaseStatus        String?
+  squareFootage      Float?
+  status             String?
+  paymentStatus      String?
+  maintenanceRequests Int?
+  notes              String?
+  details            Json
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("tenants")
+  @@index([propertyId])
+  @@index([contactId])
+  @@index([linkedAssetId])
+  @@index([linkedStockItemId])
+  @@index([leaseStatus])
+  @@index([status])
+}
+
+model Landlord {
+  id          String   @id @default(cuid())
+  name        String
+  contact     String?
+  email       String?
+  phone       String?
+  address     String?
+  status      String   @default("active")
+  notes       String?
+  details     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("landlords")
+  @@index([name])
+  @@index([status])
+}
+
+model Industry {
+  id            String   @id @default(cuid())
+  name          String
+  category      String?
+  description   String?
+  occupancyRate Float    @default(0) @map("occupancy_rate")
+  averageRent   Float    @default(0) @map("average_rent")
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("industries")
+  @@index([name])
+  @@index([status])
+}
+
+model Auction {
+  id         String   @id @default(cuid())
+  propertyId String
+  startDate  DateTime
+  endDate    DateTime
+  minimumBid Float
+  status     String   @default("upcoming")
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([status])
+}
+
+model ForecastDeal {
+  id                   String    @id @default(cuid())
+  dealId               String?
+  brokerId             String
+  dealType             String?   @map("deal_type")
+  moduleType           String
+  status               String    @default("qualified")
+  title                String
+  expectedValue        Float
+  assetValue           Float     @default(0) @map("asset_value")
+  commissionPercent    Float     @default(0) @map("commission_percent")
+  grossCommission      Float     @default(0) @map("gross_commission")
+  commissionRate       Float     @default(0)
+  commissionAmount     Float     @default(0)
+  companyCommission    Float     @default(0)
+  brokerCommission     Float     @default(0)
+  brokerSplitPercent   Float     @default(45) @map("broker_split_percent")
+  auctionReferralPercent Float   @default(35) @map("auction_referral_percent")
+  auctionCommissionPercent Float @default(10) @map("auction_commission_percent")
+  coBrokerSplits       Json?     @map("co_broker_splits")
+  legalDocument        String?   @map("legal_document")
+  forecastedClosureDate DateTime?
+  expectedPaymentDate  DateTime?
+  createdByUserId      String?
+  deal                 Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  broker               Broker    @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([dealId])
+  @@index([brokerId])
+  @@index([status])
+  @@index([moduleType])
+}
+
+model Reminder {
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  reminderType    String
+  dueAt           DateTime
+  status          String    @default("pending")
+  priority        String    @default("medium")
+  dealId          String?
+  brokerId        String?
+  assignedUserId  String?
+  assignedToRole  String?
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  createdByUserId String?
+  createdByName   String?
+  createdByEmail  String?
+  completedAt     DateTime?
+  deal            Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  broker          Broker?   @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([dueAt])
+  @@index([status])
+  @@index([reminderType])
+  @@index([brokerId])
+  @@index([assignedUserId])
+  @@index([createdByUserId])
+}
+
+model LegalDocument {
+  id               String   @id @default(cuid())
+  documentName     String
+  documentType     String
+  createdDate      String
+  lastModifiedDate String
+  createdBy        String
+  lastModifiedBy   String
+  status           String   @default("Draft")
+  fileSize         Float    @default(0)
+  fileName         String
+  description      String   @default("")
+  linkedAssets     Json
+  linkedDeals      Json
+  permissions      Json
+  content          String?
+  tags             Json
+  version          Int      @default(1)
+  expiryDate       String?
+  filePath         String?
+  fileType         String?
+  leadLinks        Lead[]   @relation("LeadLegalDocument")
+  dealLinks        Deal[]   @relation("DealLegalDocument")
+  statusLinks      DealStatusDocument[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([documentName])
+  @@index([status])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  description String   @default("")
+  actorUserId String?  @map("actor_user_id")
+  actorUser   User?    @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorName   String?  @map("actor_name")
+  actorEmail  String?  @map("actor_email")
+  actorRole   String?  @map("actor_role")
+  brokerId    String?  @map("broker_id")
+  visibilityScope String @default("shared") @map("visibility_scope")
+  previousValues Json? @map("previous_values")
+  nextValues  Json?    @map("next_values")
+  metadata    Json?
+  notification Notification?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([actorUserId])
+  @@index([brokerId])
+  @@index([visibilityScope])
+  @@index([createdAt])
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  activityId     String?  @unique @map("activity_id")
+  activity       AuditLog? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  actorUserId    String?  @map("actor_user_id")
+  actorUser      User?    @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorName      String?  @map("actor_name")
+  actorRole      String?  @map("actor_role")
+  title          String
+  message        String
+  type           String
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id")
+  brokerId       String?  @map("broker_id")
+  sound          Boolean  @default(false)
+  read           Boolean  @default(false)
+  visibilityScope String  @default("shared") @map("visibility_scope")
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([entityType])
+  @@index([entityId])
+  @@index([brokerId])
+  @@index([visibilityScope])
+  @@index([createdAt])
+}
+
+model CustomRecord {
+  id         String   @id @default(cuid())
+  entityType String   @map("entity_type")
+  name       String
+  status     String?
+  category   String?
+  referenceId String? @map("reference_id")
+  createdByUserId String? @map("created_by_user_id")
+  createdByBrokerId String? @map("created_by_broker_id")
+  assignedBrokerId String? @map("assigned_broker_id")
+  moduleType String? @map("module_type")
+  visibilityScope String @default("shared") @map("visibility_scope")
+  payload    Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType])
+  @@index([name])
+  @@index([status])
+  @@index([category])
+  @@index([referenceId])
+  @@index([createdByUserId])
+  @@index([createdByBrokerId])
+  @@index([assignedBrokerId])
+  @@index([moduleType])
+  @@index([visibilityScope])
+}

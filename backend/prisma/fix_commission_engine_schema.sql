@@ -1,0 +1,36 @@
+ALTER TABLE "Deal"
+  ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS commission_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gross_commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS company_commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS broker_commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS broker_split_percent DOUBLE PRECISION NOT NULL DEFAULT 45,
+  ADD COLUMN IF NOT EXISTS auction_referral_percent DOUBLE PRECISION NOT NULL DEFAULT 35,
+  ADD COLUMN IF NOT EXISTS auction_commission_percent DOUBLE PRECISION NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS co_broker_splits JSONB;
+
+ALTER TABLE "ForecastDeal"
+  ADD COLUMN IF NOT EXISTS deal_type TEXT,
+  ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS commission_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gross_commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS broker_split_percent DOUBLE PRECISION NOT NULL DEFAULT 45,
+  ADD COLUMN IF NOT EXISTS auction_referral_percent DOUBLE PRECISION NOT NULL DEFAULT 35,
+  ADD COLUMN IF NOT EXISTS auction_commission_percent DOUBLE PRECISION NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS co_broker_splits JSONB;
+
+UPDATE "Deal"
+SET asset_value = value
+WHERE COALESCE(asset_value, 0) = 0 AND COALESCE(value, 0) > 0;
+
+UPDATE "ForecastDeal"
+SET asset_value = "expectedValue"
+WHERE COALESCE(asset_value, 0) = 0 AND COALESCE("expectedValue", 0) > 0;
+
+UPDATE "ForecastDeal"
+SET commission_percent = "commissionRate" * 100
+WHERE COALESCE(commission_percent, 0) = 0 AND COALESCE("commissionRate", 0) > 0;
+
+UPDATE "ForecastDeal"
+SET gross_commission = "commissionAmount"
+WHERE COALESCE(gross_commission, 0) = 0 AND COALESCE("commissionAmount", 0) > 0;

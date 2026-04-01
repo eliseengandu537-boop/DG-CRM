@@ -1,0 +1,76 @@
+
+> react-tailwind-dashbord@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.7
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 4.9s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 33.3s (1135 modules)
+ GET /login 200 in 34311ms
+ GET /_next/static/webpack/5e919ecde5ee9667.webpack.hot-update.json 404 in 34970ms
+ GET / 200 in 35034ms
+ GET /login 200 in 114ms
+ GET / 200 in 48ms
+ GET / 200 in 388ms
+ ✓ Compiled in 4.2s (1135 modules)
+ ✓ Compiled in 975ms (511 modules)
+ ✓ Compiled in 1131ms (1135 modules)
+ ✓ Compiled in 1637ms (1135 modules)
+ ✓ Compiled in 1234ms (1135 modules)
+ ✓ Compiled in 1682ms (1135 modules)
+ ✓ Compiled in 1789ms (1135 modules)
+ GET / 200 in 1790ms
+ GET / 200 in 127ms
+ ✓ Compiled in 1363ms (511 modules)
+ ✓ Compiled in 1587ms (511 modules)
+ ✓ Compiled in 2.8s (1135 modules)
+ ✓ Compiled in 1786ms (1135 modules)
+ ✓ Compiled in 1744ms (1135 modules)
+ ✓ Compiled in 1370ms (1135 modules)
+ ✓ Compiled in 1447ms (1133 modules)
+ ✓ Compiled in 1301ms (1133 modules)
+ ✓ Compiled in 1611ms (1133 modules)
+ ✓ Compiled in 8.6s (1133 modules)
+ ✓ Compiled in 1117ms (1133 modules)
+ ✓ Compiled in 1011ms (1133 modules)
+ ✓ Compiled in 1717ms (1133 modules)
+ ✓ Compiled in 1395ms (1133 modules)
+ ✓ Compiled in 2.1s (1130 modules)
+ ✓ Compiled in 1509ms (1130 modules)
+ ✓ Compiled in 1620ms (1130 modules)
+ ✓ Compiled in 3.6s (1130 modules)
+ ✓ Compiled in 3.3s (1130 modules)
+ ✓ Compiled in 2.4s (508 modules)
+ ✓ Compiled in 2.3s (1130 modules)
+ ✓ Compiled in 1554ms (1130 modules)
+ ✓ Compiled in 1091ms (1130 modules)
+ GET / 200 in 1347ms
+ ✓ Compiled in 2.8s (1130 modules)
+ GET / 200 in 1254ms
+ ✓ Compiled in 2.3s (1130 modules)
+ ✓ Compiled in 1330ms (1130 modules)
+ ✓ Compiled in 3.7s (1130 modules)
+ ✓ Compiled in 1406ms (1130 modules)
+ ✓ Compiled in 1135ms (1130 modules)
+ ✓ Compiled in 1708ms (1130 modules)
+ ✓ Compiled in 1609ms (1130 modules)
+ ✓ Compiled in 1777ms (1130 modules)
+ ✓ Compiled in 1385ms (1130 modules)
+ ✓ Compiled in 1514ms (1130 modules)
+ ✓ Compiled in 5.2s (1130 modules)
+ ✓ Compiled in 1431ms (1130 modules)
+ ✓ Compiled in 1348ms (1130 modules)
+ ✓ Compiled in 2.1s (1130 modules)
+ ✓ Compiled in 1134ms (1130 modules)
+ ✓ Compiled in 1661ms (1130 modules)
+ ✓ Compiled in 3.9s (1130 modules)
+ ✓ Compiled in 1592ms (1130 modules)
+ ✓ Compiled in 1171ms (1130 modules)
+ ✓ Compiled in 1553ms (1130 modules)
+ ✓ Compiled in 2.9s (1130 modules)
+ ✓ Compiled in 1588ms (1130 modules)
+ GET / 200 in 5286ms
