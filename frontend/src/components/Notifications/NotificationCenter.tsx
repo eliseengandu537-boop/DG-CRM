@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiBell, FiRefreshCw } from 'react-icons/fi';
+import { FiBell } from 'react-icons/fi';
 import { useAuth } from '@/context/AuthContext';
 import { useRealtime } from '@/context/RealtimeContext';
 import { formatRelativeTime } from '@/lib/dashboardService';
@@ -29,7 +29,6 @@ type IncomingNotificationPayload = {
 };
 
 const MAX_NOTIFICATIONS = 50;
-const FALLBACK_POLL_MS = 30000;
 const EVENT_DEDUP_MS = 3000;
 
 function normalizeText(value: unknown): string {
@@ -115,27 +114,8 @@ export const NotificationCenter: React.FC = () => {
         return;
       }
 
-      if (showLoader) setIsLoading(true);
+      // Keep the notification card empty by default and only show realtime events.
       setError('');
-
-      try {
-        const result = await notificationService.getNotifications({
-          userId: 'currentUser',
-          page: 1,
-          limit: MAX_NOTIFICATIONS,
-        });
-
-        setNotifications(result.data || []);
-        setUnreadCount(
-          typeof result.unreadCount === 'number'
-            ? result.unreadCount
-            : (result.data || []).filter(item => !item.read).length
-        );
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load notifications');
-      } finally {
-        setIsLoading(false);
-      }
     },
     [canViewNotifications]
   );
@@ -168,9 +148,6 @@ export const NotificationCenter: React.FC = () => {
         setUnreadCount(current => current + 1);
       }
 
-      window.setTimeout(() => {
-        void loadNotifications(false);
-      }, 350);
     },
     [loadNotifications]
   );
@@ -194,37 +171,17 @@ export const NotificationCenter: React.FC = () => {
     }
   }, []);
 
-  const handleNotificationRead = useCallback(() => {
-    void loadNotifications(false);
-  }, [loadNotifications]);
-
-  useEffect(() => {
-    void loadNotifications(true);
-  }, [loadNotifications]);
-
-  useEffect(() => {
-    if (!canViewNotifications) return;
-
-    const timer = window.setInterval(() => {
-      void loadNotifications(false);
-    }, FALLBACK_POLL_MS);
-
-    return () => window.clearInterval(timer);
-  }, [canViewNotifications, loadNotifications]);
-
   useEffect(() => {
     if (!socket || !canViewNotifications) return;
 
     socket.on('notification', handleIncomingNotification);
     socket.on('notification:created', handleIncomingNotification);
-    socket.on('notification:read', handleNotificationRead);
 
     return () => {
       socket.off('notification', handleIncomingNotification);
       socket.off('notification:created', handleIncomingNotification);
-      socket.off('notification:read', handleNotificationRead);
     };
-  }, [socket, canViewNotifications, handleIncomingNotification, handleNotificationRead]);
+  }, [socket, canViewNotifications, handleIncomingNotification]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -266,14 +223,6 @@ export const NotificationCenter: React.FC = () => {
               <p className="text-sm font-semibold text-stone-900">Notifications</p>
               <p className="text-[11px] text-stone-500">Unread: {unreadCount}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadNotifications(false)}
-              className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-xs font-semibold text-stone-600 hover:bg-stone-50"
-            >
-              <FiRefreshCw size={12} />
-              Refresh
-            </button>
           </div>
 
           <div className="max-h-[360px] overflow-y-auto">
@@ -287,9 +236,7 @@ export const NotificationCenter: React.FC = () => {
                 ))}
               </div>
             ) : notifications.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-stone-500">
-                No notifications yet.
-              </p>
+              <div className="min-h-[120px]" />
             ) : (
               <div className="divide-y divide-stone-100">
                 {notifications.map(notification => {

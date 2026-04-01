@@ -7,6 +7,7 @@ import { emit } from '../../lib/dealEvents';
 import { FiEdit2, FiTrash2, FiPlus, FiSearch, FiDownload, FiCheck } from "react-icons/fi";
 import { propertyService, PropertyRecord } from "@/services/propertyService";
 import { customRecordService } from "@/services/customRecordService";
+import { forecastDealApiService } from '@/services/forecastDealService';
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 
 export const Auction: React.FC = () => {
@@ -59,6 +60,7 @@ export const Auction: React.FC = () => {
       auctionStatus: payload.auctionStatus || record.status || 'Open',
       paymentStatus: payload.paymentStatus || 'Unpaid',
       createdDate: payload.createdDate || new Date(record.createdAt).toISOString().split('T')[0],
+      payload,
     };
   };
 
@@ -957,9 +959,38 @@ export const Auction: React.FC = () => {
                   <td className="px-6 py-4 text-sm">
                     <select
                       value={auction.auctionStatus}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const newStatus = e.target.value;
                         setAuctions(prev => prev.map(a => a.id === auction.id ? { ...a, auctionStatus: newStatus } : a));
+
+                        const updatedPayload = {
+                          ...(auction.payload || {}),
+                          auctionStatus: newStatus,
+                        };
+
+                        try {
+                          await customRecordService.updateCustomRecord(auction.id, {
+                            status: newStatus,
+                            payload: updatedPayload,
+                          });
+
+                          if (newStatus === 'Under Auction' && auction.auctionStatus !== 'Under Auction') {
+                            await forecastDealApiService.createForecastDeal({
+                              moduleType: 'auction',
+                              status: 'Under Auction',
+                              title: auction.propertyName,
+                              expectedValue: auction.mandatePrice || 0,
+                              forecastedClosureDate: auction.auctionDate
+                                ? new Date(auction.auctionDate).toISOString()
+                                : undefined,
+                            });
+                          }
+                        } catch (error) {
+                          setAuctions(prev => prev.map(a => a.id === auction.id ? { ...a, auctionStatus: auction.auctionStatus } : a));
+                          console.error('Failed to update auction status:', error);
+                          alert(error instanceof Error ? error.message : 'Failed to update auction status.');
+                        }
+
                         // emit status change for Forecast syncing
                         emit('dealStatusChanged', {
                           id: auction.id,
