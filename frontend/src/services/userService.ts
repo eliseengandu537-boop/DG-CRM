@@ -13,7 +13,7 @@ export interface AppUserRecord {
 export interface CreateManagerRequest {
   email: string;
   name?: string;
-  password: string;
+  password?: string;
 }
 
 export interface CreateManagerResult {
@@ -35,13 +35,24 @@ class UserService {
     }
   }
 
+  async deleteUser(userId: string): Promise<void> {
+    try {
+      await apiClient.delete(`/users/${userId}`);
+    } catch (error) {
+      const axiosError = error as AxiosError<any>;
+      throw new Error(axiosError.response?.data?.message || 'Failed to delete user');
+    }
+  }
+
   async createManager(data: CreateManagerRequest): Promise<CreateManagerResult> {
     try {
-      const payload = {
-        email: data.email.trim().toLowerCase(),
-        name: data.name?.trim() || '',
-        password: data.password,
-      };
+const payload: { email: string; name: string; password?: string } = {
+      email: data.email.trim().toLowerCase(),
+      name: data.name?.trim() || '',
+    };
+    if (data.password?.trim()) {
+      payload.password = data.password.trim();
+    }
 
       const response = await apiClient.post<{
         success: boolean;

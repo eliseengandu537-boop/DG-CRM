@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiSearch } from 'react-icons/fi';
+import { FiSearch, FiTrash2 } from 'react-icons/fi';
 import { AppUserRecord, userService } from '@/services/userService';
 
 export default function ManagerSettings() {
@@ -15,6 +15,7 @@ export default function ManagerSettings() {
     password: '',
   });
   const [isCreating, setIsCreating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -57,12 +58,12 @@ export default function ManagerSettings() {
     const email = formData.email.trim().toLowerCase();
     const password = formData.password;
 
-    if (!email || !password) {
-      alert('Email and password are required.');
+    if (!email) {
+      alert('Email is required.');
       return;
     }
 
-    if (password.length < 6) {
+    if (password && password.length < 6) {
       alert('Password must be at least 6 characters.');
       return;
     }
@@ -92,12 +93,29 @@ export default function ManagerSettings() {
     }
   };
 
+  const handleDeleteManager = async (managerId: string, managerEmail: string) => {
+    if (!window.confirm(`Delete manager ${managerEmail}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(managerId);
+      await userService.deleteUser(managerId);
+      await loadUsers();
+    } catch (deleteError) {
+      alert(deleteError instanceof Error ? deleteError.message : 'Failed to delete manager');
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col gap-4 min-h-0">
       <div className="bg-white p-6 rounded-lg border border-stone-200 shadow-sm">
         <h3 className="text-xl font-bold text-stone-900 mb-4">Add Manager</h3>
         <p className="text-sm text-stone-600 mb-4">
           Manager login details are emailed automatically after account creation.
+          Leave the password blank to generate a temporary password automatically.
         </p>
 
         <form onSubmit={handleCreateManager} className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -118,11 +136,10 @@ export default function ManagerSettings() {
           />
           <input
             type="password"
-            placeholder="Temporary password"
+            placeholder="Temporary password (optional)"
             value={formData.password}
             onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
             className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
           />
 
           <div className="md:col-span-3">
@@ -168,6 +185,7 @@ export default function ManagerSettings() {
                   <th className="px-4 py-3 text-left font-semibold text-stone-700">Email</th>
                   <th className="px-4 py-3 text-left font-semibold text-stone-700">Role</th>
                   <th className="px-4 py-3 text-left font-semibold text-stone-700">Created</th>
+                  <th className="px-4 py-3 text-left font-semibold text-stone-700">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-200">
@@ -184,6 +202,17 @@ export default function ManagerSettings() {
                     </td>
                     <td className="px-4 py-3 text-stone-600">
                       {new Date(manager.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        aria-label={`Delete manager ${manager.email}`}
+                        onClick={() => void handleDeleteManager(manager.id, manager.email)}
+                        disabled={isDeleting === manager.id}
+                        className="inline-flex items-center justify-center p-2 rounded-lg text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <FiTrash2 size={18} />
+                      </button>
                     </td>
                   </tr>
                 ))}

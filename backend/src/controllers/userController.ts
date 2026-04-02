@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '@/lib/prisma';
-import { hashPassword } from '@/helpers';
+import { generatePin, hashPassword } from '@/helpers';
 import { emailService } from '@/services/emailService';
 import { getAuthenticatableRoles } from '@/lib/authRoles';
 
@@ -8,12 +8,18 @@ class UserController {
   async createManager(req: Request, res: Response) {
     try {
       const { email, name, password } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ success: false, message: 'Email and password required', timestamp: new Date() });
+      if (!email) {
+        return res.status(400).json({ success: false, message: 'Email is required', timestamp: new Date() });
       }
 
       const normalizedEmail = String(email).trim().toLowerCase();
       const managerName = String(name || '').trim() || normalizedEmail.split('@')[0];
+      const rawPassword = String(password ?? '').trim();
+      if (rawPassword && rawPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters', timestamp: new Date() });
+      }
+
+      const managerPassword = rawPassword || generatePin();
 
       const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
       if (existing) {
@@ -29,7 +35,7 @@ class UserController {
         });
       }
 
-      const hashed = await hashPassword(password);
+      const hashed = await hashPassword(managerPassword);
       const user = await prisma.user.create({
         data: { email: normalizedEmail, name: managerName, password: hashed, role: 'manager' },
       });
@@ -40,7 +46,7 @@ class UserController {
         await emailService.sendManagerPasswordEmail({
           managerEmail: normalizedEmail,
           managerName,
-          password: String(password),
+          password: managerPassword,
         });
         passwordSent = true;
       } catch (error: any) {
@@ -56,7 +62,7 @@ class UserController {
         meta: {
           passwordSent,
           passwordError,
-          temporaryPassword: process.env.NODE_ENV === 'production' ? undefined : String(password),
+          temporaryPassword: process.env.NODE_ENV === 'production' ? undefined : managerPassword,
         },
         timestamp: new Date(),
       });
