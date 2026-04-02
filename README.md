@@ -80,3 +80,4 @@ npm test
 
 - `docker-compose.prod.yml` expects `backend/.env.production` and `frontend/.env.production`.
 - In production, `DATABASE_URL` should point to managed PostgreSQL.
+# Auto-deploy test
