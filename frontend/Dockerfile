@@ -1,6 +1,16 @@
 FROM node:18-slim AS builder
 WORKDIR /usr/src/app
 
+# Build arguments for Next.js public environment variables
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_SOCKET_URL
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
+# Make them available as environment variables during build
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
 # Install dependencies
 COPY package*.json ./
 RUN npm ci
