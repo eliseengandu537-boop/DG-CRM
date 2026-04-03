@@ -2,6 +2,7 @@
 
 This repository contains:
 
+
 - `frontend`: Next.js + Tailwind CRM UI
 - `backend`: Express + TypeScript + Prisma API (PostgreSQL)
 - `docker-compose.yml`: local full stack (frontend, backend, PostgreSQL)
