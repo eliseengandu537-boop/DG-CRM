@@ -1,0 +1,77 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            
+            echo "📦 Pulling latest code..."
+            cd ~/DG-CRM
+            
+            # Stash any local changes
+            git stash || true
+            
+            # Pull latest changes
+            git pull origin main
+            
+            echo "🔧 Checking for changes..."
+            
+            # Check if backend changed
+            if git diff HEAD@{1} --name-only | grep -q "^backend/"; then
+              echo "🔨 Backend changed, rebuilding..."
+              docker compose build backend
+              docker compose up -d backend
+              echo "✅ Backend redeployed"
+            else
+              echo "⏭️  No backend changes"
+            fi
+            
+            # Check if frontend changed
+            if git diff HEAD@{1} --name-only | grep -q "^frontend/"; then
+              echo "🔨 Frontend changed, rebuilding..."
+              export $(cat frontend/.env.local | xargs)
+              docker compose build frontend
+              docker compose up -d frontend
+              echo "✅ Frontend redeployed"
+            else
+              echo "⏭️  No frontend changes"
+            fi
+            
+            # Check if database migrations changed
+            if git diff HEAD@{1} --name-only | grep -q "^backend/prisma/migrations/"; then
+              echo "🗄️  Running database migrations..."
+              docker compose run --rm backend npx prisma migrate deploy
+              docker compose restart backend
+              echo "✅ Migrations applied"
+            fi
+            
+            echo "🎉 Deployment complete!"
+            docker compose ps
+
+      - name: Deployment status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment succeeded!"
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi
