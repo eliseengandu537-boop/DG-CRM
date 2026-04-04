@@ -16,6 +16,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://crm.dg-property.co.za/api
+        NEXT_PUBLIC_SOCKET_URL: https://crm.dg-property.co.za
     restart: always
     # Port 3000 is internal only — Nginx proxies / to it
     expose:
