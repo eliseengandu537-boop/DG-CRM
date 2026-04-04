@@ -5,6 +5,7 @@ import { formatRand } from '@/lib/currency';
 import { parseDealTitle } from '@/lib/dealTitle';
 import { useDealSheetRealtime } from '@/hooks/useDealSheetRealtime';
 import { normalizeDealType } from '@/services/dealSheetRealtimeService';
+import { calculateCommissionSplit } from '@/lib/dealSheetCalculations';
 
 const getProbability = (status: string): number => {
   const value = String(status || '').toLowerCase();
@@ -73,6 +74,15 @@ export default function ForecastSalesDeals() {
           probability,
           weightedValue: Math.round((expectedValue * probability) / 100),
           status: deal.status,
+          grossComm: Number(deal.commissionAmount || 0) > 0
+            ? Number(deal.commissionAmount)
+            : Math.round(expectedValue * Number(deal.commissionRate || 0.05)),
+          companyComm: Number(deal.companyCommission || 0) > 0
+            ? Number(deal.companyCommission)
+            : calculateCommissionSplit(Number(deal.commissionAmount || expectedValue * Number(deal.commissionRate || 0.05))).companyComm,
+          brokerComm: Number(deal.brokerCommission || 0) > 0
+            ? Number(deal.brokerCommission)
+            : calculateCommissionSplit(Number(deal.commissionAmount || expectedValue * Number(deal.commissionRate || 0.05))).brokerComm,
         };
       });
   }, [data.forecastDeals, brokerById, dealById, propertyById]);
@@ -91,14 +101,17 @@ export default function ForecastSalesDeals() {
 
   const totalExpectedValue = filteredDeals.reduce((sum, d) => sum + d.expectedValue, 0);
   const totalWeightedValue = filteredDeals.reduce((sum, d) => sum + d.weightedValue, 0);
+  const totalGrossComm = filteredDeals.reduce((sum, d) => sum + d.grossComm, 0);
+  const totalCompanyComm = filteredDeals.reduce((sum, d) => sum + d.companyComm, 0);
+  const totalBrokerComm = filteredDeals.reduce((sum, d) => sum + d.brokerComm, 0);
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold text-stone-950">Sales Forecast</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="p-4 bg-stone-50 rounded-lg border border-stone-200">
-          <p className="text-stone-600 text-sm font-medium">Total Expected Value</p>
+          <p className="text-stone-600 text-sm font-medium">Total Asset Value</p>
           <p className="text-3xl font-bold text-stone-900 mt-2">{formatRand(totalExpectedValue)}</p>
           <p className="text-stone-500 text-xs mt-1">{filteredDeals.length} deals</p>
         </div>
@@ -107,13 +120,16 @@ export default function ForecastSalesDeals() {
           <p className="text-3xl font-bold text-stone-900 mt-2">{formatRand(totalWeightedValue)}</p>
         </div>
         <div className="p-4 bg-stone-50 rounded-lg border border-stone-200">
-          <p className="text-stone-600 text-sm font-medium">Avg. Probability</p>
-          <p className="text-3xl font-bold text-stone-900 mt-2">
-            {filteredDeals.length > 0
-              ? (filteredDeals.reduce((sum, d) => sum + d.probability, 0) / filteredDeals.length).toFixed(0)
-              : 0}
-            %
-          </p>
+          <p className="text-stone-600 text-sm font-medium">Gross Commission</p>
+          <p className="text-3xl font-bold text-stone-900 mt-2">{formatRand(totalGrossComm)}</p>
+        </div>
+        <div className="p-4 bg-sky-50 rounded-lg border border-sky-200">
+          <p className="text-stone-600 text-sm font-medium">Company (55%)</p>
+          <p className="text-3xl font-bold text-sky-700 mt-2">{formatRand(totalCompanyComm)}</p>
+        </div>
+        <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+          <p className="text-stone-600 text-sm font-medium">Broker (45%)</p>
+          <p className="text-3xl font-bold text-emerald-700 mt-2">{formatRand(totalBrokerComm)}</p>
         </div>
       </div>
 
@@ -152,9 +168,11 @@ export default function ForecastSalesDeals() {
               <th className="px-4 py-3 text-left font-medium text-stone-700">Broker</th>
               <th className="px-4 py-3 text-left font-medium text-stone-700">Property</th>
               <th className="px-4 py-3 text-left font-medium text-stone-700">Quarter</th>
-              <th className="px-4 py-3 text-right font-medium text-stone-700">Expected Value</th>
+              <th className="px-4 py-3 text-right font-medium text-stone-700">Asset Value</th>
               <th className="px-4 py-3 text-right font-medium text-stone-700">Probability</th>
-              <th className="px-4 py-3 text-right font-medium text-stone-700">Weighted Value</th>
+              <th className="px-4 py-3 text-right font-medium text-stone-700">Gross Commission</th>
+              <th className="px-4 py-3 text-right font-medium text-stone-700">Company (55%)</th>
+              <th className="px-4 py-3 text-right font-medium text-stone-700">Broker (45%)</th>
               <th className="px-4 py-3 text-left font-medium text-stone-700">Status</th>
             </tr>
           </thead>
@@ -167,7 +185,9 @@ export default function ForecastSalesDeals() {
                 <td className="px-4 py-3 text-stone-700">{deal.quarter}</td>
                 <td className="px-4 py-3 text-right text-stone-900 font-medium">{formatRand(deal.expectedValue)}</td>
                 <td className="px-4 py-3 text-right text-stone-700">{deal.probability}%</td>
-                <td className="px-4 py-3 text-right text-stone-900 font-medium">{formatRand(deal.weightedValue)}</td>
+                <td className="px-4 py-3 text-right text-stone-900 font-medium">{formatRand(deal.grossComm)}</td>
+                <td className="px-4 py-3 text-right text-sky-700 font-medium">{formatRand(deal.companyComm)}</td>
+                <td className="px-4 py-3 text-right text-emerald-700 font-medium">{formatRand(deal.brokerComm)}</td>
                 <td className="px-4 py-3 text-stone-700">{deal.status}</td>
               </tr>
             ))}

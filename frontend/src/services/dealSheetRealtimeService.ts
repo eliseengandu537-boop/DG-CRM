@@ -59,6 +59,27 @@ export function estimateDealGrossCommission(value: number): number {
   return Math.round(Number(value || 0) * DEFAULT_COMMISSION_RATE);
 }
 
+export function getDealGrossCommission(deal: Deal): number {
+  const stored = Number(deal.grossCommission || 0);
+  if (stored > 0) return stored;
+  return estimateDealGrossCommission(Number(deal.value || 0));
+}
+
+export function getDealCompanyCommission(deal: Deal): number {
+  const stored = Number(deal.companyCommission || 0);
+  if (stored > 0) return stored;
+  const gross = getDealGrossCommission(deal);
+  return Math.round(gross * 0.55 * 100) / 100;
+}
+
+export function getDealBrokerCommission(deal: Deal): number {
+  const stored = Number(deal.brokerCommission || 0);
+  if (stored > 0) return stored;
+  const gross = getDealGrossCommission(deal);
+  const company = getDealCompanyCommission(deal);
+  return Math.round((gross - company) * 100) / 100;
+}
+
 export function estimateForecastGrossCommission(deal: ForecastDealRecord): number {
   const commissionAmount = Number(deal.commissionAmount || 0);
   if (commissionAmount > 0) return Math.round(commissionAmount);

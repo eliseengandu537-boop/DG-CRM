@@ -12,10 +12,17 @@ export interface ForecastDealRecord {
   status: string;
   title: string;
   expectedValue: number;
+  assetValue?: number;
+  commissionPercent?: number;
+  grossCommission?: number;
   commissionRate: number;
   commissionAmount: number;
   companyCommission: number;
   brokerCommission: number;
+  brokerSplitPercent?: number;
+  auctionReferralPercent?: number;
+  auctionCommissionPercent?: number;
+  coBrokerSplits?: Array<{ brokerId: string; splitPercent: number; brokerShare?: number }>;
   legalDocument?: string;
   forecastedClosureDate?: string;
   expectedPaymentDate?: string;

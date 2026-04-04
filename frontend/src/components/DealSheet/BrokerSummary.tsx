@@ -6,7 +6,7 @@ import { formatRand } from '@/lib/currency';
 import { calculateCommissionSplit } from '@/lib/dealSheetCalculations';
 import { useDealSheetRealtime } from '@/hooks/useDealSheetRealtime';
 import {
-  estimateDealGrossCommission,
+  getDealGrossCommission,
   getIsoDate,
   normalizeDealType,
 } from '@/services/dealSheetRealtimeService';
@@ -142,7 +142,7 @@ export default function BrokerSummary() {
       applyEntry(
         deal.brokerId,
         Number(deal.value || 0),
-        estimateDealGrossCommission(Number(deal.value || 0)),
+        getDealGrossCommission(deal),
         normalizeDealType(deal.type),
         isoDate
       );

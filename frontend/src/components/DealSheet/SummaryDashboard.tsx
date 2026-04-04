@@ -7,6 +7,7 @@ import { useDealSheetRealtime } from '@/hooks/useDealSheetRealtime';
 import {
   estimateDealGrossCommission,
   estimateForecastGrossCommission,
+  getDealGrossCommission,
   isClosedDeal,
   isClosedForecastDeal,
   isLostStatus,
@@ -63,7 +64,7 @@ export default function SummaryDashboard() {
     for (const deal of closedDeals) {
       const type = normalizeDealType(deal.type);
       const value = Number(deal.value || 0);
-      const grossCommission = estimateDealGrossCommission(value);
+      const grossCommission = getDealGrossCommission(deal);
       typeSummary[type].revenue += value;
       typeSummary[type].deals += 1;
       typeSummary[type].grossCommission += grossCommission;

@@ -5,6 +5,7 @@ import { formatRand } from '@/lib/currency';
 import { parseDealTitle } from '@/lib/dealTitle';
 import { useDealSheetRealtime } from '@/hooks/useDealSheetRealtime';
 import { normalizeDealType } from '@/services/dealSheetRealtimeService';
+import { calculateCommissionSplit } from '@/lib/dealSheetCalculations';
 
 const getProbability = (status: string): number => {
   const value = String(status || '').toLowerCase();
@@ -56,22 +57,39 @@ export default function ForecastAuctionDeals() {
         const month = date.getMonth();
         const quarter = month <= 2 ? 'Q1' : month <= 5 ? 'Q2' : month <= 8 ? 'Q3' : 'Q4';
         const probability = getProbability(deal.status);
-        const expectedValue = Number(deal.expectedValue || 0);
         const parsedTitle = parseDealTitle(deal.title);
         const linkedDealId = String(deal.dealId || '').trim();
         const linkedDeal = linkedDealId ? dealById.get(linkedDealId) : undefined;
         const linkedProperty = linkedDeal?.propertyId
           ? propertyById.get(linkedDeal.propertyId)
           : undefined;
+        const auctionCommPercent = Number(deal.auctionCommissionPercent || 10);
+        const referralPercent = Number(deal.auctionReferralPercent || 35);
+        const assetVal = Number(deal.assetValue || deal.expectedValue || 0);
+        // Auction chain: assetValue × auctionCommPercent% = auctionHouseComm; auctionHouseComm × referralPercent% = DG gross
+        const auctionHouseComm = Math.round(assetVal * (auctionCommPercent / 100) * 100) / 100;
+        // Use stored commissionAmount (DG gross) if available, otherwise calculate
+        const dgGrossComm = Number(deal.commissionAmount || 0) > 0
+          ? Number(deal.commissionAmount)
+          : Math.round(auctionHouseComm * (referralPercent / 100) * 100) / 100;
+        const split = calculateCommissionSplit(dgGrossComm);
+        const companyComm = Number(deal.companyCommission || 0) > 0 ? Number(deal.companyCommission) : split.companyComm;
+        const brokerComm = Number(deal.brokerCommission || 0) > 0 ? Number(deal.brokerCommission) : split.brokerComm;
+
         return {
           id: deal.id,
           dealName: parsedTitle.dealName,
           contactName: brokerById.get(deal.brokerId) || 'Unassigned',
           propertyName: formatFullLocation(linkedProperty) || parsedTitle.location,
           quarter,
-          expectedValue,
+          assetValue: assetVal,
+          auctionHouseComm,
+          auctionCommPercent,
+          referralPercent,
+          dgGrossComm,
+          companyComm,
+          brokerComm,
           probability,
-          weightedValue: Math.round((expectedValue * probability) / 100),
           status: deal.status,
           forecastedClosureDate: deal.forecastedClosureDate || deal.createdAt,
         };
@@ -90,8 +108,10 @@ export default function ForecastAuctionDeals() {
     });
   }, [auctionDeals, searchTerm, selectedQuarter]);
 
-  const totalExpectedValue = filteredDeals.reduce((sum, d) => sum + d.expectedValue, 0);
-  const totalWeightedValue = filteredDeals.reduce((sum, d) => sum + d.weightedValue, 0);
+  const totalAssetValue = filteredDeals.reduce((sum, d) => sum + d.assetValue, 0);
+  const totalDgGrossComm = filteredDeals.reduce((sum, d) => sum + d.dgGrossComm, 0);
+  const totalCompanyComm = filteredDeals.reduce((sum, d) => sum + d.companyComm, 0);
+  const totalBrokerComm = filteredDeals.reduce((sum, d) => sum + d.brokerComm, 0);
 
   return (
     <div className="space-y-6">
@@ -123,18 +143,24 @@ export default function ForecastAuctionDeals() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
-          <p className="text-sm font-medium text-stone-600">Total Expected Value</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{formatRand(totalExpectedValue)}</p>
+          <p className="text-sm font-medium text-stone-600">Total Asset Value</p>
+          <p className="text-2xl font-bold text-blue-600 mt-1">{formatRand(totalAssetValue)}</p>
+          <p className="text-xs text-stone-500 mt-1">{filteredDeals.length} deals</p>
         </div>
         <div className="bg-green-50 rounded-lg border border-green-200 p-4">
-          <p className="text-sm font-medium text-stone-600">Weighted Pipeline Value</p>
-          <p className="text-2xl font-bold text-green-600 mt-1">{formatRand(totalWeightedValue)}</p>
+          <p className="text-sm font-medium text-stone-600">DG Gross Commission</p>
+          <p className="text-2xl font-bold text-green-600 mt-1">{formatRand(totalDgGrossComm)}</p>
+          <p className="text-xs text-stone-500 mt-1">After auction chain</p>
         </div>
-        <div className="bg-purple-50 rounded-lg border border-purple-200 p-4">
-          <p className="text-sm font-medium text-stone-600">Deal Count</p>
-          <p className="text-2xl font-bold text-purple-600 mt-1">{filteredDeals.length}</p>
+        <div className="bg-sky-50 rounded-lg border border-sky-200 p-4">
+          <p className="text-sm font-medium text-stone-600">Company (55%)</p>
+          <p className="text-2xl font-bold text-sky-700 mt-1">{formatRand(totalCompanyComm)}</p>
+        </div>
+        <div className="bg-emerald-50 rounded-lg border border-emerald-200 p-4">
+          <p className="text-sm font-medium text-stone-600">Broker (45%)</p>
+          <p className="text-2xl font-bold text-emerald-700 mt-1">{formatRand(totalBrokerComm)}</p>
         </div>
       </div>
 
@@ -147,9 +173,14 @@ export default function ForecastAuctionDeals() {
                 <th className="text-left text-xs font-semibold text-stone-700 px-4 py-3">Broker</th>
                 <th className="text-left text-xs font-semibold text-stone-700 px-4 py-3">Property</th>
                 <th className="text-left text-xs font-semibold text-stone-700 px-4 py-3">Quarter</th>
-                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Expected Value</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Asset Value</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Auction Comm %</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Auction Comm (R)</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">DG Referral %</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">DG Gross Comm</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Company (55%)</th>
+                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Broker (45%)</th>
                 <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Probability</th>
-                <th className="text-right text-xs font-semibold text-stone-700 px-4 py-3">Weighted Value</th>
                 <th className="text-left text-xs font-semibold text-stone-700 px-4 py-3">Status</th>
                 <th className="text-left text-xs font-semibold text-stone-700 px-4 py-3">Forecast Date</th>
               </tr>
@@ -162,13 +193,28 @@ export default function ForecastAuctionDeals() {
                   <td className="px-4 py-3 text-sm text-stone-600">{deal.propertyName}</td>
                   <td className="px-4 py-3 text-sm text-stone-700 font-medium">{deal.quarter}</td>
                   <td className="px-4 py-3 text-sm text-stone-900 font-medium text-right">
-                    {formatRand(deal.expectedValue)}
+                    {formatRand(deal.assetValue)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-stone-900 text-right font-semibold">
+                    {deal.auctionCommPercent}%
+                  </td>
+                  <td className="px-4 py-3 text-sm text-stone-900 text-right">
+                    {formatRand(deal.auctionHouseComm)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-stone-900 text-right font-semibold">
+                    {deal.referralPercent}%
+                  </td>
+                  <td className="px-4 py-3 text-sm text-stone-900 font-bold text-right">
+                    {formatRand(deal.dgGrossComm)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-sky-700 font-medium text-right">
+                    {formatRand(deal.companyComm)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-emerald-700 font-medium text-right">
+                    {formatRand(deal.brokerComm)}
                   </td>
                   <td className="px-4 py-3 text-sm text-stone-900 text-right font-semibold">
                     {deal.probability}%
-                  </td>
-                  <td className="px-4 py-3 text-sm text-stone-900 text-right font-medium">
-                    {formatRand(deal.weightedValue)}
                   </td>
                   <td className="px-4 py-3 text-sm text-stone-700">{deal.status}</td>
                   <td className="px-4 py-3 text-sm text-stone-600">

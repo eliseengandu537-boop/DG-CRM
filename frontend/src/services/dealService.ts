@@ -13,6 +13,15 @@ export interface Deal {
   status: string;
   type: 'sale' | 'lease' | 'auction';
   value: number;
+  assetValue?: number;
+  commissionPercent?: number;
+  grossCommission?: number;
+  companyCommission?: number;
+  brokerCommission?: number;
+  brokerSplitPercent?: number;
+  auctionReferralPercent?: number;
+  auctionCommissionPercent?: number;
+  coBrokerSplits?: Array<{ brokerId: string; splitPercent: number; brokerShare?: number }>;
   targetClosureDate?: string;
   closedDate?: string;
   leadId: string;

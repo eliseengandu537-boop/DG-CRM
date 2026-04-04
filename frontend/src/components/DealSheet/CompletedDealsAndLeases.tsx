@@ -9,6 +9,7 @@ import { legalDocService } from '@/services/legalDocService';
 import {
   estimateDealGrossCommission,
   estimateForecastGrossCommission,
+  getDealGrossCommission,
   getIsoDate,
   isAwaitingPaymentStatus,
   isClosedDeal,
@@ -98,7 +99,8 @@ export default function CompletedDealsAndLeases() {
 
     const dealRows: CompletedDealRow[] = closedDeals.map(deal => {
       const dealType = normalizeDealType(deal.type);
-      const commissionAmount = estimateDealGrossCommission(deal.value);
+      const commissionAmount = getDealGrossCommission(deal);
+      const commissionPercent = Number(deal.commissionPercent || 0);
       return {
         id: deal.id,
         dealRefId: deal.id,
@@ -109,7 +111,7 @@ export default function CompletedDealsAndLeases() {
         category: categoryMap[dealType],
         counterparty: '-',
         propertyName: '-',
-        commissionRate: 5,
+        commissionRate: commissionPercent > 0 ? commissionPercent : 5,
         commissionAmount,
         status: String(deal.status || 'Closed'),
       };
