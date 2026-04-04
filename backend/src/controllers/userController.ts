@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '@/lib/prisma';
-import { generatePin, hashPassword } from '@/helpers';
+import { generatePin, generateRandomString, hashPassword } from '@/helpers';
 import { emailService } from '@/services/emailService';
 import { getAuthenticatableRoles } from '@/lib/authRoles';
 
@@ -19,7 +19,7 @@ class UserController {
         return res.status(400).json({ success: false, message: 'Password must be at least 6 characters', timestamp: new Date() });
       }
 
-      const managerPassword = rawPassword || generatePin();
+      const managerPassword = rawPassword || generateRandomString(10);
 
       const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
       if (existing) {
@@ -62,7 +62,8 @@ class UserController {
         meta: {
           passwordSent,
           passwordError,
-          temporaryPassword: process.env.NODE_ENV === 'production' ? undefined : managerPassword,
+          // Always return the password when email failed so admin can share it manually
+          temporaryPassword: passwordSent ? undefined : managerPassword,
         },
         timestamp: new Date(),
       });
