@@ -373,30 +373,25 @@ export class BrokerService {
     } catch (error: any) {
       const errorMessage = String(error?.message || 'unknown error');
       console.warn(
-        `Password email failed for ${brokerResult.broker.email}. Reverting broker creation: ${errorMessage}`
+        `Password email failed for ${brokerResult.broker.email}. Broker will still be created: ${errorMessage}`
       );
 
-      try {
-        await prisma.$transaction(async tx => {
-          if (!brokerResult.brokerExisted) {
-            await tx.broker.deleteMany({
-              where: { id: brokerResult.broker.id },
-            });
-          }
+      const metricsByBrokerId = await this.getBillingMetricsByBrokerIds([
+        {
+          id: brokerResult.broker.id,
+          billingTarget: brokerResult.broker.billingTarget,
+        },
+      ]).catch(() => new Map());
 
-          if (!brokerResult.userExisted) {
-            await tx.user.deleteMany({
-              where: { id: brokerResult.userId },
-            });
-          }
-        });
-      } catch (rollbackError) {
-        console.warn('Failed to rollback broker create after email failure:', rollbackError);
-      }
-
-      throw new Error(
-        `Failed to send broker password email: ${errorMessage}. Broker was not created.`
-      );
+      return {
+        broker: mapBroker(
+          brokerResult.broker,
+          metricsByBrokerId.get(brokerResult.broker.id)
+        ),
+        passwordSent: false,
+        passwordError: errorMessage,
+        temporaryPassword,
+      };
     }
   }
 

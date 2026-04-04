@@ -24,11 +24,16 @@ export class EmailService {
       throw new Error('SMTP is not configured. Check SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.');
     }
 
+    // Port 465 always requires implicit TLS (secure: true).
+    // Honour the env var when explicitly set to true; otherwise auto-detect from port.
+    const useSecure = config.SMTP_SECURE || config.SMTP_PORT === 465;
+
     this.transporter = nodemailer.createTransport({
       host: config.SMTP_HOST,
       port: config.SMTP_PORT,
-      secure: config.SMTP_SECURE,
-      requireTLS: config.SMTP_REQUIRE_TLS,
+      secure: useSecure,
+      // requireTLS only applies to STARTTLS (port 587); skip it when using implicit TLS.
+      requireTLS: useSecure ? false : config.SMTP_REQUIRE_TLS,
       connectionTimeout: this.connectionTimeoutMs,
       greetingTimeout: this.greetingTimeoutMs,
       socketTimeout: this.socketTimeoutMs,
@@ -190,6 +195,16 @@ export class EmailService {
 
     if (lower.includes('authentication unsuccessful') || lower.includes('invalid login')) {
       return new Error('SMTP authentication failed. Verify SMTP_USER, SMTP_PASS, and mailbox SMTP AUTH settings.');
+    }
+
+    if (lower.includes('unexpected socket close') || lower.includes('connection refused') || lower.includes('econnrefused')) {
+      return new Error(
+        `SMTP connection failed (${message}). Check: (1) SMTP_HOST and SMTP_PORT are correct on the server, (2) SMTP_SECURE=true when using port 465, (3) firewall allows outbound port ${config.SMTP_PORT}, (4) Gmail requires an App Password if 2FA is enabled.`
+      );
+    }
+
+    if (lower.includes('self signed certificate') || lower.includes('certificate has expired')) {
+      return new Error('SMTP TLS certificate error. Set SMTP_SECURE=false and SMTP_REQUIRE_TLS=false, or contact your email provider.');
     }
 
     return new Error(message);
