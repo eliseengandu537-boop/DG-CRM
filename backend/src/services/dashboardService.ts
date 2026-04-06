@@ -270,6 +270,21 @@ export class DashboardService {
       recentActivitiesRaw,
     ] = await Promise.all([
       prisma.deal.findMany({
+        where: {
+          OR: [
+            // Always include open/active deals regardless of age
+            {
+              NOT: [
+                { status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed', 'awaiting_payment', 'invoice'] } },
+              ],
+            },
+            // Closed/won/lost deals only within rolling 120-day window
+            {
+              status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed', 'awaiting_payment', 'invoice'] },
+              updatedAt: { gte: rollingWindowStart },
+            },
+          ],
+        },
         select: {
           id: true,
           brokerId: true,
@@ -293,6 +308,19 @@ export class DashboardService {
         },
       }),
       prisma.forecastDeal.findMany({
+        where: {
+          OR: [
+            {
+              NOT: [
+                { status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed'] } },
+              ],
+            },
+            {
+              status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed'] },
+              updatedAt: { gte: rollingWindowStart },
+            },
+          ],
+        },
         select: {
           id: true,
           dealId: true,

@@ -108,6 +108,7 @@ export const Grid = () => {
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<any | null>(null);
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showAllActivities, setShowAllActivities] = useState(false);
   const [userInput, setUserInput] = useState('');
   const [isExpandedChat, setIsExpandedChat] = useState(false);
   const [chatMessages, setChatMessages] = useState([
@@ -195,7 +196,7 @@ export const Grid = () => {
     };
   }, [metrics?.topPerformer]);
 
-  const aiResponses: { [key: string]: string } = {
+  const aiResponses = useMemo<{ [key: string]: string }>(() => ({
     'deal': isBroker
       ? `System Status: You have ${metrics?.dealCount || 0} total deals in the system. Open: ${metrics?.statistics.openDeals || 0}, Closed: ${metrics?.statistics.closedDeals || 0}.`
       : `System Status: You have ${metrics?.dealCount || 0} total deals in the system. Breakdown - Won: ${metrics?.dealsWon || 0}, Lost: ${metrics?.dealsLost || 0}, Open: ${metrics?.statistics.openDeals || 0}, Closed: ${metrics?.statistics.closedDeals || 0}. Total revenue from deals: ${formatCurrency(metrics?.totalRevenue || 0)}.`,
@@ -227,7 +228,7 @@ export const Grid = () => {
     'help': isBroker
       ? `Available Commands: Ask me about 'deals', 'performance', 'brokers', 'leads', 'contacts', 'sales', 'leasing', 'auctions', 'metrics', 'charts', or 'system status'.`
       : `Available Commands: Ask me about 'deals', 'revenue', 'performance', 'brokers', 'leads', 'contacts', 'sales', 'leasing', 'auctions', 'metrics', 'charts', or 'system status'. I have access to all CRM data and can provide detailed insights about any aspect of your business.`,
-  };
+  }), [isBroker, metrics, topBroker]);
 
   // Enhanced AI response generator with context awareness
   const generateAIResponse = (userInput: string): string => {
@@ -389,6 +390,14 @@ export const Grid = () => {
   const leasingDash = (leasingPercent / 100) * 280;
   const auctionDash = (auctionPercent / 100) * 280;
 
+  // Relative bar heights for Statistics chart
+  const dealBarMax = Math.max(
+    metrics?.statistics.openDeals || 0,
+    metrics?.statistics.closedDeals || 0,
+    metrics?.statistics.lostDeals || 0,
+    1
+  );
+
   return (
     <>
       <style>{chartAnimationStyles}</style>
@@ -512,22 +521,22 @@ export const Grid = () => {
             <>
               <div className="flex items-end justify-around flex-1 min-h-64 mb-4 px-4 bg-gradient-to-br from-stone-50 to-stone-100 rounded-xl py-6">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.min((metrics?.statistics.openDeals || 0) * 15, 200)}px` }}></div>
+                  <div className="chart-bar w-6 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.openDeals || 0) / dealBarMax) * 160)}px` }}></div>
                   <span className="text-xs font-semibold text-stone-600 mt-2">Open</span>
                   <span className="stat-value text-lg font-bold text-blue-600">{metrics?.statistics.openDeals || 0}</span>
                 </div>
                 <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.min((metrics?.statistics.closedDeals || 0) * 15, 200)}px` }}></div>
+                  <div className="chart-bar w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.closedDeals || 0) / dealBarMax) * 160)}px` }}></div>
                   <span className="text-xs font-semibold text-stone-600 mt-2">Closed</span>
                   <span className="stat-value text-lg font-bold text-emerald-600">{metrics?.statistics.closedDeals || 0}</span>
                 </div>
                 <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-red-600 to-red-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.min((metrics?.statistics.lostDeals || 0) * 15, 200)}px` }}></div>
+                  <div className="chart-bar w-6 bg-gradient-to-t from-red-600 to-red-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.lostDeals || 0) / dealBarMax) * 160)}px` }}></div>
                   <span className="text-xs font-semibold text-stone-600 mt-2">Lost</span>
                   <span className="stat-value text-lg font-bold text-red-600">{metrics?.statistics.lostDeals || 0}</span>
                 </div>
                 <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-yellow-500 to-yellow-300 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.min((metrics?.statistics.conversionRate || 0) * 2, 200)}px` }}></div>
+                  <div className="chart-bar w-6 bg-gradient-to-t from-yellow-500 to-yellow-300 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.conversionRate || 0) / 100) * 160)}px` }}></div>
                   <span className="text-xs font-semibold text-stone-600 mt-2">Conv%</span>
                   <span className="stat-value text-lg font-bold text-yellow-600">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</span>
                 </div>
@@ -721,7 +730,11 @@ export const Grid = () => {
             )}
 
             {/* Top Broker Card */}
-            <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg p-4 shadow-md cursor-pointer hover:shadow-lg transition-all">
+            <div
+              className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg p-4 shadow-md cursor-pointer hover:shadow-lg transition-all"
+              onClick={() => window.dispatchEvent(new CustomEvent('navigation:page-change', { detail: { page: 'Broker Profiles' } }))}
+              title="View Broker Profiles"
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 flex-1">
                   {topBroker && (
@@ -770,7 +783,8 @@ export const Grid = () => {
               ))}
             </div>
           ) : visibleActivities.length > 0 ? (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
+            <>
+            <div className={`space-y-2 overflow-y-auto ${showAllActivities ? '' : 'max-h-96'}`}>
               {visibleActivities.map((activity) => (
                 <div
                   key={activity.id}
@@ -809,6 +823,18 @@ export const Grid = () => {
                 </div>
               ))}
             </div>
+            {visibleActivities.length > 4 && (
+              <div className="mt-2 border-t border-stone-100 pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAllActivities(prev => !prev)}
+                  className="text-xs font-semibold text-blue-600 hover:underline"
+                >
+                  {showAllActivities ? '▲ Collapse' : `▼ Show all ${visibleActivities.length} activities`}
+                </button>
+              </div>
+            )}
+            </>
           ) : (
             <div className="text-center py-12 text-stone-400">
               <p className="text-sm">No activities yet</p>

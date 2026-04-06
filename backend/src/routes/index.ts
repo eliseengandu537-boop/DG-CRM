@@ -20,8 +20,19 @@ import customRecordRoutes from './customRecordRoutes';
 import activityRoutes from './activityRoutes';
 import notificationRoutes from './notificationRoutes';
 import brochureRoutes from './brochureRoutes';
+import { createRateLimiter } from '@/middlewares/rateLimit';
 
 const router = Router();
+
+// Global rate limiter: 150 requests per minute per IP across all API routes
+const globalRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 150,
+  keyPrefix: 'api:global',
+  message: 'Too many requests. Please slow down.',
+});
+
+router.use(globalRateLimiter);
 
 // Health check
 router.get('/health', (req: Request, res: Response) => {

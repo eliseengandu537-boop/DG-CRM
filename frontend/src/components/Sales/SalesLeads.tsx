@@ -124,6 +124,7 @@ export const SalesLeads: React.FC = () => {
   const [leads, setLeads] = useState<SalesLead[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [stocks, setStocks] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSyncingDeal, setIsSyncingDeal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
@@ -158,6 +159,7 @@ export const SalesLeads: React.FC = () => {
     let mounted = true;
 
     const loadData = async () => {
+      setIsLoading(true);
       const [leadResult, contactResult, stockResult] = await Promise.allSettled([
         leadService.getAllLeads({ limit: 1000 }),
         contactService.getAllContacts({ limit: 1000 }),
@@ -186,6 +188,7 @@ export const SalesLeads: React.FC = () => {
         console.warn("Failed to load sales stock", stockResult.reason);
         setStocks([]);
       }
+      setIsLoading(false);
     };
 
     void loadData();
@@ -1221,7 +1224,13 @@ export const SalesLeads: React.FC = () => {
 
       {/* Leads Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        {filteredLeads.length > 0 ? (
+        {isLoading ? (
+          <div className="space-y-3 p-6">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-10 rounded-lg bg-stone-100 animate-pulse" />
+            ))}
+          </div>
+        ) : filteredLeads.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-stone-50 border-b border-stone-200">

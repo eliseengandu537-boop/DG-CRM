@@ -147,7 +147,7 @@ export const BrokerProfiles: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       void loadBrokers(false);
-    }, 10000);
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [loadBrokers]);

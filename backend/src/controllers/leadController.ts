@@ -20,12 +20,13 @@ export class LeadController {
 
   async getAll(req: AuthRequest, res: Response) {
     try {
+      const rawSearch = String(req.query.search || '').trim().slice(0, 150);
       const filters = {
         status: req.query.status as string,
         brokerId: (req.query.brokerId as string) || (req.query.broker as string),
-        search: req.query.search as string,
-        page: parseInt(req.query.page as string) || 1,
-        limit: parseInt(req.query.limit as string) || 10,
+        search: rawSearch || undefined,
+        page: Math.max(1, parseInt(req.query.page as string) || 1),
+        limit: Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10)),
       };
 
       const result = await leadService.getAllLeads(filters, { user: req.user });

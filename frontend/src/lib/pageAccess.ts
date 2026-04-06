@@ -39,6 +39,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Sales',
     'Auction',
     'Deal Sheet',
+    'Property Funds',
     'Legal Docs',
     'Reminders',
     'Brochures',

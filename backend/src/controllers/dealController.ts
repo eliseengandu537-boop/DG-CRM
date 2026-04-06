@@ -35,8 +35,8 @@ export class DealController {
         type: req.query.type as string,
         brokerId: req.query.brokerId as string,
         wip: isWipFilter,
-        page: parseInt(req.query.page as string) || 1,
-        limit: parseInt(req.query.limit as string) || 10,
+        page: Math.max(1, parseInt(req.query.page as string) || 1),
+        limit: Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10)),
       };
       if (req.user?.role === 'broker') {
         filters.brokerId = req.user.brokerId || req.user.id;

@@ -410,7 +410,13 @@ export async function fetchBrokerPerformanceMap(): Promise<
       statusHistory: deal.statusHistory || [],
       workflowProgress: deal.workflowProgress,
       expectedValue: Number(linkedForecast?.expectedValue || deal.value || 0),
-      brokerCommission: Number(linkedForecast?.brokerCommission || 0),
+      brokerCommission: (() => {
+        const stored = Number(linkedForecast?.brokerCommission || 0);
+        if (stored > 0) return stored;
+        const rate = deriveCommissionRate({ deal, linkedForecast });
+        const value = Number(linkedForecast?.expectedValue || deal.value || 0);
+        return roundMoney(value * rate * 0.45, 2);
+      })(),
       forecastedClosureDate:
         linkedForecast?.forecastedClosureDate || deal.targetClosureDate || undefined,
       actionRequired: deriveActionRequired(status),

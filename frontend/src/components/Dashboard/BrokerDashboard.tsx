@@ -419,7 +419,7 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
 
   useEffect(() => {
     void loadBoardData();
-    const timer = setInterval(() => void loadBoardData(), 15000);
+    const timer = setInterval(() => void loadBoardData(), 60000);
     return () => clearInterval(timer);
   }, [loadBoardData]);
 
@@ -884,7 +884,27 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
             <div className="h-48 animate-pulse rounded-xl bg-stone-100" />
           ) : (
             <div className="space-y-3">
-              <div className="h-36 rounded-xl bg-stone-50" />
+              <div className="h-36 rounded-xl bg-stone-50 flex items-end justify-around px-4 py-3 gap-2">
+                {(() => {
+                  const bars = [
+                    { label: 'Open', value: metrics?.statistics.openDeals || 0, color: 'bg-blue-500' },
+                    { label: 'Closed', value: metrics?.statistics.closedDeals || 0, color: 'bg-emerald-500' },
+                    { label: 'Lost', value: metrics?.statistics.lostDeals || 0, color: 'bg-red-400' },
+                    { label: 'Conv%', value: Math.round(metrics?.statistics.conversionRate || 0), color: 'bg-amber-400' },
+                  ];
+                  const maxVal = Math.max(...bars.map(b => b.value), 1);
+                  return bars.map(bar => (
+                    <div key={bar.label} className="flex flex-col items-center gap-1 flex-1">
+                      <p className="text-[10px] font-semibold text-stone-600">{bar.value}{bar.label === 'Conv%' ? '%' : ''}</p>
+                      <div
+                        className={`w-full ${bar.color} rounded-t-sm transition-all duration-500`}
+                        style={{ height: `${Math.max(Math.round((bar.value / maxVal) * 72), bar.value > 0 ? 4 : 0)}px` }}
+                      />
+                      <p className="text-[10px] text-stone-400">{bar.label}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
               <div className="grid grid-cols-4 gap-2 text-[11px]">
                 <div className="rounded-lg bg-stone-50 px-2 py-2 text-center">
                   <p className="text-stone-500">Open</p>

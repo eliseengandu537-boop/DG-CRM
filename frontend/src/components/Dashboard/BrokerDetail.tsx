@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FiArrowLeft, FiFilter } from 'react-icons/fi';
+import { FiArrowLeft, FiFilter, FiSearch } from 'react-icons/fi';
 import { Broker } from './BrokerCard';
 import { BrokerWipItem } from '@/services/brokerPerformanceService';
 import { forecastDealApiService } from '@/services/forecastDealService';
@@ -272,6 +272,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const router = useRouter();
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedDealType, setSelectedDealType] = useState<string>('all');
+  const [wipSearchQuery, setWipSearchQuery] = useState<string>('');
   const [rows, setRows] = useState<BrokerWipItem[]>(wipSheets);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
@@ -335,7 +336,15 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
 
   const filteredProperties = properties
     .filter(item => selectedStatus === 'all' || canonicalStatus(item.status) === selectedStatus)
-    .filter(item => selectedDealType === 'all' || canonicalDealType(item.dealType) === selectedDealType);
+    .filter(item => selectedDealType === 'all' || canonicalDealType(item.dealType) === selectedDealType)
+    .filter(item => {
+      if (!wipSearchQuery.trim()) return true;
+      const q = wipSearchQuery.toLowerCase();
+      return (
+        item.dealName.toLowerCase().includes(q) ||
+        (item.address || '').toLowerCase().includes(q)
+      );
+    });
 
   const fromDataDealTypes = Array.from(
     new Set(properties.map(p => canonicalDealType(p.dealType)).filter(Boolean))
@@ -835,6 +844,14 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
             </p>
             {percentageAchieved >= 100 && <span className="text-lg">✓</span>}
           </div>
+          <div className="mt-3 h-2 w-full rounded-full bg-stone-200 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                percentageAchieved >= 100 ? 'bg-green-500' : 'bg-violet-500'
+              }`}
+              style={{ width: `${Math.min(percentageAchieved, 100)}%` }}
+            />
+          </div>
         </div>
         <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
           <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Won Deals</p>
@@ -854,7 +871,20 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           <h3 className="font-semibold text-stone-950">Filter Deals</h3>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs text-stone-600 mb-2 block font-semibold uppercase tracking-wide">Search</label>
+            <div className="relative">
+              <FiSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                type="text"
+                value={wipSearchQuery}
+                onChange={e => setWipSearchQuery(e.target.value)}
+                placeholder="Search deals or address..."
+                className="w-full pl-8 pr-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 hover:border-stone-400 transition-colors bg-white"
+              />
+            </div>
+          </div>
           <div>
             <label className="text-xs text-stone-600 mb-2 block font-semibold uppercase tracking-wide">Status</label>
             <select
@@ -909,9 +939,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Address</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Deal Type</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Action Required</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Expected Value</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Broker Comm</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Closure Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Document</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Comment</th>
                 </tr>
@@ -981,6 +1012,15 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           ))}
                         </select>
                       </td>
+                      <td className="px-6 py-4 text-sm">
+                        {item.actionRequired && item.actionRequired !== '-' ? (
+                          <span className="inline-flex px-2 py-1 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            {item.actionRequired}
+                          </span>
+                        ) : (
+                          <span className="text-stone-400 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right">
                         {formatRand(item.expectedValue)}
                       </td>
@@ -992,14 +1032,17 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           onClick={() => setSelectedDealForDateModal(item)}
                           className="text-blue-600 hover:text-blue-700 font-medium hover:underline transition-colors cursor-pointer"
                         >
-                          {item.updatedAt
-                            ? new Date(item.updatedAt).toLocaleDateString('en-US', {
+                          {item.forecastedClosureDate || item.updatedAt
+                            ? new Date(item.forecastedClosureDate || item.updatedAt).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: 'short',
                                 day: 'numeric',
                               })
                             : "-"}
                         </button>
+                        {item.forecastedClosureDate && (
+                          <p className="text-xs text-stone-400 mt-0.5">Target</p>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-stone-600">
                         <div className="min-w-[180px] space-y-2">
@@ -1067,7 +1110,20 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                               )}
                             </>
                           ) : (
-                            <p className="text-xs text-stone-400 italic">No comment</p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedDealForCommentModal({
+                                  dealName: item.dealName,
+                                  comment: '',
+                                  id: item.id,
+                                  updatedAt: item.updatedAt,
+                                })
+                              }
+                              className="text-xs text-violet-600 hover:text-violet-700 font-semibold hover:underline transition-colors"
+                            >
+                              + Add Comment
+                            </button>
                           )}
                           {isMissingComment && (
                             <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded font-medium mt-1">
