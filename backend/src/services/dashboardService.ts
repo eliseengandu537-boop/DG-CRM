@@ -275,12 +275,12 @@ export class DashboardService {
             // Always include open/active deals regardless of age
             {
               NOT: [
-                { status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed', 'awaiting_payment', 'invoice'] } },
+                { status: { in: ['CLOSED', 'WON', 'AWAITING_PAYMENT'] } },
               ],
             },
-            // Closed/won/lost deals only within rolling 120-day window
+            // Closed/won deals only within rolling 120-day window
             {
-              status: { in: ['closed', 'won', 'lost', 'cancelled', 'canceled', 'rejected', 'completed', 'awaiting_payment', 'invoice'] },
+              status: { in: ['CLOSED', 'WON', 'AWAITING_PAYMENT'] },
               updatedAt: { gte: rollingWindowStart },
             },
           ],
