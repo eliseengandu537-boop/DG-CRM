@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
-  FiArrowRight,
   FiLock,
   FiMail,
   FiMonitor,
@@ -127,11 +126,7 @@ export default function LoginPage() {
 
               <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
                 <a
-                  href="#"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    revealLoginCard();
-                  }}
+                  href="mailto:info@dg-property.co.za"
                   className="inline-flex min-w-48 items-center justify-center rounded-md border border-white/55 px-8 py-3 text-xl font-semibold text-white transition hover:bg-white/10"
                 >
                   Contact Us
@@ -145,13 +140,7 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <a
-                href="#"
-                className="mt-6 inline-flex items-center gap-2 text-lg font-semibold text-white/95 transition hover:text-white"
-              >
-                Release Notes
-                <FiArrowRight className="h-5 w-5" />
-              </a>
+
 
               <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
                 <span className="rounded-full border border-white/40 bg-white/12 px-5 py-2 text-sm font-semibold backdrop-blur">
@@ -180,8 +169,8 @@ export default function LoginPage() {
                 Work from desktop, tablet, or wherever the day starts.
               </h2>
               <p className="mt-5 text-lg leading-8 text-slate-600">
-                The new layout keeps the open, welcoming feel from your reference image while still
-                giving users a direct path into the login form.
+                Whether you're in the office or on the go, your deals, contacts, and properties
+                are always within reach — seamlessly optimised for any screen size.
               </p>
 
               <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -210,10 +199,10 @@ export default function LoginPage() {
                 <span className="inline-flex rounded-full bg-[#888e7d]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-[#888e7d]">
                   Secure Login
                 </span>
-                <h2 className="mt-5 text-[clamp(1.8rem,2.8vw,2.55rem)] font-semibold leading-[1.1] tracking-tight text-slate-900 md:whitespace-nowrap">
+                <h2 className="mt-5 text-[clamp(1.8rem,2.8vw,2.55rem)] font-semibold leading-[1.1] tracking-tight text-slate-900">
                   Sign in to continue
                 </h2>
-                <p className="mt-3 max-w-[36ch] text-lg leading-8 text-slate-600">
+                <p className="mt-3 text-lg leading-8 text-slate-600">
                   Use your work email and password to access your property dashboard.
                 </p>
 
