@@ -671,9 +671,9 @@ const GoogleMapWrapper: React.FC<Props> = ({
 
         {streetViewState && (
           <StreetViewPanorama
-            position={{ lat: streetViewState.lat, lng: streetViewState.lng }}
-            visible={true}
             options={{
+              position: { lat: streetViewState.lat, lng: streetViewState.lng },
+              visible: true,
               pov: { heading: streetViewState.heading ?? 0, pitch: 0 },
               zoom: 1,
               addressControl: true,
