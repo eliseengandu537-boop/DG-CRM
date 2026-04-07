@@ -356,7 +356,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       const dealId = String(reminder.dealId || '').trim();
       if (!dealId) return;
 
-      setActioningReminderIds(prev => new Set([...prev, reminder.id]));
+      setActioningReminderIds(prev => new Set(Array.from(prev).concat(reminder.id)));
       try {
         await forecastDealApiService.updateWipStatus({
           dealId,
@@ -1108,7 +1108,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                 </button>
                 <button
                   onClick={() =>
-                    setDismissedReminderIds(prev => new Set([...prev, reminder.id]))
+                    setDismissedReminderIds(prev => new Set(Array.from(prev).concat(reminder.id)))
                   }
                   disabled={isActioning}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-200 text-stone-700 hover:bg-stone-300 disabled:opacity-60 transition-colors"
