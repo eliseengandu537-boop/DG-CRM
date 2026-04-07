@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FiUpload } from 'react-icons/fi';
 import DocumentList from './DocumentList';
 import DocumentDetail from './DocumentDetail';
@@ -15,11 +15,23 @@ export type LegalDocsRedirectFlow = {
   status: string;
   brokerId?: string;
   forecastDealId?: string;
+  wipId?: string;
   legalDocumentId?: string;
   initialComment?: string;
+  source?: string;
 };
 
 const MAX_DOCUMENT_SIZE_MB = 10;
+
+function prettyFlowStatus(status: string): string {
+  const s = normalizeStatus(status);
+  if (s === 'loi') return 'LOI';
+  if (s === 'otp') return 'OTP';
+  if (s === 'otl') return 'OTL';
+  if (s === 'lease_agreement') return 'Lease Agreement';
+  if (s === 'sale_agreement') return 'Sale Agreement';
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -44,6 +56,7 @@ const LEGAL_DOC_REFRESH_EVENTS = [
 
 export default function LegalDocs() {
   const { user } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const canManageDocuments = user?.role === 'admin' || user?.role === 'manager';
   const canPersistDocumentChanges = canManageDocuments || user?.role === 'broker';
@@ -68,8 +81,10 @@ export default function LegalDocs() {
       status,
       brokerId: String(searchParams?.get('brokerId') || '').trim() || undefined,
       forecastDealId: String(searchParams?.get('forecastDealId') || '').trim() || undefined,
+      wipId: String(searchParams?.get('wipId') || '').trim() || undefined,
       legalDocumentId: String(searchParams?.get('legalDocumentId') || '').trim() || undefined,
       initialComment: String(searchParams?.get('comment') || '').trim() || undefined,
+      source: String(searchParams?.get('source') || '').trim() || undefined,
     };
   })();
 
@@ -113,33 +128,25 @@ export default function LegalDocs() {
     const applyFlow = async () => {
       try {
         setError(null);
+        // Mark flow as applied immediately to prevent re-runs
+        setAppliedFlowKey(flowKey);
 
+        // Only auto-open a specific document when an explicit legalDocumentId is provided
+        // (i.e. re-opening a previously used document). Otherwise show the list so the
+        // broker can choose which template to fill.
         const preferredLegalDocumentId = String(redirectFlow.legalDocumentId || '').trim();
-        const preferredDocument = preferredLegalDocumentId
-          ? documents.find(doc => String(doc.id || '').trim() === preferredLegalDocumentId)
-          : undefined;
-        const linkedDealDocument = documents.find(doc =>
-          (doc.linkedDeals || []).some(
-            dealLink =>
-              String(dealLink.dealId || '').trim() === String(redirectFlow.dealId || '').trim()
-          )
-        );
-        const target =
-          preferredDocument ||
-          linkedDealDocument ||
-          documents[0];
+        if (!preferredLegalDocumentId) return;
 
-        if (!target) {
-          setError('No legal-document templates found. Import or create a document first.');
-          return;
-        }
+        const preferredDocument = documents.find(
+          doc => String(doc.id || '').trim() === preferredLegalDocumentId
+        );
+        if (!preferredDocument) return;
 
         setIsOpeningDocument(true);
-        const fullDocument = await legalDocService.getDocumentById(target.id);
+        const fullDocument = await legalDocService.getDocumentById(preferredDocument.id);
         if (cancelled) return;
         setSelectedDocument(fullDocument);
         setCurrentView('detail');
-        setAppliedFlowKey(flowKey);
       } catch (flowError) {
         if (cancelled) return;
         setError(
@@ -330,6 +337,19 @@ export default function LegalDocs() {
               Opening document...
             </div>
           )}
+          {redirectFlow && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">
+                📋 Select a document template for{' '}
+                <strong>{prettyFlowStatus(redirectFlow.status)}</strong>
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Click any document below to open and fill it. Once you fill in all required fields
+                and click <strong>Save + Finalize</strong>, the document will be linked to this
+                deal and you will be taken back to the WIP sheet.
+              </p>
+            </div>
+          )}
           <DocumentList
             documents={documents}
             searchTerm={searchTerm}
@@ -347,6 +367,7 @@ export default function LegalDocs() {
           onDelete={handleDeleteDocument}
           canManageDocuments={canManageDocuments}
           redirectFlow={redirectFlow}
+          onFlowComplete={redirectFlow ? () => router.back() : undefined}
         />
       )}
     </div>

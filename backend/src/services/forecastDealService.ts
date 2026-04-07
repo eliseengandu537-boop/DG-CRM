@@ -10,6 +10,7 @@ import {
   resolveDealStatus,
   resolveDealStatusOrNull,
   statusRequiresWorkflowDocument,
+  summarizeWorkflowCompletion,
 } from '@/lib/dealWorkflow';
 import {
   assertDealTransitionWithClient,
@@ -29,6 +30,43 @@ type ForecastDealWithBroker = Awaited<
 
 const COMMENT_REQUIRED_STATUSES = new Set(['loi', 'otp']);
 const LOST_WIP_STATUSES = new Set(['lost', 'cancelled', 'canceled', 'rejected']);
+
+const OUTCOME_CHECK_TAG = 'deal_outcome_check_v1';
+const OUTCOME_REMINDER_DAYS = 3;
+
+/** Called after all 3 workflow steps are complete. Upserts a 3-day follow-up reminder. */
+async function scheduleOutcomeCheckReminder(dealId: string, brokerId: string, dealTitle: string): Promise<void> {
+  try {
+    // Remove any existing pending outcome reminder so we don't stack duplicates
+    await prisma.reminder.deleteMany({
+      where: {
+        dealId,
+        reminderType: 'deal_follow_up',
+        status: 'pending',
+        description: { contains: OUTCOME_CHECK_TAG },
+      },
+    });
+
+    const dueAt = new Date();
+    dueAt.setDate(dueAt.getDate() + OUTCOME_REMINDER_DAYS);
+
+    await prisma.reminder.create({
+      data: {
+        title: `Deal outcome check: ${dealTitle}`,
+        description: `${OUTCOME_CHECK_TAG}:${dealId}`,
+        reminderType: 'deal_follow_up',
+        dueAt,
+        status: 'pending',
+        priority: 'high',
+        dealId,
+        brokerId,
+        assignedToRole: 'broker',
+      },
+    });
+  } catch {
+    // Non-fatal — do not block the status change if reminder creation fails
+  }
+}
 
 const DEAL_SELECTION = {
   id: true,
@@ -1164,6 +1202,29 @@ export class ForecastDealService {
         } as any),
       };
     });
+
+    // After the transaction, check if all 3 workflow steps are now complete.
+    // If so, schedule a 3-day follow-up reminder asking the broker for the final outcome.
+    if (!lostStatusSelected) {
+      try {
+        const statusDocs = await prisma.dealStatusDocument.findMany({
+          where: { dealId },
+          select: { status: true },
+        });
+        const completion = summarizeWorkflowCompletion(statusDocs.map(d => d.status));
+        if (completion.hasLoiDocument && completion.hasStep2Document && completion.hasAgreementDocument) {
+          const dealForReminder = await prisma.deal.findUnique({
+            where: { id: dealId },
+            select: { title: true, brokerId: true },
+          });
+          if (dealForReminder) {
+            await scheduleOutcomeCheckReminder(dealId, dealForReminder.brokerId, dealForReminder.title);
+          }
+        }
+      } catch {
+        // Non-fatal — outcome reminder scheduling is best-effort
+      }
+    }
 
     return result;
   }

@@ -18,6 +18,7 @@ interface DocumentDetailProps {
   onDelete: (id: string) => void;
   canManageDocuments: boolean;
   redirectFlow?: LegalDocsRedirectFlow | null;
+  onFlowComplete?: () => void;
 }
 
 const toDate = () => new Date().toISOString().split('T')[0];
@@ -79,6 +80,7 @@ export default function DocumentDetail({
   onDelete,
   canManageDocuments,
   redirectFlow = null,
+  onFlowComplete,
 }: DocumentDetailProps) {
   const { user } = useAuth();
   const [document, setDocument] = useState<LegalDocument>(normalizeDocument(initialDocument));
@@ -371,10 +373,18 @@ export default function DocumentDetail({
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
+
+    // Navigate back to WIP sheet after the print dialog has been triggered
+    if (onFlowComplete) {
+      onFlowComplete();
+    }
   };
 
   const handleLinkRedirectedDeal = async () => {
-    await finalizeDocumentLink({ showSuccessMessage: true });
+    const result = await finalizeDocumentLink({ showSuccessMessage: true });
+    if (result && onFlowComplete) {
+      onFlowComplete();
+    }
   };
 
   return (

@@ -142,6 +142,30 @@ class ReminderService {
       throw new Error(axiosError.response?.data?.message || 'Failed to delete reminder');
     }
   }
+
+  /** Returns pending deal_follow_up reminders whose dueAt is now or past, for the current user. */
+  async getDueOutcomeReminders(brokerId?: string): Promise<ReminderRecord[]> {
+    try {
+      const params: Record<string, string> = {
+        reminderType: 'deal_follow_up',
+        status: 'pending',
+        limit: '50',
+        to: new Date().toISOString(),
+      };
+      if (brokerId) params['brokerId'] = brokerId;
+      const response = await apiClient.get<{ success: boolean; data: PaginatedReminders }>(
+        '/reminders',
+        { params }
+      );
+      const all = response.data.data?.data || [];
+      // Filter to only outcome-check reminders (identified by description tag)
+      return all.filter(r =>
+        String(r.description || '').includes('deal_outcome_check_v1')
+      );
+    } catch {
+      return [];
+    }
+  }
 }
 
 export const reminderService = new ReminderService();

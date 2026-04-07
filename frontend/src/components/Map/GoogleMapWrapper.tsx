@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, GoogleMap, InfoWindow, Marker } from '@react-google-maps/api';
+import { Autocomplete, GoogleMap, InfoWindow, Marker, StreetViewPanorama } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
 
 type AnyObj = Record<string, any>;
 type LatLngLiteral = google.maps.LatLngLiteral;
 type LayerId = 'traffic' | 'transit';
+type StreetViewState = { lat: number; lng: number; heading?: number } | null;
 type SupportedMapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
 
 interface Props {
@@ -35,6 +36,11 @@ const GoogleMapWrapper: React.FC<Props> = ({
   const transitLayerRef = useRef<google.maps.TransitLayer | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMarker, setSearchMarker] = useState<AnyObj | null>(null);
+  const [myLocationMarker, setMyLocationMarker] = useState<LatLngLiteral | null>(null);
+  const [myLocationAccuracy, setMyLocationAccuracy] = useState<number>(0);
+  const accuracyCircleRef = useRef<google.maps.Circle | null>(null);
+  const [streetViewState, setStreetViewState] = useState<StreetViewState>(null);
+  const [streetViewError, setStreetViewError] = useState(false);
   const [activeMapType, setActiveMapType] = useState<SupportedMapType>(mapTypeId);
   const [layerVisibility, setLayerVisibility] = useState<Record<LayerId, boolean>>({
     traffic: false,
@@ -120,18 +126,30 @@ const GoogleMapWrapper: React.FC<Props> = ({
         };
         mapRef.current?.panTo(currentPosition);
         mapRef.current?.setZoom(17);
-        setSearchMarker({
-          id: 'my-location',
-          name: 'My Location',
-          address: 'Current position',
-          lat: currentPosition.lat,
-          lng: currentPosition.lng,
-          markerColor: '#2563eb',
-        });
+        setMyLocationMarker(currentPosition);
+        setMyLocationAccuracy(coords.accuracy);
+
+        // Draw / update accuracy circle
+        if (accuracyCircleRef.current) {
+          accuracyCircleRef.current.setMap(null);
+        }
+        if (mapRef.current && coords.accuracy > 0) {
+          accuracyCircleRef.current = new google.maps.Circle({
+            strokeColor: '#1d6bd6',
+            strokeOpacity: 0.4,
+            strokeWeight: 1,
+            fillColor: '#1d6bd6',
+            fillOpacity: 0.08,
+            map: mapRef.current,
+            center: currentPosition,
+            radius: coords.accuracy,
+          });
+        }
       },
       () => {
-        alert('Unable to access your location. Please allow location permissions.');
-      }
+        alert('Unable to access your location. Please allow location permissions in your browser.');
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }
     );
   }, []);
 
@@ -251,6 +269,53 @@ const GoogleMapWrapper: React.FC<Props> = ({
     });
   }, [resolveFormattedAddress, searchQuery, setSelectedProperty]);
 
+  const openStreetViewAt = useCallback((lat: number, lng: number) => {
+    setStreetViewError(false);
+    if (!(window as any)?.google?.maps) return;
+
+    const sv = new google.maps.StreetViewService();
+    sv.getPanorama(
+      { location: { lat, lng }, radius: 100, source: google.maps.StreetViewSource.OUTDOOR },
+      (data, status) => {
+        if (status === google.maps.StreetViewStatus.OK && data?.location?.latLng) {
+          const panoLat = data.location.latLng.lat();
+          const panoLng = data.location.latLng.lng();
+          // Compute heading toward the requested point.
+          const heading = google.maps.geometry?.spherical
+            ? google.maps.geometry.spherical.computeHeading(
+                data.location.latLng,
+                new google.maps.LatLng(lat, lng)
+              )
+            : 0;
+          setStreetViewState({ lat: panoLat, lng: panoLng, heading: heading ?? 0 });
+        } else {
+          setStreetViewError(true);
+          setTimeout(() => setStreetViewError(false), 3000);
+        }
+      }
+    );
+  }, []);
+
+  const handleOpenStreetView = useCallback(() => {
+    if (selectedProperty && typeof selectedProperty.lat === 'number' && typeof selectedProperty.lng === 'number') {
+      openStreetViewAt(selectedProperty.lat, selectedProperty.lng);
+      return;
+    }
+    if (myLocationMarker) {
+      openStreetViewAt(myLocationMarker.lat, myLocationMarker.lng);
+      return;
+    }
+    if (searchMarker && typeof searchMarker.lat === 'number') {
+      openStreetViewAt(searchMarker.lat, searchMarker.lng);
+      return;
+    }
+    // Fall back: open Street View for map center
+    if (mapRef.current) {
+      const c = mapRef.current.getCenter();
+      if (c) openStreetViewAt(c.lat(), c.lng());
+    }
+  }, [openStreetViewAt, selectedProperty, myLocationMarker, searchMarker]);
+
   const handleLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
 
@@ -269,6 +334,7 @@ const GoogleMapWrapper: React.FC<Props> = ({
   const handleUnmount = useCallback(() => {
     if (trafficLayerRef.current) trafficLayerRef.current.setMap(null);
     if (transitLayerRef.current) transitLayerRef.current.setMap(null);
+    if (accuracyCircleRef.current) accuracyCircleRef.current.setMap(null);
     mapRef.current = null;
   }, []);
 
@@ -317,6 +383,22 @@ const GoogleMapWrapper: React.FC<Props> = ({
     };
   }, [selectedProperty]);
 
+  const getMyLocationIcon = useCallback(() => {
+    // Classic Google Maps pulsing blue dot as SVG data URI
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" fill="#1d6bd6" fill-opacity="0.18"/>
+        <circle cx="12" cy="12" r="6" fill="#1d6bd6" stroke="white" stroke-width="2"/>
+        <circle cx="12" cy="12" r="2.5" fill="white"/>
+      </svg>
+    `.trim();
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(28, 28),
+      anchor: new google.maps.Point(14, 14),
+    };
+  }, []);
+
   const getSearchMarkerIcon = useCallback(() => {
     const googleSymbolPath =
       typeof window !== 'undefined' && (window as any)?.google?.maps?.SymbolPath
@@ -346,12 +428,8 @@ const GoogleMapWrapper: React.FC<Props> = ({
 
   const mapOptions = useMemo(
     () => ({
-      // Enable native Google Street View (Pegman) control.
       streetViewControl: true,
       mapTypeControl: false,
-      // Enable native Google full-screen control.
-      fullscreenControl: true,
-      rotateControl: false,
       zoomControl: true,
       scaleControl: false,
       clickableIcons: true,
@@ -478,10 +556,23 @@ const GoogleMapWrapper: React.FC<Props> = ({
             </button>
             <button
               onClick={focusMyLocation}
-              className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow"
+              title="Center map on your current GPS location"
+              className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow hover:bg-stone-50 active:bg-stone-100 transition-colors"
             >
-              My Location
+              📍 My Location
             </button>
+            <button
+              onClick={handleOpenStreetView}
+              title={selectedProperty ? `Street View: ${selectedProperty.name || 'property'}` : 'Street View at map center'}
+              className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow hover:bg-stone-50 active:bg-stone-100 transition-colors"
+            >
+              🚶 Street View
+            </button>
+            {streetViewError && (
+              <div className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+                No Street View here
+              </div>
+            )}
           </div>
         )}
 
@@ -540,6 +631,58 @@ const GoogleMapWrapper: React.FC<Props> = ({
               </div>
             </InfoWindow>
           </Marker>
+        )}
+
+        {myLocationMarker && (
+          <Marker
+            key="my-location"
+            position={myLocationMarker}
+            icon={getMyLocationIcon()}
+            title="Your location"
+            zIndex={999}
+          >
+            <InfoWindow
+              position={myLocationMarker}
+              onCloseClick={() => {
+                setMyLocationMarker(null);
+                if (accuracyCircleRef.current) {
+                  accuracyCircleRef.current.setMap(null);
+                  accuracyCircleRef.current = null;
+                }
+              }}
+            >
+              <div>
+                <p className="font-semibold text-sm">Your Location</p>
+                {myLocationAccuracy > 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Accuracy: ±{Math.round(myLocationAccuracy)} m
+                  </p>
+                )}
+                <button
+                  onClick={() => openStreetViewAt(myLocationMarker.lat, myLocationMarker.lng)}
+                  className="mt-1.5 rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700"
+                >
+                  Open Street View here
+                </button>
+              </div>
+            </InfoWindow>
+          </Marker>
+        )}
+
+        {streetViewState && (
+          <StreetViewPanorama
+            position={{ lat: streetViewState.lat, lng: streetViewState.lng }}
+            visible={true}
+            options={{
+              pov: { heading: streetViewState.heading ?? 0, pitch: 0 },
+              zoom: 1,
+              addressControl: true,
+              fullscreenControl: true,
+              motionTracking: false,
+              motionTrackingControl: false,
+            }}
+            onCloseclick={() => setStreetViewState(null)}
+          />
         )}
     </GoogleMap>
   );

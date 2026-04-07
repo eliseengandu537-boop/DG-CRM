@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FiArrowLeft, FiFilter, FiSearch } from 'react-icons/fi';
 import { Broker } from './BrokerCard';
@@ -7,6 +7,7 @@ import { forecastDealApiService } from '@/services/forecastDealService';
 import { legalDocService } from '@/services/legalDocService';
 import { leadService } from '@/services/leadService';
 import { customRecordService } from '@/services/customRecordService';
+import { reminderService, ReminderRecord } from '@/services/reminderService';
 import { LegalDocument } from '@/data/legaldocs';
 import { DealDateModal } from './DealDateModal';
 import { CommentModal } from './CommentModal';
@@ -146,6 +147,16 @@ function toStatusValue(labelOrStatus: string): string {
 
 function statusRequiresLegalDocument(status: string): boolean {
   return isWorkflowDocumentStatus(status);
+}
+
+function getStatusDocStepLabel(status: string): string {
+  const s = canonicalStatus(status);
+  if (s === 'loi') return 'LOI';
+  if (s === 'otp') return 'OTP';
+  if (s === 'otl') return 'OTL';
+  if (s === 'lease_agreement') return 'Lease Agmt';
+  if (s === 'sale_agreement') return 'Sale Agmt';
+  return formatStatusLabel(status);
 }
 
 function statusRequiresComment(status: string): boolean {
@@ -289,6 +300,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     id: string;
     updatedAt?: string;
   } | null>(null);
+  const [outcomeReminders, setOutcomeReminders] = useState<ReminderRecord[]>([]);
+  const [dismissedReminderIds, setDismissedReminderIds] = useState<Set<string>>(new Set());
+  const [actioningReminderIds, setActioningReminderIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setRows(wipSheets);
@@ -323,6 +337,60 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       active = false;
     };
   }, []);
+
+  // Load due outcome-check reminders for this broker's deals
+  const loadOutcomeReminders = useCallback(async () => {
+    if (!broker?.id) return;
+    const due = await reminderService.getDueOutcomeReminders(broker.id);
+    setOutcomeReminders(due);
+  }, [broker?.id]);
+
+  useEffect(() => {
+    void loadOutcomeReminders();
+    const interval = window.setInterval(() => void loadOutcomeReminders(), 60_000);
+    return () => window.clearInterval(interval);
+  }, [loadOutcomeReminders]);
+
+  const handleOutcomeAction = useCallback(
+    async (reminder: ReminderRecord, outcomeStatus: 'won' | 'lost' | 'awaiting_payment') => {
+      const dealId = String(reminder.dealId || '').trim();
+      if (!dealId) return;
+
+      setActioningReminderIds(prev => new Set([...prev, reminder.id]));
+      try {
+        await forecastDealApiService.updateWipStatus({
+          dealId,
+          status: outcomeStatus,
+          brokerId: String(reminder.brokerId || '').trim() || undefined,
+        });
+        await reminderService.completeReminder(reminder.id);
+        setOutcomeReminders(prev => prev.filter(r => r.id !== reminder.id));
+        // Refresh the row status
+        setRows(current =>
+          current.map(row =>
+            resolveDealId(row) === dealId
+              ? {
+                  ...row,
+                  status: dealWorkflowStatusLabel(outcomeStatus) || outcomeStatus,
+                  actionRequired: deriveActionRequired(outcomeStatus),
+                  updatedAt: new Date().toISOString(),
+                }
+              : row
+          )
+        );
+      } catch {
+        // Silent — don't disrupt the UX, they can still update manually
+      } finally {
+        setActioningReminderIds(prev => {
+          const next = new Set(prev);
+          next.delete(reminder.id);
+          return next;
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const properties = useMemo(() => rows, [rows]);
   const legalDocumentById = useMemo(
@@ -511,6 +579,74 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       setRowErrors(current => ({
         ...current,
         [item.id]: 'No linked legal document found for this workflow item',
+      }));
+      return;
+    }
+
+    await handleViewDocument(legalDocumentId);
+  };
+
+  const handleOpenStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
+    const filledDocumentRecordId = String(statusDoc.filledDocumentRecordId || '').trim();
+    const legalDocumentId = String(statusDoc.legalDocumentId || '').trim();
+
+    setRowErrors(current => {
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
+
+    if (filledDocumentRecordId) {
+      setLoadingViewDocumentId(filledDocumentRecordId);
+      try {
+        const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
+        const payload = (record as any)?.payload || {};
+        const content = String(
+          payload.content || JSON.stringify(payload.filledContent || {}, null, 2)
+        );
+        const fileName = String(
+          payload.filledDocumentName ||
+            statusDoc.filledDocumentName ||
+            record.name ||
+            'filled-document'
+        ).trim();
+        const today = new Date().toISOString().split('T')[0];
+        setSelectedViewDocument({
+          id: filledDocumentRecordId,
+          documentName: fileName || `${getStatusDocStepLabel(String(statusDoc.status))} Document`,
+          documentType: 'Contract',
+          createdDate: today,
+          lastModifiedDate: today,
+          createdBy: 'Current User',
+          lastModifiedBy: 'Current User',
+          status: 'Executed',
+          fileSize: 0,
+          fileName,
+          description: 'Filled legal document captured from workflow',
+          linkedAssets: [],
+          linkedDeals: [],
+          permissions: [],
+          tags: [],
+          version: 1,
+          content,
+          fileType: 'txt',
+        });
+      } catch (error) {
+        setRowErrors(current => ({
+          ...current,
+          [item.id]:
+            error instanceof Error ? error.message : 'Failed to open document',
+        }));
+      } finally {
+        setLoadingViewDocumentId(null);
+      }
+      return;
+    }
+
+    if (!legalDocumentId) {
+      setRowErrors(current => ({
+        ...current,
+        [item.id]: `No document linked for ${getStatusDocStepLabel(String(statusDoc.status))} step`,
       }));
       return;
     }
@@ -919,6 +1055,71 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         </div>
       </div>
 
+      {/* Outcome Check Notifications */}
+      {outcomeReminders
+        .filter(r => !dismissedReminderIds.has(r.id))
+        .filter(r => {
+          const dealId = String(r.dealId || '').trim();
+          return rows.some(
+            row =>
+              String(row.dealId || '').trim() === dealId &&
+              !isClosedStatus(row.status) &&
+              !isLostStatus(row.status)
+          );
+        })
+        .map(reminder => {
+          const dealId = String(reminder.dealId || '').trim();
+          const matchedRow = rows.find(row => String(row.dealId || '').trim() === dealId);
+          const dealName = matchedRow?.dealName || 'this deal';
+          const isActioning = actioningReminderIds.has(reminder.id);
+          return (
+            <div
+              key={reminder.id}
+              className="rounded-xl border border-amber-300 bg-amber-50 p-4 flex items-start justify-between gap-4"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-amber-900">🔔 Deal Outcome Check</p>
+                <p className="text-sm text-amber-800 mt-1">
+                  All documents for <strong>{dealName}</strong> are complete. What is the outcome
+                  of this deal?
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0 flex-wrap">
+                <button
+                  onClick={() => void handleOutcomeAction(reminder, 'won')}
+                  disabled={isActioning}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+                >
+                  ✅ Won
+                </button>
+                <button
+                  onClick={() => void handleOutcomeAction(reminder, 'awaiting_payment')}
+                  disabled={isActioning}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 transition-colors"
+                >
+                  ⏳ Awaiting Payment
+                </button>
+                <button
+                  onClick={() => void handleOutcomeAction(reminder, 'lost')}
+                  disabled={isActioning}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 transition-colors"
+                >
+                  ❌ Lost
+                </button>
+                <button
+                  onClick={() =>
+                    setDismissedReminderIds(prev => new Set([...prev, reminder.id]))
+                  }
+                  disabled={isActioning}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-200 text-stone-700 hover:bg-stone-300 disabled:opacity-60 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
       <div className="bg-white rounded-lg shadow-sm border border-stone-200 overflow-hidden">
         <div className="p-6 border-b border-stone-200 bg-gradient-to-r from-stone-50 to-white">
           <h2 className="text-xl font-bold text-stone-950">WIP Sheet ({filteredProperties.length})</h2>
@@ -1045,8 +1246,37 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-stone-600">
-                        <div className="min-w-[180px] space-y-2">
-                          {hasFilledDocumentRecord || hasSelectedLegalDocument || resolvedLegalDocumentId ? (
+                        <div className="min-w-[200px] space-y-1.5">
+                          {(item.statusDocuments || []).length > 0 ? (
+                            <>
+                              {(item.statusDocuments || []).map(statusDoc => {
+                                const docFilledId = String(statusDoc.filledDocumentRecordId || '').trim();
+                                const docLegalId = String(statusDoc.legalDocumentId || '').trim();
+                                const isFilled = Boolean(docFilledId);
+                                const isOpening =
+                                  loadingViewDocumentId === docFilledId ||
+                                  loadingViewDocumentId === docLegalId;
+                                return (
+                                  <button
+                                    key={statusDoc.id}
+                                    type="button"
+                                    onClick={() => void handleOpenStatusDocument(item, statusDoc)}
+                                    disabled={isOpening}
+                                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      isFilled
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    } ${isOpening ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                  >
+                                    <span>{getStatusDocStepLabel(String(statusDoc.status))}</span>
+                                    <span className="ml-2 opacity-80 text-[10px]">
+                                      {isOpening ? 'Opening…' : isFilled ? '✓ Filled' : 'View'}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </>
+                          ) : hasFilledDocumentRecord || hasSelectedLegalDocument || resolvedLegalDocumentId ? (
                             <button
                               type="button"
                               onClick={() => {
@@ -1062,12 +1292,13 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                                 : 'View Document'}
                             </button>
                           ) : (
-                            <p className="text-xs text-stone-500">No Document</p>
+                            <p className="text-xs text-stone-500">No Documents</p>
                           )}
                           {!loadingLegalDocuments &&
                             resolvedLegalDocumentId &&
                             !hasSelectedLegalDocument &&
-                            !hasFilledDocumentRecord && (
+                            !hasFilledDocumentRecord &&
+                            (item.statusDocuments || []).length === 0 && (
                             <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
                               Linked document not found in Legal Docs.
                             </p>
