@@ -89,6 +89,11 @@ const CHUNK_RETRY_SCRIPT = `
 export const metadata: Metadata = {
   title: "DG Property CRM",
   description: "Comprehensive Real Estate Management System",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({
