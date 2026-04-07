@@ -37,8 +37,8 @@ jobs:
             # Check if backend changed
             if git diff HEAD@{1} --name-only | grep -q "^backend/"; then
               echo "🔨 Backend changed, rebuilding..."
-              docker compose build backend
-              docker compose up -d backend
+              docker compose -f docker-compose.prod.yml build backend
+              docker compose -f docker-compose.prod.yml up -d backend
               echo "✅ Backend redeployed"
             else
               echo "⏭️  No backend changes"
@@ -47,9 +47,8 @@ jobs:
             # Check if frontend changed
             if git diff HEAD@{1} --name-only | grep -q "^frontend/"; then
               echo "🔨 Frontend changed, rebuilding..."
-              export $(cat frontend/.env.local | xargs)
-              docker compose build frontend
-              docker compose up -d frontend
+              docker compose -f docker-compose.prod.yml build frontend
+              docker compose -f docker-compose.prod.yml up -d frontend
               echo "✅ Frontend redeployed"
             else
               echo "⏭️  No frontend changes"
@@ -58,13 +57,13 @@ jobs:
             # Check if database migrations changed
             if git diff HEAD@{1} --name-only | grep -q "^backend/prisma/migrations/"; then
               echo "🗄️  Running database migrations..."
-              docker compose run --rm backend npx prisma migrate deploy
-              docker compose restart backend
+              docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
+              docker compose -f docker-compose.prod.yml restart backend
               echo "✅ Migrations applied"
             fi
             
             echo "🎉 Deployment complete!"
-            docker compose ps
+            docker compose -f docker-compose.prod.yml ps
 
       - name: Deployment status
         if: always()
