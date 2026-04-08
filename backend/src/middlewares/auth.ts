@@ -61,7 +61,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
       let brokerId: string | null = decoded.brokerId || null;
       let department = normalizeBrokerDepartment(decoded.department);
-      if (found.role === 'broker') {
+      if (found.role === 'broker' || found.role === 'manager') {
         const brokerProfile = await prisma.broker.findUnique({
           where: { email: found.email.toLowerCase() },
           select: {

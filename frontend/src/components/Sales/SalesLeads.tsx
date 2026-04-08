@@ -14,6 +14,7 @@ import {
   stockService,
 } from "@/services/stockService";
 import { brokerService } from "@/services/brokerService";
+import { userService } from "@/services/userService";
 import { calculateCommissionSplit } from "@/lib/dealSheetCalculations";
 import { formatRand } from "@/lib/currency";
 // Stock is now sourced from the API and no longer seeded from local fallback data.
@@ -132,6 +133,9 @@ export const SalesLeads: React.FC = () => {
   const [editingLead, setEditingLead] = useState<SalesLead | null>(null);
   const [showStockLinkModal, setShowStockLinkModal] = useState(false);
   const [selectedLeadForStock, setSelectedLeadForStock] = useState<SalesLead | null>(null);
+  const [brokers, setBrokers] = useState<any[]>([]);
+  const [adminManagerUsers, setAdminManagerUsers] = useState<any[]>([]);
+  const [selectedBrokerIdForStock, setSelectedBrokerIdForStock] = useState<string>("");
   const [contactSearchQuery, setContactSearchQuery] = useState("");
   const [newLead, setNewLead] = useState({
     name: "",
@@ -160,10 +164,12 @@ export const SalesLeads: React.FC = () => {
 
     const loadData = async () => {
       setIsLoading(true);
-      const [leadResult, contactResult, stockResult] = await Promise.allSettled([
+      const [leadResult, contactResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
         leadService.getAllLeads({ limit: 1000 }),
         contactService.getAllContacts({ limit: 1000 }),
         stockService.getAllStockItems({ module: "sales", limit: 1000 }),
+        brokerService.getAllBrokers(),
+        userService.getAllUsers(),
       ]);
 
       if (!mounted) return;
@@ -187,6 +193,22 @@ export const SalesLeads: React.FC = () => {
       } else {
         console.warn("Failed to load sales stock", stockResult.reason);
         setStocks([]);
+      }
+
+      if (brokerResult.status === "fulfilled") {
+        setBrokers(brokerResult.value);
+      } else {
+        console.warn("Failed to load brokers", brokerResult.reason);
+        setBrokers([]);
+      }
+
+      if (userResult.status === "fulfilled") {
+        setAdminManagerUsers(
+          userResult.value.filter((u) => u.role === "admin" || u.role === "manager")
+        );
+      } else {
+        console.warn("Failed to load users", userResult.reason);
+        setAdminManagerUsers([]);
       }
       setIsLoading(false);
     };
@@ -335,9 +357,10 @@ export const SalesLeads: React.FC = () => {
       assignedBrokerId?: string;
       assignedBroker?: string;
     },
-    status: string
+    status: string,
+    overrideBrokerId?: string
   ) => {
-    const brokerId = await resolveBrokerId(lead, stock);
+    const brokerId = overrideBrokerId || await resolveBrokerId(lead, stock);
     const propertyId = await resolvePropertyIdForStock(lead, stock, brokerId);
     const leadStatus = toApiLeadStatus(status);
     const dealStatus = toDealStatus(status);
@@ -772,6 +795,7 @@ export const SalesLeads: React.FC = () => {
     }
 
     const localLeadSnapshot = { ...selectedLeadForStock };
+    const brokerOverride = selectedBrokerIdForStock || undefined;
 
     setLeads(
       leads.map((l) =>
@@ -782,10 +806,11 @@ export const SalesLeads: React.FC = () => {
     );
     setShowStockLinkModal(false);
     setSelectedLeadForStock(null);
+    setSelectedBrokerIdForStock("");
 
     setIsSyncingDeal(true);
     try {
-      const synced = await syncLinkedDeal(localLeadSnapshot, selectedStock, "OTP");
+      const synced = await syncLinkedDeal(localLeadSnapshot, selectedStock, "OTP", brokerOverride);
       setLeads((prev) =>
         prev.map((lead) =>
           lead.id === localLeadSnapshot.id
@@ -1146,6 +1171,38 @@ export const SalesLeads: React.FC = () => {
               <p className="text-stone-600 text-sm mb-4">
                 Please select a property from your sales stock to link with this lead before proceeding.
               </p>
+              {(brokers.length > 0 || adminManagerUsers.length > 0) && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Assign Broker <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={selectedBrokerIdForStock}
+                    onChange={(e) => setSelectedBrokerIdForStock(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+                  >
+                    <option value="">Select a broker...</option>
+                    {brokers.length > 0 && (
+                      <optgroup label="Brokers">
+                        {brokers.map((broker) => (
+                          <option key={broker.id} value={broker.id}>
+                            {broker.name}{broker.email ? ` (${broker.email})` : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {adminManagerUsers.length > 0 && (
+                      <optgroup label="Managers / Admins">
+                        {adminManagerUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.role})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+              )}
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {selectableStocks.map((stock) => (
                   <button
@@ -1168,6 +1225,7 @@ export const SalesLeads: React.FC = () => {
                 onClick={() => {
                   setShowStockLinkModal(false);
                   setSelectedLeadForStock(null);
+                  setSelectedBrokerIdForStock("");
                 }}
                 className="w-full mt-4 px-4 py-2 border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
               >
