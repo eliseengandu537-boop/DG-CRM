@@ -7,6 +7,7 @@ import { Contact } from "../../data/leasing";
 import { FiEdit2, FiTrash2, FiPlus, FiSearch, FiLink } from "react-icons/fi";
 import { useAuth } from "@/context/AuthContext";
 import { contactService } from "@/services/contactService";
+import { customRecordService } from "@/services/customRecordService";
 import { leadService } from "@/services/leadService";
 import { propertyService } from "@/services/propertyService";
 import {
@@ -164,9 +165,10 @@ export const SalesLeads: React.FC = () => {
 
     const loadData = async () => {
       setIsLoading(true);
-      const [leadResult, contactResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
-        leadService.getAllLeads({ limit: 1000 }),
-        contactService.getAllContacts({ limit: 1000 }),
+      const [leadResult, contactResult, investorResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
+        leadService.getAllLeads({ limit: 1000, moduleType: 'sales' }),
+        contactService.getAllContacts({ limit: 1000, moduleType: 'sales' }),
+        customRecordService.getAllCustomRecords({ entityType: 'investor', limit: 1000 }),
         stockService.getAllStockItems({ module: "sales", limit: 1000 }),
         brokerService.getAllBrokers(),
         userService.getAllUsers(),
@@ -182,7 +184,28 @@ export const SalesLeads: React.FC = () => {
       }
 
       if (contactResult.status === "fulfilled") {
-        setContacts(contactResult.value.data.map((contact) => toSalesContact(contact)));
+        const regularContacts = contactResult.value.data.map((contact) => toSalesContact(contact));
+        const investorContacts = investorResult.status === "fulfilled"
+          ? investorResult.value.data.map((record: any) => {
+              const p = record.payload || {};
+              return {
+                id: record.id,
+                firstName: String(p.firstName || ""),
+                lastName: String(p.lastName || ""),
+                email: String(p.email || ""),
+                phone: String(p.phone || ""),
+                company: String(p.company || ""),
+                position: "Investor",
+                type: "Investor",
+                linkedProperties: [],
+                linkedDeals: [],
+                status: String(record.status || "Active"),
+                createdDate: new Date(record.createdAt).toISOString().split("T")[0],
+                notes: "",
+              };
+            })
+          : [];
+        setContacts([...regularContacts, ...investorContacts]);
       } else {
         console.warn("Failed to load sales contacts", contactResult.reason);
         setContacts([]);
@@ -553,10 +576,6 @@ export const SalesLeads: React.FC = () => {
   };
 
   const handleOpenAddModal = () => {
-    if (contacts.length === 0) {
-      alert("Please create a Contact first in the Leasing section before adding a Sales Lead.");
-      return;
-    }
     setShowAddModal(true);
   };
 
@@ -566,7 +585,7 @@ export const SalesLeads: React.FC = () => {
       return;
     }
     if (!newLead.contactId) {
-      alert("Please select a leasing contact");
+      alert("Please select a sales contact or investor");
       return;
     }
     if (!newLead.notes) {
@@ -869,13 +888,13 @@ export const SalesLeads: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h3 className="text-xl font-bold text-stone-900 mb-1">Add New Sales Lead</h3>
-              <p className="text-stone-600 text-sm mb-6">Link to a leasing contact and fill in the lead details</p>
+              <p className="text-stone-600 text-sm mb-6">Link to a sales contact or investor and fill in the lead details</p>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Contact Selection */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-2">
-                    Search Leasing Contacts *
+                    Search Sales Contacts / Investors *
                   </label>
                   <div className="space-y-2">
                     <input

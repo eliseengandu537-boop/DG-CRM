@@ -2,13 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Fund } from '../../data/crm-types';
-import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiChevronDown, FiChevronUp, FiHome } from 'react-icons/fi';
 import { brokerService } from '@/services/brokerService';
 import { contactService } from '@/services/contactService';
 import {
   customRecordService,
   type CustomRecord,
 } from '@/services/customRecordService';
+import { propertyService, type PropertyRecord } from '@/services/propertyService';
 
 type CompanySuggestion = {
   id: string;
@@ -157,6 +158,9 @@ export const PropertyFundsManager: React.FC = () => {
   const [selectedCompany, setSelectedCompany] = useState<CompanySuggestion | null>(null);
   const [showCreateCompanyPrompt, setShowCreateCompanyPrompt] = useState(false);
   const [formData, setFormData] = useState({ ...emptyFormData });
+  const [expandedFundId, setExpandedFundId] = useState<string | null>(null);
+  const [fundProperties, setFundProperties] = useState<Record<string, PropertyRecord[]>>({});
+  const [loadingFundProperties, setLoadingFundProperties] = useState<string | null>(null);
 
   const refreshFunds = async () => {
     const result = await customRecordService.getAllCustomRecords<Record<string, unknown>>({
@@ -164,6 +168,33 @@ export const PropertyFundsManager: React.FC = () => {
       limit: 1000,
     });
     setFunds(result.data.map(toFund));
+  };
+
+  const handleFundExpand = async (fundId: string, fund: Fund) => {
+    if (expandedFundId === fundId) {
+      setExpandedFundId(null);
+      return;
+    }
+    setExpandedFundId(fundId);
+    if (fundProperties[fundId]) return;
+    setLoadingFundProperties(fundId);
+    try {
+      const result = await propertyService.getAllProperties({ limit: 1000 });
+      const allProps: PropertyRecord[] = result.data || [];
+      const fundName = fund.name.toLowerCase();
+      const linked = allProps.filter((p) => {
+        const meta = (p.metadata || {}) as Record<string, unknown>;
+        const metaFundName = String(meta.linkedFundName || meta.fundName || '').toLowerCase();
+        if (metaFundName && metaFundName === fundName) return true;
+        if (fund.linkedProperties?.includes(p.id)) return true;
+        return false;
+      });
+      setFundProperties((prev) => ({ ...prev, [fundId]: linked }));
+    } catch {
+      setFundProperties((prev) => ({ ...prev, [fundId]: [] }));
+    } finally {
+      setLoadingFundProperties(null);
+    }
   };
 
   useEffect(() => {
@@ -417,14 +448,22 @@ export const PropertyFundsManager: React.FC = () => {
               </thead>
               <tbody>
                 {filteredFunds.map((fund, idx) => (
+                  <React.Fragment key={fund.id}>
                   <tr
-                    key={fund.id}
-                    className={`border-t border-stone-200 hover:bg-stone-50 transition-colors ${
+                    className={`border-t border-stone-200 hover:bg-stone-50 transition-colors cursor-pointer ${
                       idx % 2 === 0 ? 'bg-white' : 'bg-stone-50'
-                    }`}
+                    } ${expandedFundId === fund.id ? 'bg-violet-50' : ''}`}
+                    onClick={() => void handleFundExpand(fund.id, fund)}
                   >
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">
-                      {fund.name}
+                      <div className="flex items-center gap-2">
+                        {expandedFundId === fund.id ? (
+                          <FiChevronUp size={14} className="text-violet-500 flex-shrink-0" />
+                        ) : (
+                          <FiChevronDown size={14} className="text-stone-400 flex-shrink-0" />
+                        )}
+                        {fund.name}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-700">
                       <span
@@ -465,7 +504,7 @@ export const PropertyFundsManager: React.FC = () => {
                         {fund.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-center gap-2">
                         <button
                           onClick={() => handleEditFund(fund)}
@@ -484,6 +523,39 @@ export const PropertyFundsManager: React.FC = () => {
                       </div>
                     </td>
                   </tr>
+                  {expandedFundId === fund.id && (
+                    <tr className="bg-violet-50 border-t border-violet-100">
+                      <td colSpan={9} className="px-8 py-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <FiHome size={14} className="text-violet-600" />
+                          <span className="text-sm font-semibold text-violet-800">Linked Map Properties</span>
+                        </div>
+                        {loadingFundProperties === fund.id ? (
+                          <p className="text-sm text-stone-400">Loading properties…</p>
+                        ) : !fundProperties[fund.id] || fundProperties[fund.id].length === 0 ? (
+                          <p className="text-sm text-stone-400 italic">No map properties linked to this fund. Properties added via the Map module with this fund name will appear here.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {fundProperties[fund.id].map((property) => (
+                              <div key={property.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                <p className="text-sm font-medium text-stone-900">{property.title || property.address}</p>
+                                <p className="text-xs text-stone-500 mt-0.5">{property.address}</p>
+                                <div className="flex gap-2 mt-2 flex-wrap">
+                                  {property.type && (
+                                    <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{property.type}</span>
+                                  )}
+                                  {property.status && (
+                                    <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{property.status}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

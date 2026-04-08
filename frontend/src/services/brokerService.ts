@@ -110,6 +110,18 @@ class BrokerService {
   }
 
   /**
+   * Get the currently logged-in user's own broker profile (if any)
+   */
+  async getMyBrokerProfile(): Promise<Broker | null> {
+    try {
+      const response = await apiClient.get<{ success: boolean; data: Broker }>('/brokers/me');
+      return response.data.data;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Create a new broker (admin only)
    */
   async createBroker(data: CreateBrokerRequest): Promise<CreateBrokerResult> {

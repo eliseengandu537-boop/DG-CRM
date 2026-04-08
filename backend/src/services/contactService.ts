@@ -145,6 +145,7 @@ export class ContactService {
       type?: string;
       status?: string;
       brokerId?: string;
+      moduleType?: string;
       page?: number;
       limit?: number;
     },
@@ -157,6 +158,7 @@ export class ContactService {
     if (filters?.type) where.type = filters.type;
     if (filters?.status) where.status = filters.status;
     if (filters?.brokerId) where.brokerId = filters.brokerId;
+    if (filters?.moduleType) where.moduleType = filters.moduleType.toLowerCase();
 
     const scopedWhere = addDepartmentScope(where, options?.user, 'moduleType');
 

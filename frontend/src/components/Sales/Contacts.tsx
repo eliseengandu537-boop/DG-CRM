@@ -59,7 +59,7 @@ export const Contacts: React.FC = () => {
 
     const loadContacts = async () => {
       try {
-        const result = await contactService.getAllContacts({ limit: 1000 });
+        const result = await contactService.getAllContacts({ limit: 1000, moduleType: 'sales' });
         if (!mounted) return;
         setContacts(result.data.map((contact) => toSalesContact(contact)));
       } catch {

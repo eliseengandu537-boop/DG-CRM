@@ -59,7 +59,7 @@ export const Contacts: React.FC = () => {
 
     const loadContacts = async () => {
       try {
-        const result = await contactService.getAllContacts({ limit: 1000 });
+        const result = await contactService.getAllContacts({ limit: 1000, moduleType: 'leasing' });
         if (!mounted) return;
         setContacts(result.data.map((contact) => toLeasingContact(contact)));
       } catch {
@@ -92,6 +92,8 @@ export const Contacts: React.FC = () => {
         return "bg-green-100 text-green-800";
       case "Landlord":
         return "bg-orange-100 text-orange-800";
+      case "Multi":
+        return "bg-blue-100 text-blue-800";
       default:
         return "bg-stone-100 text-stone-800";
     }
@@ -333,6 +335,7 @@ export const Contacts: React.FC = () => {
                     <option>Investor</option>
                     <option>Tenant</option>
                     <option>Landlord</option>
+                    <option>Multi</option>
                   </select>
                 </div>
                 <div>
@@ -402,6 +405,7 @@ export const Contacts: React.FC = () => {
                 <option>Investor</option>
                 <option>Tenant</option>
                 <option>Landlord</option>
+                <option>Multi</option>
             </select>
           </div>
         </div>

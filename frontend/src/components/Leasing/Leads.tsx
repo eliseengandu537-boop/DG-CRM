@@ -142,8 +142,8 @@ export const Leads: React.FC = () => {
 
     const loadData = async () => {
       const [leadResult, contactResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
-        leadService.getAllLeads({ limit: 1000 }),
-        contactService.getAllContacts({ limit: 1000 }),
+        leadService.getAllLeads({ limit: 1000, moduleType: 'leasing' }),
+        contactService.getAllContacts({ limit: 1000, moduleType: 'leasing' }),
         stockService.getAllStockItems({ module: "leasing", limit: 1000 }),
         brokerService.getAllBrokers(),
         userService.getAllUsers(),

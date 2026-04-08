@@ -161,9 +161,11 @@ const mapBackendPropertyToMapProperty = (
       condition: String(metadata.condition || 'Unknown'),
       ownershipStatus: String(metadata.ownershipStatus || raw.status || 'Owned'),
     },
-    linkedDeals: [],
-    leasingSalesRecords: [],
-    linkedContacts: [],
+    linkedDeals: Array.isArray(metadata.linkedDeals) ? metadata.linkedDeals : [],
+    leasingSalesRecords: Array.isArray(metadata.leasingSalesRecords) ? metadata.leasingSalesRecords : [],
+    linkedContacts: Array.isArray(metadata.linkedContacts) ? metadata.linkedContacts : [],
+    linkedDocuments: Array.isArray(metadata.linkedDocuments) ? metadata.linkedDocuments : undefined,
+    auctionRecords: Array.isArray(metadata.auctionRecords) ? metadata.auctionRecords : undefined,
     linkedCompanyId: metadata.linkedCompanyId ? String(metadata.linkedCompanyId) : undefined,
     linkedCompanyName: metadata.linkedCompanyName ? String(metadata.linkedCompanyName) : undefined,
     linkedFundId: metadata.linkedFundId ? String(metadata.linkedFundId) : undefined,
@@ -733,6 +735,12 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           property={selectedProperty}
           onClose={() => setSelectedProperty(null)}
           onPageChange={onPageChange}
+          onPropertyUpdate={(updated) => {
+            setProperties((prev) =>
+              prev.map((p) => (p.id === updated.id ? updated : p))
+            );
+            setSelectedProperty(updated);
+          }}
         />
       )}
 

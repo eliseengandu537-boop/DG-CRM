@@ -25,6 +25,7 @@ export class LeadController {
         status: req.query.status as string,
         brokerId: (req.query.brokerId as string) || (req.query.broker as string),
         search: rawSearch || undefined,
+        moduleType: req.query.moduleType as string,
         page: Math.max(1, parseInt(req.query.page as string) || 1),
         limit: Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10)),
       };

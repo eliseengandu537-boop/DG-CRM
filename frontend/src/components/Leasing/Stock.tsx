@@ -9,6 +9,7 @@ import {
   serializeLeasingStock,
   stockService,
 } from '@/services/stockService';
+import { propertyService } from '@/services/propertyService';
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 import GooglePlaceAutocompleteInput, {
   SelectedGooglePlace,
@@ -107,13 +108,14 @@ const toForm = (listing: Listing): ListingForm => ({
 });
 
 const validate = (form: ListingForm): string | null => {
-  if (!form.selectedFromMap || !form.placeId) {
+  const isExisting = String(form.placeId || '').startsWith('existing:');
+  if (!isExisting && (!form.selectedFromMap || !form.placeId)) {
     return 'Please select a valid property from the map';
   }
   if (!form.itemName.trim() || !form.address.trim()) {
     return 'Please select a valid property from the map';
   }
-  if (toNumber(form.latitude) === undefined || toNumber(form.longitude) === undefined) {
+  if (!isExisting && (toNumber(form.latitude) === undefined || toNumber(form.longitude) === undefined)) {
     return 'Please select a valid property from the map';
   }
   if (Number(form.purchasePrice || 0) <= 0) {
@@ -167,6 +169,8 @@ const buildPayload = (form: ListingForm) => ({
 export const Stock: React.FC = () => {
   const [stocks, setStocks] = useState<Listing[]>([]);
   const [brokers, setBrokers] = useState<Array<{ id: string; name: string }>>([]);
+  const [existingProperties, setExistingProperties] = useState<Array<{ id: string; title: string; address: string; latitude?: number; longitude?: number }>>([]);
+  const [useExistingProperty, setUseExistingProperty] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -190,9 +194,10 @@ export const Stock: React.FC = () => {
 
     const load = async () => {
       try {
-        const [stockResult, brokerResult] = await Promise.all([
+        const [stockResult, brokerResult, propertyResult] = await Promise.all([
           stockService.getAllStockItems({ module: 'leasing', limit: 1000 }),
           brokerService.getAllBrokers(),
+          propertyService.getAllProperties({ moduleType: 'leasing', limit: 1000 }).catch(() => ({ data: [] })),
         ]);
 
         if (!mounted) return;
@@ -202,6 +207,15 @@ export const Stock: React.FC = () => {
             .filter((item) => String(item.stockKind || '').toLowerCase() === 'property_listing')
         );
         setBrokers(brokerResult.map((broker) => ({ id: broker.id, name: broker.name })));
+        setExistingProperties(
+          (Array.isArray(propertyResult.data) ? propertyResult.data : []).map((p: any) => ({
+            id: p.id,
+            title: String(p.title || p.name || ''),
+            address: String(p.address || ''),
+            latitude: typeof p.latitude === 'number' ? p.latitude : undefined,
+            longitude: typeof p.longitude === 'number' ? p.longitude : undefined,
+          }))
+        );
       } catch {
         if (!mounted) return;
         setStocks([]);
@@ -281,11 +295,13 @@ export const Stock: React.FC = () => {
 
   const closeAdd = () => {
     setShowAddModal(false);
+    setUseExistingProperty(false);
     resetAdd();
   };
 
   const closeEdit = () => {
     setShowEditModal(false);
+    setUseExistingProperty(false);
     setEditing(null);
     setEditForm(emptyForm());
     setFormError(null);
@@ -370,15 +386,79 @@ export const Stock: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-stone-700 mb-1">
-                Search Property on Map *
+                Property Source
               </label>
-              <GooglePlaceAutocompleteInput
-                value={form.searchQuery}
-                onInputChange={(value) => updateSearch(setter, value)}
-                onPlaceSelect={(place) => applyPlace(setter, place)}
-                error={formError && formError.includes('valid property') ? formError : undefined}
-                placeholder="Search for a building, office, mall, address, or named property"
-              />
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setUseExistingProperty(false)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${!useExistingProperty ? 'bg-violet-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                >
+                  Search Google Maps
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseExistingProperty(true)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${useExistingProperty ? 'bg-violet-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                >
+                  Select from Existing Properties
+                </button>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              {useExistingProperty ? (
+                <>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Select Existing Property *
+                  </label>
+                  <select
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const property = existingProperties.find((p) => p.id === e.target.value);
+                      if (property) {
+                        setter((current) => ({
+                          ...current,
+                          searchQuery: `${property.title} — ${property.address}`,
+                          itemName: property.title,
+                          address: property.address,
+                          formattedAddress: property.address,
+                          placeId: `existing:${property.id}`,
+                          selectedFromMap: true,
+                          propertyId: property.id,
+                          latitude: property.latitude,
+                          longitude: property.longitude,
+                        }));
+                        setFormError(null);
+                      }
+                    }}
+                  >
+                    <option value="" disabled>-- Select a property --</option>
+                    {existingProperties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}{p.address ? ` — ${p.address}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {existingProperties.length === 0 && (
+                    <p className="text-xs text-stone-400 mt-1">No leasing properties found. Add properties from the Map module first.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Search Property on Map *
+                  </label>
+                  <GooglePlaceAutocompleteInput
+                    value={form.searchQuery}
+                    onInputChange={(value) => updateSearch(setter, value)}
+                    onPlaceSelect={(place) => applyPlace(setter, place)}
+                    error={formError && formError.includes('valid property') ? formError : undefined}
+                    placeholder="Search for a building, office, mall, address, or named property"
+                  />
+                </>
+              )}
             </div>
 
             <div>
@@ -388,9 +468,9 @@ export const Stock: React.FC = () => {
               <input
                 type="text"
                 value={form.itemName}
-                readOnly
-                className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                placeholder="Auto-filled from map selection"
+                onChange={(event) => setter((current) => ({ ...current, itemName: event.target.value }))}
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-stone-900"
+                placeholder="Auto-filled from map — you can edit this"
               />
             </div>
 

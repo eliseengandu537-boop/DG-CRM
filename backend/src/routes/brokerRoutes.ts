@@ -17,6 +17,8 @@ router.get('/archived', authMiddleware, requireRoles('admin', 'manager'), (req, 
   brokerController.getArchived(req, res)
 );
 router.get('/stats', authMiddleware, (req, res) => brokerController.getStats(req, res));
+// Must be BEFORE /:id so it doesn't get swallowed as an id lookup
+router.get('/me', authMiddleware, (req, res) => brokerController.getMe(req, res));
 router.get('/:id', authMiddleware, (req, res) => brokerController.getById(req, res));
 router.post('/', authMiddleware, requireRoles('admin', 'manager'), (req, res) =>
   brokerController.create(req, res)

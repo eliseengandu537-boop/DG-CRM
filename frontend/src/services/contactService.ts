@@ -47,7 +47,7 @@ class ContactService {
   /**
    * Get all contacts with optional filtering
    */
-  async getAllContacts(filters?: { page?: number; limit?: number; type?: string; status?: string }): Promise<{
+  async getAllContacts(filters?: { page?: number; limit?: number; type?: string; status?: string; moduleType?: string }): Promise<{
     data: Contact[];
     pagination: { page: number; limit: number; total: number; pages: number };
   }> {
@@ -57,6 +57,7 @@ class ContactService {
       if (filters?.limit) params.append('limit', String(filters.limit));
       if (filters?.type) params.append('type', filters.type);
       if (filters?.status) params.append('status', filters.status);
+      if (filters?.moduleType) params.append('moduleType', filters.moduleType);
 
       const response = await apiClient.get<{
         success: boolean;

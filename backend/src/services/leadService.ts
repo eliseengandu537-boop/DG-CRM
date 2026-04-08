@@ -196,6 +196,7 @@ export class LeadService {
       broker?: string;
       brokerId?: string;
       search?: string;
+      moduleType?: string;
       page?: number;
       limit?: number;
     },
@@ -212,6 +213,10 @@ export class LeadService {
     const brokerId = filters?.brokerId || filters?.broker;
     if (brokerId) {
       where.brokerId = brokerId;
+    }
+
+    if (filters?.moduleType) {
+      where.moduleType = filters.moduleType.toLowerCase();
     }
 
     if (filters?.search) {

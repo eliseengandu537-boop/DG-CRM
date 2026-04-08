@@ -308,14 +308,43 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [dismissedReminderIds, setDismissedReminderIds] = useState<Set<string>>(new Set());
   const [actioningReminderIds, setActioningReminderIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingCommissionId, setEditingCommissionId] = useState<string | null>(null);
+  const [editingCommissionValue, setEditingCommissionValue] = useState<string>('');
+  const [savingCommissionId, setSavingCommissionId] = useState<string | null>(null);
 
   useEffect(() => {
     setRows(wipSheets);
     setRowErrors({});
   }, [wipSheets]);
 
+  const handleSaveCommission = async (item: BrokerWipItem) => {
+    const parsed = parseFloat(editingCommissionValue.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setEditingCommissionId(null);
+      return;
+    }
+    setSavingCommissionId(item.id);
+    try {
+      const forecastId = String(item.forecastDealId || item.id || '').trim();
+      if (forecastId) {
+        await forecastDealApiService.updateForecastDeal(forecastId, {
+          brokerCommission: parsed,
+        } as any);
+      }
+      setRows(current =>
+        current.map(row =>
+          row.id === item.id ? { ...row, brokerCommission: parsed } : row
+        )
+      );
+    } catch {
+      // silently revert
+    } finally {
+      setSavingCommissionId(null);
+      setEditingCommissionId(null);
+    }
+  };
+
   const handleDeleteDeal = async (item: BrokerWipItem) => {
-    if (!confirm(`Delete "${parseDealTitle(item.dealName).dealName}"? This cannot be undone.`)) return;
     setDeletingId(item.id);
     try {
       // Delete forecast deal if it exists
@@ -1238,7 +1267,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Action Required</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Expected Value</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Broker Comm</th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Gross Comm</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Closure Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Document</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Comment</th>
@@ -1311,6 +1340,18 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                             </option>
                           ))}
                         </select>
+                        {Array.isArray(item.statusHistory) && item.statusHistory.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {[...item.statusHistory]
+                              .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
+                              .slice(0, 3)
+                              .map(h => (
+                                <p key={h.id} className="text-xs text-stone-400">
+                                  {formatStatusLabel(h.status)} &middot; {new Date(h.changedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })}
+                                </p>
+                              ))}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm">
                         {item.actionRequired && item.actionRequired !== '-' ? (
@@ -1324,8 +1365,38 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                       <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right">
                         {formatRand(item.expectedValue)}
                       </td>
-                      <td className="px-6 py-4 text-sm font-bold text-violet-600 text-right">
-                        {formatRand(item.brokerCommission)}
+                      <td className="px-6 py-4 text-sm text-right">
+                        {editingCommissionId === item.id ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={editingCommissionValue}
+                              onChange={e => setEditingCommissionValue(e.target.value)}
+                              onBlur={() => { void handleSaveCommission(item); }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { void handleSaveCommission(item); }
+                                if (e.key === 'Escape') { setEditingCommissionId(null); }
+                              }}
+                              disabled={savingCommissionId === item.id}
+                              autoFocus
+                              className="w-28 px-2 py-1 text-xs border border-violet-400 rounded focus:outline-none focus:ring-2 focus:ring-violet-400 text-right"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            title="Click to edit gross commission"
+                            onClick={() => {
+                              setEditingCommissionId(item.id);
+                              setEditingCommissionValue(String(item.brokerCommission ?? 0));
+                            }}
+                            className="font-bold text-violet-600 hover:underline cursor-pointer"
+                          >
+                            {formatRand(item.brokerCommission)}
+                          </button>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm">
                         <button

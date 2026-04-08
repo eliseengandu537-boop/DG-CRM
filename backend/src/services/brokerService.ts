@@ -267,6 +267,16 @@ export class BrokerService {
     return mapBroker(broker, metricsByBrokerId.get(broker.id));
   }
 
+  async getBrokerByEmail(email: string): Promise<Broker | null> {
+    const normalized = email.trim().toLowerCase();
+    const broker = await prisma.broker.findUnique({ where: { email: normalized } });
+    if (!broker) return null;
+    const metricsByBrokerId = await this.getBillingMetricsByBrokerIds([
+      { id: broker.id, billingTarget: broker.billingTarget },
+    ]);
+    return mapBroker(broker, metricsByBrokerId.get(broker.id));
+  }
+
   async createBroker(data: CreateBrokerInput, options?: { user?: User }): Promise<CreateBrokerResult> {
     const normalizedEmail = data.email.trim().toLowerCase();
     const normalizedAvatar = data.avatar?.trim() || undefined;
@@ -284,8 +294,10 @@ export class BrokerService {
       });
       const canReuseArchivedViewer =
         existingUser?.role === 'viewer' && existingBroker?.status === 'archived';
+      const isPrivilegedUser =
+        existingUser?.role === 'admin' || existingUser?.role === 'manager';
 
-      if (existingUser && existingUser.role !== 'broker' && !canReuseArchivedViewer) {
+      if (existingUser && existingUser.role !== 'broker' && !canReuseArchivedViewer && !isPrivilegedUser) {
         throw new Error('A non-broker account already exists with this email.');
       }
 
@@ -312,6 +324,8 @@ export class BrokerService {
         },
       });
 
+      // Preserve existing admin/manager role; only force 'broker' role for new or viewer users
+      const preserveRole = existingUser?.role === 'admin' || existingUser?.role === 'manager';
       const upsertedUser = await tx.user.upsert({
         where: { email: normalizedEmail },
         create: {
@@ -321,9 +335,8 @@ export class BrokerService {
           role: 'broker',
         },
         update: {
-          password: hashedPassword,
           name: data.name,
-          role: 'broker',
+          ...(preserveRole ? {} : { password: hashedPassword, role: 'broker' }),
         },
       });
 
@@ -414,7 +427,8 @@ export class BrokerService {
         : Number(current.billingTarget || 0);
     if (nextEmail && nextEmail !== current.email) {
       const userWithTargetEmail = await prisma.user.findUnique({ where: { email: nextEmail } });
-      if (userWithTargetEmail && userWithTargetEmail.role !== 'broker') {
+      if (userWithTargetEmail && userWithTargetEmail.role !== 'broker' &&
+          userWithTargetEmail.role !== 'admin' && userWithTargetEmail.role !== 'manager') {
         throw new Error('A non-broker account already exists with this email.');
       }
     }
@@ -463,12 +477,13 @@ export class BrokerService {
       });
 
       if (existingUser) {
+        const keepRole = existingUser.role === 'admin' || existingUser.role === 'manager';
         await tx.user.update({
           where: { id: existingUser.id },
           data: {
             email: nextEmail ?? existingUser.email,
             name: data.name ?? broker.name,
-            role: 'broker',
+            ...(keepRole ? {} : { role: 'broker' }),
           },
         });
       }

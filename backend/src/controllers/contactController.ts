@@ -17,6 +17,7 @@ export class ContactController {
       const filters = {
         type: req.query.type as string,
         status: req.query.status as string,
+        moduleType: req.query.moduleType as string,
         page: parseInt(req.query.page as string) || 1,
         limit: parseInt(req.query.limit as string) || 10,
       };

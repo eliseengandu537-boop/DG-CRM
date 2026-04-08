@@ -82,6 +82,22 @@ export class BrokerController {
     }
   }
 
+  async getMe(req: AuthRequest, res: Response) {
+    try {
+      const email = req.user?.email?.trim().toLowerCase();
+      if (!email) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const broker = await brokerService.getBrokerByEmail(email);
+      if (!broker) {
+        return res.status(404).json({ success: false, message: 'No broker profile found for this user' });
+      }
+      return res.json({ success: true, data: broker, timestamp: new Date() });
+    } catch (error: unknown) {
+      return this.handleError(res, error, 404);
+    }
+  }
+
   async create(req: AuthRequest, res: Response) {
     try {
       const validated = createBrokerSchema.parse(req.body);

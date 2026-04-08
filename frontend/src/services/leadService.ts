@@ -99,6 +99,7 @@ class LeadService {
       if (filters?.search) params.append('search', filters.search);
       if (filters?.broker) params.append('broker', filters.broker);
       if (filters?.brokerId) params.append('brokerId', filters.brokerId);
+      if (filters?.moduleType) params.append('moduleType', filters.moduleType);
 
       const response = await apiClient.get<{
         success: boolean;

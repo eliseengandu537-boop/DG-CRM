@@ -280,9 +280,11 @@ function buildPropertyMetadata(input: {
 
 async function assertAssignedBroker(
   brokerId: string | undefined,
-  moduleType: string | undefined
+  moduleType: string | undefined,
+  user?: User | null
 ): Promise<void> {
   if (!brokerId) return;
+  if (user?.role === 'admin' || user?.role === 'manager') return;
 
   const broker = await prisma.broker.findUnique({ where: { id: brokerId } });
   if (!broker) throw new Error('Assigned broker not found');
@@ -438,7 +440,7 @@ export class PropertyService {
     const status = normalizePropertyStatus(data.status, { moduleType });
 
     assertBrokerCanAccessModule(options?.user, moduleType);
-    await assertAssignedBroker(brokerId, moduleType);
+    await assertAssignedBroker(brokerId, moduleType, options?.user);
 
     const created = await prisma.$transaction(async tx => {
       let property: PropertyWithBroker;
@@ -611,7 +613,7 @@ export class PropertyService {
     const longitude = data.longitude ?? existing.longitude ?? undefined;
 
     assertBrokerCanAccessModule(options?.user, moduleType);
-    await assertAssignedBroker(brokerId, moduleType);
+    await assertAssignedBroker(brokerId, moduleType, options?.user);
 
     const existingMapped = mapProperty(existing as NonNullable<PropertyWithBroker>);
     const updated = await prisma.$transaction(async tx => {

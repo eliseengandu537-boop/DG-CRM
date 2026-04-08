@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiFilter, FiSearch } from 'react-icons/fi';
+import { FiFilter, FiSearch, FiUser, FiPlus } from 'react-icons/fi';
 import { Broker, BrokerCard } from './BrokerCard';
 import { BrokerDetail } from './BrokerDetail';
 import { useAuth } from '@/context/AuthContext';
@@ -55,6 +55,12 @@ export const BrokerProfiles: React.FC = () => {
   const [sortBy, setSortBy] = useState<'name' | 'target-pct' | 'billings'>('target-pct');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [myBrokerProfile, setMyBrokerProfile] = useState<Broker | null>(null);
+  const [checkingMyProfile, setCheckingMyProfile] = useState(false);
+  const [creatingMyProfile, setCreatingMyProfile] = useState(false);
+  const [createProfileError, setCreateProfileError] = useState<string | null>(null);
+
+  const isPrivileged = user?.role === 'admin' || user?.role === 'manager';
 
   const loadBrokers = useCallback(async (showLoader: boolean) => {
     try {
@@ -128,6 +134,28 @@ export const BrokerProfiles: React.FC = () => {
     void loadBrokers(true);
   }, [loadBrokers]);
 
+  // Load own broker profile for admin/manager
+  useEffect(() => {
+    if (!isPrivileged) return;
+    setCheckingMyProfile(true);
+    brokerService.getMyBrokerProfile().then(profile => {
+      if (profile) {
+        setMyBrokerProfile(toBrokerCardModel([{
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          avatar: profile.avatar,
+          department: profile.department,
+          billingTarget: Number(profile.billingTarget || 0),
+          currentBilling: Number(profile.currentBilling || 0),
+          progressPercentage: Number(profile.progressPercentage || 0),
+          specialization: [],
+        }])[0]);
+      }
+      setCheckingMyProfile(false);
+    }).catch(() => setCheckingMyProfile(false));
+  }, [isPrivileged]);
+
   useEffect(() => {
     const refresh = () => void loadBrokers(false);
 
@@ -196,6 +224,39 @@ export const BrokerProfiles: React.FC = () => {
   const ownBrokerId =
     brokerList.find(profile => profile.email?.trim().toLowerCase() === currentUserEmail)?.id || '';
 
+  const handleCreateMyProfile = async () => {
+    if (!user || creatingMyProfile) return;
+    setCreatingMyProfile(true);
+    setCreateProfileError(null);
+    try {
+      await brokerService.createBroker({
+        name: user.name,
+        email: user.email,
+        phone: '',
+        department: user.role === 'manager' ? 'Management' : 'Administration',
+      });
+      const profile = await brokerService.getMyBrokerProfile();
+      if (profile) {
+        setMyBrokerProfile(toBrokerCardModel([{
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          avatar: profile.avatar,
+          department: profile.department,
+          billingTarget: Number(profile.billingTarget || 0),
+          currentBilling: Number(profile.currentBilling || 0),
+          progressPercentage: Number(profile.progressPercentage || 0),
+          specialization: [],
+        }])[0]);
+      }
+      void loadBrokers(false);
+    } catch (err) {
+      setCreateProfileError(err instanceof Error ? err.message : 'Failed to create profile');
+    } finally {
+      setCreatingMyProfile(false);
+    }
+  };
+
   const filteredBrokers = BROKERS.filter(broker =>
     broker.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -243,6 +304,51 @@ export const BrokerProfiles: React.FC = () => {
           </p>
         )}
       </div>
+
+      {/* Admin / Manager — own profile section */}
+      {isPrivileged && (
+        <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <FiUser size={18} className="text-violet-600" />
+            <h2 className="font-bold text-stone-900 text-base">My Profile</h2>
+            <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full capitalize">{user?.role}</span>
+          </div>
+          {checkingMyProfile ? (
+            <p className="text-sm text-stone-400 animate-pulse">Checking for your broker profile…</p>
+          ) : myBrokerProfile ? (
+            <div className="flex items-center gap-4">
+              <BrokerCard
+                broker={myBrokerProfile}
+                onSelect={() => setSelectedBrokerId(myBrokerProfile.id)}
+              />
+              <p className="text-xs text-stone-500 max-w-xs">
+                This is your personal WIP sheet and broker profile. Click it to manage your
+                deals, commissions, and activity.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-4">
+              <div>
+                <p className="text-sm text-stone-600 mb-3">
+                  You don&apos;t have a broker profile yet. Create one to get your own WIP
+                  sheet, track deals, and appear in broker performance reports.
+                </p>
+                {createProfileError && (
+                  <p className="text-sm text-red-600 mb-2">{createProfileError}</p>
+                )}
+                <button
+                  onClick={() => void handleCreateMyProfile()}
+                  disabled={creatingMyProfile}
+                  className="inline-flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                >
+                  <FiPlus size={16} />
+                  {creatingMyProfile ? 'Creating…' : 'Create My Broker Profile'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow p-4">
         <div className="grid grid-cols-3 gap-4">
