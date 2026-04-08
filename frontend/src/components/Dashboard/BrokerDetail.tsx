@@ -558,15 +558,48 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       try {
         const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
         const payload = (record as any)?.payload || {};
-        const content = String(
-          payload.content || JSON.stringify(payload.filledContent || {}, null, 2)
-        );
         const fileName = String(
           payload.filledDocumentName ||
             preferredStatusDocument?.filledDocumentName ||
             record.name ||
             'filled-document'
         ).trim();
+
+        // Resolve display content from filled text, field values, or original document
+        let docContent = String(payload.content || '').trim();
+        let docFileType: 'pdf' | 'txt' = 'txt';
+        let docFilePath: string | undefined;
+
+        if (!docContent) {
+          const filledFields = (payload.filledContent || {}) as Record<string, string>;
+          const entries = Object.entries(filledFields).filter(([, v]) => String(v || '').trim());
+          if (entries.length > 0) {
+            docContent = entries
+              .map(([key, val]) => `${key.replace(/[_[\]]+/g, ' ').trim()}: ${val}`)
+              .join('\n\n');
+          }
+        }
+
+        if (!docContent) {
+          const originalDocId = String(payload.originalDocId || record.referenceId || '').trim();
+          if (originalDocId) {
+            try {
+              const originalDoc = await legalDocService.getDocumentById(originalDocId);
+              if (
+                originalDoc.fileType === 'pdf' &&
+                originalDoc.filePath &&
+                !String(originalDoc.filePath).startsWith('blob:')
+              ) {
+                docFileType = 'pdf';
+                docFilePath = originalDoc.filePath;
+              } else if (originalDoc.content) {
+                docContent = originalDoc.content;
+              }
+            } catch {
+              // ignore, will show fallback
+            }
+          }
+        }
 
         const today = new Date().toISOString().split('T')[0];
 
@@ -587,8 +620,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           permissions: [],
           tags: [],
           version: 1,
-          content,
-          fileType: 'txt',
+          content: docContent,
+          fileType: docFileType,
+          filePath: docFilePath,
         });
       } catch (error) {
         setRowErrors(current => ({
@@ -628,15 +662,49 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       try {
         const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
         const payload = (record as any)?.payload || {};
-        const content = String(
-          payload.content || JSON.stringify(payload.filledContent || {}, null, 2)
-        );
         const fileName = String(
           payload.filledDocumentName ||
             statusDoc.filledDocumentName ||
             record.name ||
             'filled-document'
         ).trim();
+
+        // Resolve display content from filled text, field values, or original document
+        let docContent = String(payload.content || '').trim();
+        let docFileType: 'pdf' | 'txt' = 'txt';
+        let docFilePath: string | undefined;
+
+        if (!docContent) {
+          const filledFields = (payload.filledContent || {}) as Record<string, string>;
+          const entries = Object.entries(filledFields).filter(([, v]) => String(v || '').trim());
+          if (entries.length > 0) {
+            docContent = entries
+              .map(([key, val]) => `${key.replace(/[_[\]]+/g, ' ').trim()}: ${val}`)
+              .join('\n\n');
+          }
+        }
+
+        if (!docContent) {
+          const originalDocId = String(payload.originalDocId || record.referenceId || '').trim();
+          if (originalDocId) {
+            try {
+              const originalDoc = await legalDocService.getDocumentById(originalDocId);
+              if (
+                originalDoc.fileType === 'pdf' &&
+                originalDoc.filePath &&
+                !String(originalDoc.filePath).startsWith('blob:')
+              ) {
+                docFileType = 'pdf';
+                docFilePath = originalDoc.filePath;
+              } else if (originalDoc.content) {
+                docContent = originalDoc.content;
+              }
+            } catch {
+              // ignore, will show fallback
+            }
+          }
+        }
+
         const today = new Date().toISOString().split('T')[0];
         setSelectedViewDocument({
           id: filledDocumentRecordId,
@@ -655,8 +723,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           permissions: [],
           tags: [],
           version: 1,
-          content,
-          fileType: 'txt',
+          content: docContent,
+          fileType: docFileType,
+          filePath: docFilePath,
         });
       } catch (error) {
         setRowErrors(current => ({
