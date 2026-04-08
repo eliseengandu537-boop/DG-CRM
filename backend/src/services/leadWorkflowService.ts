@@ -907,7 +907,9 @@ export class LeadWorkflowService {
       const dealWasExisting = Boolean(existingDealRecord);
       const dealActivityAt = new Date();
 
-      if (statusRequiresWorkflowDocument(resolvedDealStatus) && !legalDocumentId) {
+      // Only enforce document requirement when updating an existing deal's status.
+      // On initial creation (linking a lead to stock), the document can be attached later.
+      if (dealWasExisting && statusRequiresWorkflowDocument(resolvedDealStatus) && !legalDocumentId) {
         throw new Error(
           `Legal document is required for ${getDealStatusLabel(resolvedDealStatus)}`
         );
