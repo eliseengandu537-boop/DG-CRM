@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Broker } from './BrokerCard';
 import { BrokerWipItem } from '@/services/brokerPerformanceService';
 import { forecastDealApiService } from '@/services/forecastDealService';
+import { dealService } from '@/services/dealService';
 import { legalDocService } from '@/services/legalDocService';
 import { leadService } from '@/services/leadService';
 import { customRecordService } from '@/services/customRecordService';
@@ -317,7 +318,16 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     if (!confirm(`Delete "${parseDealTitle(item.dealName).dealName}"? This cannot be undone.`)) return;
     setDeletingId(item.id);
     try {
-      await forecastDealApiService.deleteForecastDeal(item.id);
+      // Delete forecast deal if it exists
+      const forecastId = item.forecastDealId || (item.dealId ? undefined : item.id);
+      if (forecastId) {
+        await forecastDealApiService.deleteForecastDeal(forecastId).catch(() => {});
+      }
+      // Delete the underlying deal if it exists
+      const dealId = item.dealId || (item.forecastDealId ? item.id : undefined);
+      if (dealId) {
+        await dealService.deleteDeal(dealId).catch(() => {});
+      }
       setRows(prev => prev.filter(r => r.id !== item.id));
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to delete deal');
