@@ -24,6 +24,7 @@
 
 # SSH keys
 dgm.txt
+dgm.text
 *.key
 id_rsa*
 
