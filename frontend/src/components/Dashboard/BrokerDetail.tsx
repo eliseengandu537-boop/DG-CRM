@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FiArrowLeft, FiFilter, FiSearch } from 'react-icons/fi';
+import { FiArrowLeft, FiFilter, FiSearch, FiTrash2 } from 'react-icons/fi';
+import { useAuth } from '@/context/AuthContext';
 import { Broker } from './BrokerCard';
 import { BrokerWipItem } from '@/services/brokerPerformanceService';
 import { forecastDealApiService } from '@/services/forecastDealService';
@@ -281,6 +282,8 @@ function pickPreferredStatusDocument(item: BrokerWipItem): WipStatusDocument | n
 
 export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipSheets = [] }) => {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedDealType, setSelectedDealType] = useState<string>('all');
   const [wipSearchQuery, setWipSearchQuery] = useState<string>('');
@@ -303,11 +306,25 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [outcomeReminders, setOutcomeReminders] = useState<ReminderRecord[]>([]);
   const [dismissedReminderIds, setDismissedReminderIds] = useState<Set<string>>(new Set());
   const [actioningReminderIds, setActioningReminderIds] = useState<Set<string>>(new Set());
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     setRows(wipSheets);
     setRowErrors({});
   }, [wipSheets]);
+
+  const handleDeleteDeal = async (item: BrokerWipItem) => {
+    if (!confirm(`Delete "${parseDealTitle(item.dealName).dealName}"? This cannot be undone.`)) return;
+    setDeletingId(item.id);
+    try {
+      await forecastDealApiService.deleteForecastDeal(item.id);
+      setRows(prev => prev.filter(r => r.id !== item.id));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete deal');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -1146,6 +1163,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Closure Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Document</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Comment</th>
+                  {isAdmin && (
+                    <th className="px-6 py-4 text-center text-xs font-semibold text-stone-700 uppercase tracking-wider">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-200">
@@ -1363,6 +1383,19 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           )}
                         </div>
                       </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => { void handleDeleteDeal(item); }}
+                            disabled={deletingId === item.id}
+                            className="p-1.5 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                            title="Delete deal"
+                          >
+                            <FiTrash2 size={15} className="text-red-500" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
