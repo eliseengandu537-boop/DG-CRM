@@ -2,7 +2,6 @@ import { PaginatedResponse, Reminder, User } from '@/types';
 import { CreateReminderInput, UpdateReminderInput } from '@/validators';
 import { prisma } from '@/lib/prisma';
 import { auditLogService } from '@/services/auditLogService';
-import { canAccessPrivateBrokerData } from '@/lib/departmentAccess';
 
 type ReminderRecord = Awaited<ReturnType<typeof prisma.reminder.findFirst>> & {
   deal?: { id: string; title: string } | null;
@@ -80,18 +79,8 @@ function parseDateOrThrow(value: string, fieldName: string): Date {
 }
 
 function applyScope(where: any, scope: ReminderScope) {
-  if (scope.role !== 'broker') {
-    return;
-  }
-
-  const effectiveBrokerId = scope.brokerId || scope.userId;
-  const scoped = {
-    OR: [
-      { brokerId: effectiveBrokerId },
-      { assignedUserId: scope.userId },
-      { createdByUserId: scope.userId },
-    ],
-  };
+  // Every user only sees reminders they created — private by design
+  const scoped = { createdByUserId: scope.userId };
 
   if (where.AND) {
     where.AND = Array.isArray(where.AND) ? [...where.AND, scoped] : [where.AND, scoped];
@@ -103,18 +92,8 @@ function applyScope(where: any, scope: ReminderScope) {
 
 function canAccessReminder(record: ReminderRecord, scope: ReminderScope): boolean {
   if (!record) return false;
-  if (scope.role === 'admin' || scope.role === 'manager') {
-    return true;
-  }
-
-  return canAccessPrivateBrokerData(
-    {
-      role: scope.role,
-      brokerId: scope.brokerId,
-      id: scope.userId,
-    },
-    record.brokerId
-  );
+  // Every user can only access reminders they created — private by design
+  return record.createdByUserId === scope.userId;
 }
 
 export class ReminderService {

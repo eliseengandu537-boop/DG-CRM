@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiDownload, FiEdit2, FiSave, FiX } from 'react-icons/fi';
 import { DocumentLinkedDeal, LegalDocument } from '@/data/legaldocs';
 import PDFViewer from './PDFViewer';
@@ -87,6 +87,7 @@ export default function DocumentDetail({
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(initialDocument.content || '');
   const [filledContent, setFilledContent] = useState<Record<string, string>>({});
+  const prevDocIdRef = useRef<string>(initialDocument.id);
 
   const [isLoadingDeals, setIsLoadingDeals] = useState(false);
   const [dealLoadError, setDealLoadError] = useState<string | null>(null);
@@ -98,11 +99,43 @@ export default function DocumentDetail({
   const [isFinalizingStatus, setIsFinalizingStatus] = useState(false);
 
   useEffect(() => {
+    const isNewDocument = initialDocument.id !== prevDocIdRef.current;
+    prevDocIdRef.current = initialDocument.id;
     setDocument(normalizeDocument(initialDocument));
     setEditedContent(initialDocument.content || '');
-    setFilledContent({});
+    // Only reset filled values when switching to a different document, not when the same
+    // document updates (e.g. after linking a deal updates its linkedDeals array)
+    if (isNewDocument) {
+      setFilledContent({});
+    }
     setIsEditing(false);
   }, [initialDocument]);
+
+  // Load previously saved filled-document record so the user sees their filled values on reopen
+  useEffect(() => {
+    if (!document.id) return;
+    let active = true;
+    customRecordService
+      .getAllCustomRecords({ entityType: 'filled-document', limit: 500 })
+      .then(result => {
+        if (!active) return;
+        const latest = result.data
+          .filter(r => r.referenceId === document.id)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        if (latest?.payload) {
+          const payload = latest.payload as Record<string, unknown>;
+          const savedFields = payload.filledContent;
+          if (savedFields && typeof savedFields === 'object' && !Array.isArray(savedFields)) {
+            setFilledContent(savedFields as Record<string, string>);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document.id]);
 
   useEffect(() => {
     setStatusComment(redirectFlow?.initialComment || '');
@@ -512,7 +545,7 @@ export default function DocumentDetail({
             ) : (
               <div className="flex-1 overflow-y-auto flex flex-col gap-4">
                 <div className="p-5 bg-stone-50 rounded border border-stone-200 font-mono text-base whitespace-pre-wrap text-stone-700 leading-relaxed">
-                  {editedContent || 'No content available. Click Edit to add content.'}
+                  {replaceFieldTokens(editedContent, filledContent) || 'No content available. Click Edit to add content.'}
                 </div>
 
                 {requiredFields.length > 0 && (

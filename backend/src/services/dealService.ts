@@ -403,6 +403,7 @@ export class DealService {
       status?: string;
       type?: string;
       brokerId?: string;
+      propertyId?: string;
       wip?: boolean;
       page?: number;
       limit?: number;
@@ -418,6 +419,7 @@ export class DealService {
     }
     if (filters?.type) where.type = filters.type;
     if (filters?.brokerId) where.brokerId = filters.brokerId;
+    if (filters?.propertyId) where.propertyId = filters.propertyId;
     if (filters?.wip) {
       where.status = {
         notIn: WIP_EXCLUDED_STATUSES,

@@ -74,6 +74,7 @@ export interface LeadFilters {
   search?: string;
   broker?: string;
   brokerId?: string;
+  moduleType?: string;
 }
 
 export interface PaginatedLeads {

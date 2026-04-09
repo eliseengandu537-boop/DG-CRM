@@ -257,9 +257,12 @@ export const BrokerProfiles: React.FC = () => {
     }
   };
 
-  const filteredBrokers = BROKERS.filter(broker =>
-    broker.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredBrokers = BROKERS.filter(broker => {
+    if (!broker.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    // Hide the current user's own card from the list when it's already shown in "My Profile"
+    if (isPrivileged && myBrokerProfile && broker.id === myBrokerProfile.id) return false;
+    return true;
+  });
 
   const sortedBrokers = [...filteredBrokers].sort((a, b) => {
     if (sortBy === 'name') {

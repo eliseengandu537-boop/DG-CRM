@@ -34,6 +34,7 @@ export class DealController {
         status: req.query.status as string,
         type: req.query.type as string,
         brokerId: req.query.brokerId as string,
+        propertyId: req.query.propertyId as string,
         wip: isWipFilter,
         page: Math.max(1, parseInt(req.query.page as string) || 1),
         limit: Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10)),

@@ -19,6 +19,7 @@ export interface BrokerWipItem {
   forecastDealId?: string;
   dealId?: string;
   leadId?: string;
+  leadName?: string;
   brokerId?: string;
   propertyId?: string;
   dealName: string;
@@ -395,6 +396,7 @@ export async function fetchBrokerPerformanceMap(): Promise<
       forecastDealId: linkedForecast?.id,
       dealId: deal.id,
       leadId: linkedLeadId || leadFromDeal?.leadId || undefined,
+      leadName: linkedLead?.name || undefined,
       brokerId,
       propertyId: deal.propertyId || undefined,
       dealName: linkedForecast?.title || deal.title,

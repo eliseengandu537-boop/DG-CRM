@@ -720,19 +720,6 @@ export class BrokerService {
     );
   }
 
-  async getBrokerByEmail(email: string): Promise<Broker | undefined> {
-    const broker = await prisma.broker.findUnique({
-      where: { email: email.trim().toLowerCase() },
-    });
-    if (!broker) return undefined;
-
-    const metricsByBrokerId = await this.getBillingMetricsByBrokerIds([
-      { id: broker.id, billingTarget: broker.billingTarget },
-    ]);
-
-    return mapBroker(broker, metricsByBrokerId.get(broker.id));
-  }
-
   private generateTemporaryPassword(): string {
     return generateRandomString(10);
   }

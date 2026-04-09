@@ -6,6 +6,8 @@ import { Property } from '../../data/properties';
 import { propertyService } from '@/services/propertyService';
 import { contactService } from '@/services/contactService';
 import { customRecordService } from '@/services/customRecordService';
+import { dealService } from '@/services/dealService';
+import { leadService } from '@/services/leadService';
 import { useAuth } from '@/context/AuthContext';
 
 interface PropertyPinProps {
@@ -29,7 +31,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
   const { user } = useAuth();
   const [expandedSection, setExpandedSection] = useState<Section | null>('details');
 
-  // Local copies of linked data
+  // Local copies of linked data (metadata-backed)
   const [linkedDeals, setLinkedDeals] = useState<Property['linkedDeals']>(property.linkedDeals || []);
   const [linkedContacts, setLinkedContacts] = useState<NonNullable<Property['linkedContacts']>>(property.linkedContacts || []);
   const [linkedDocuments, setLinkedDocuments] = useState<NonNullable<Property['linkedDocuments']>>(property.linkedDocuments || []);
@@ -40,6 +42,14 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
     (property.leasingSalesRecords || []).filter((r) => r.recordType === 'Sale')
   );
   const [auctionRecords, setAuctionRecords] = useState<NonNullable<Property['auctionRecords']>>(property.auctionRecords || []);
+
+  // Live backend data from deals
+  const [liveDeals, setLiveDeals] = useState<any[]>([]);
+  const [liveLeads, setLiveLeads] = useState<any[]>([]);
+  const [liveContacts, setLiveContacts] = useState<any[]>([]);
+  const [liveDealDocuments, setLiveDealDocuments] = useState<any[]>([]);
+  const [liveCompanyName, setLiveCompanyName] = useState<string | undefined>(undefined);
+  const [liveFundName, setLiveFundName] = useState<string | undefined>(undefined);
 
   // Comments
   const [comments, setComments] = useState<Comment[]>([]);
@@ -67,17 +77,25 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
 
   const [saving, setSaving] = useState(false);
 
-  // Load comments + available contacts on mount
+  // Load comments + available contacts + live deal data on mount
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const [commentResult, contactResult] = await Promise.all([
+      const [commentResult, contactResult, dealResult, assetResult] = await Promise.all([
         customRecordService
           .getAllCustomRecords({ entityType: 'property_comment', limit: 500 })
           .catch(() => ({ data: [] })),
         contactService.getAllContacts({ limit: 1000 }).catch(() => ({ data: [] })),
+        property.id
+          ? dealService.getAllDeals({ propertyId: property.id, limit: 100 }).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+        customRecordService
+          .getAllCustomRecords({ entityType: 'asset', limit: 500 })
+          .catch(() => ({ data: [] })),
       ]);
       if (!mounted) return;
+
+      // Comments
       const propertyComments: Comment[] = (commentResult.data || [])
         .filter((r: any) => r.referenceId === property.id || (r.payload as any)?.propertyId === property.id)
         .map((r: any) => ({
@@ -88,6 +106,8 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
         }))
         .sort((a: Comment, b: Comment) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       setComments(propertyComments);
+
+      // Available contacts for picker
       setAvailableContacts(
         (contactResult.data || []).map((c: any) => ({
           id: c.id,
@@ -97,10 +117,92 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
           company: c.company,
         }))
       );
+
+      // Live deals linked to this property
+      const deals = Array.isArray(dealResult.data) ? dealResult.data : [];
+      setLiveDeals(deals);
+
+      // Collect all unique lead IDs from deals
+      const leadIds = Array.from(new Set(deals.map((d: any) => d.leadId).filter(Boolean)));
+      if (leadIds.length > 0) {
+        const leadResults = await Promise.allSettled(
+          leadIds.map((id: string) => leadService.getLeadById(id))
+        );
+        if (!mounted) return;
+        const leads = leadResults
+          .filter((r) => r.status === 'fulfilled')
+          .map((r: any) => r.value);
+        setLiveLeads(leads);
+
+        // Collect contacts from leads
+        const contactIds = Array.from(new Set(leads.map((l: any) => l.contactId).filter(Boolean)));
+        if (contactIds.length > 0) {
+          const contactFetches = await Promise.allSettled(
+            contactIds.map((id: string) => contactService.getContactById(id))
+          );
+          if (!mounted) return;
+          setLiveContacts(
+            contactFetches
+              .filter((r) => r.status === 'fulfilled')
+              .map((r: any) => r.value)
+          );
+        }
+      }
+
+      // Collect legal documents from deals
+      const docs: any[] = [];
+      const seenDocIds = new Set<string>();
+      for (const deal of deals) {
+        if (deal.legalDocument && !seenDocIds.has(deal.legalDocument.id)) {
+          seenDocIds.add(deal.legalDocument.id);
+          docs.push({
+            id: deal.legalDocument.id,
+            name: deal.legalDocument.documentName,
+            type: deal.legalDocument.fileType || 'Legal Document',
+            url: deal.legalDocument.filePath || '',
+            description: `Deal: ${deal.title}`,
+            uploadDate: deal.createdAt,
+            fromDeal: true,
+          });
+        }
+        for (const sd of deal.statusDocuments || []) {
+          if (sd.legalDocument && !seenDocIds.has(sd.legalDocument.id)) {
+            seenDocIds.add(sd.legalDocument.id);
+            docs.push({
+              id: sd.legalDocument.id,
+              name: sd.legalDocument.documentName,
+              type: sd.legalDocument.documentType || 'Legal Document',
+              url: sd.legalDocument.filePath || '',
+              description: `Deal: ${deal.title} — Status: ${sd.status}`,
+              uploadDate: sd.uploadedAt,
+              fromDeal: true,
+            });
+          }
+        }
+      }
+      setLiveDealDocuments(docs);
+
+      // Try to find company/fund from linked asset custom records
+      const assets = Array.isArray(assetResult.data) ? assetResult.data : [];
+      const linkedAsset = assets.find(
+        (a: any) =>
+          (a.payload?.propertyAddress &&
+            String(a.payload.propertyAddress).toLowerCase() === property.address.toLowerCase()) ||
+          (a.referenceId && a.referenceId === property.id)
+      );
+      if (linkedAsset) {
+        const p = linkedAsset.payload || {};
+        if (p.linkedFundId || p.fundName || linkedAsset.name) {
+          setLiveFundName(p.fundName || linkedAsset.name || undefined);
+        }
+        if (p.companyName) {
+          setLiveCompanyName(p.companyName);
+        }
+      }
     };
     void load();
     return () => { mounted = false; };
-  }, [property.id]);
+  }, [property.id, property.address]);
 
   // Build full metadata for saving
   const buildMetadata = useCallback(
@@ -411,7 +513,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
 
           {/* Linked Deals */}
           <div className="border border-stone-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
-            <SectionHeader section="deals" icon="📋" title="Linked Deals" count={linkedDeals.length} onAdd={() => setShowAddDeal((v) => !v)} />
+            <SectionHeader section="deals" icon="📋" title="Linked Deals" count={linkedDeals.length + liveDeals.length} onAdd={() => setShowAddDeal((v) => !v)} />
             {expandedSection === 'deals' && (
               <div className="p-4 bg-white space-y-3">
                 {showAddDeal && (
@@ -449,7 +551,26 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                       </div>
                     </div>
                   ))
-                ) : (
+                ) : null}
+                {liveDeals.map((deal) => (
+                  <div key={deal.id} className="bg-gradient-to-r from-violet-50 to-indigo-50 border-2 border-violet-300 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-stone-900">{deal.title}</h4>
+                        <span className="text-xs text-violet-500 font-medium">From CRM Deal</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-violet-600 text-white text-xs px-2 py-0.5 rounded-full capitalize">{deal.type}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${deal.status === 'Closed' || deal.status === 'Won' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{deal.status}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="border-l-2 border-violet-400 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Value</p><p className="font-bold text-stone-900 mt-0.5">R {Number(deal.value || 0).toLocaleString('en-ZA')}</p></div>
+                      {deal.assignedBrokerName && <div className="border-l-2 border-indigo-400 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Broker</p><p className="font-bold text-stone-900 mt-0.5">{deal.assignedBrokerName}</p></div>}
+                    </div>
+                  </div>
+                ))}
+                {linkedDeals.length === 0 && liveDeals.length === 0 && (
                   <p className="text-stone-500 text-sm text-center py-4">No linked deals — click + to add one</p>
                 )}
               </div>
@@ -458,7 +579,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
 
           {/* Linked Contacts */}
           <div className="border border-stone-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
-            <SectionHeader section="contacts" icon="👥" title="Linked Contacts" count={linkedContacts.length} onAdd={() => setShowAddContact((v) => !v)} />
+            <SectionHeader section="contacts" icon="👥" title="Linked Contacts" count={linkedContacts.length + liveContacts.length} onAdd={() => setShowAddContact((v) => !v)} />
             {expandedSection === 'contacts' && (
               <div className="p-4 bg-white space-y-3">
                 {showAddContact && (
@@ -496,12 +617,57 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                       </div>
                     </div>
                   ))
-                ) : (
+                ) : null}
+                {liveContacts.map((contact) => (
+                  <div key={contact.id} className="bg-gradient-to-r from-teal-50 to-cyan-50 border-2 border-teal-300 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-1">
+                      <div>
+                        <h4 className="font-bold text-stone-900">{contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}</h4>
+                        <span className="text-xs text-teal-600 font-medium">From Deal</span>
+                      </div>
+                      {contact.type && <span className="bg-teal-100 text-teal-700 text-xs px-2 py-0.5 rounded-full">{contact.type}</span>}
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      {contact.email && <div className="flex items-center gap-2"><span className="text-xs text-stone-600 uppercase font-semibold w-16">Email:</span><a href={`mailto:${contact.email}`} className="text-indigo-600 hover:underline">{contact.email}</a></div>}
+                      {contact.phone && <div className="flex items-center gap-2"><span className="text-xs text-stone-600 uppercase font-semibold w-16">Phone:</span><a href={`tel:${contact.phone}`} className="text-indigo-600 hover:underline">{contact.phone}</a></div>}
+                      {contact.company && <div className="flex items-center gap-2"><span className="text-xs text-stone-600 uppercase font-semibold w-16">Company:</span><span className="text-stone-700">{contact.company}</span></div>}
+                    </div>
+                  </div>
+                ))}
+                {linkedContacts.length === 0 && liveContacts.length === 0 && (
                   <p className="text-stone-500 text-sm text-center py-4">No linked contacts — click + to link one</p>
                 )}
               </div>
             )}
           </div>
+
+          {/* Leads from Deals */}
+          {liveLeads.length > 0 && (
+            <div className="border border-stone-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+              <SectionHeader section="contacts" icon="🎯" title="Linked Leads" count={liveLeads.length} />
+              {expandedSection === 'contacts' && (
+                <div className="p-4 bg-white space-y-3">
+                  {liveLeads.map((lead) => (
+                    <div key={lead.id} className="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h4 className="font-bold text-stone-900">{lead.name}</h4>
+                          <span className="text-xs text-amber-600 font-medium">From Deal</span>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${lead.status === 'Won' ? 'bg-green-100 text-green-700' : lead.status === 'Lost' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{lead.status}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        {lead.email && <div className="border-l-2 border-amber-400 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Email</p><a href={`mailto:${lead.email}`} className="font-medium text-indigo-600 hover:underline mt-0.5 block truncate">{lead.email}</a></div>}
+                        {lead.phone && <div className="border-l-2 border-yellow-400 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Phone</p><a href={`tel:${lead.phone}`} className="font-medium text-indigo-600 hover:underline mt-0.5 block">{lead.phone}</a></div>}
+                        {lead.dealType && <div className="border-l-2 border-orange-400 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Deal Type</p><p className="font-bold text-stone-900 mt-0.5">{lead.dealType}</p></div>}
+                        {lead.value != null && <div className="border-l-2 border-amber-500 pl-3"><p className="text-xs text-stone-600 uppercase font-semibold">Value</p><p className="font-bold text-stone-900 mt-0.5">R {Number(lead.value).toLocaleString('en-ZA')}</p></div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Linked Company & Fund */}
           <div className="grid grid-cols-2 gap-4">
@@ -510,10 +676,22 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                 <h3 className="font-bold text-stone-900 flex items-center gap-2">🏢 Linked Company</h3>
               </div>
               <div className="p-6 bg-white">
-                {property.linkedCompanyName ? (
+                {(property.linkedCompanyName || liveCompanyName) ? (
                   <div>
                     <p className="text-xs text-stone-600 uppercase font-semibold mb-2">Company Name</p>
-                    <p className="font-bold text-stone-900 text-base">{property.linkedCompanyName}</p>
+                    <p className="font-bold text-stone-900 text-base">{property.linkedCompanyName || liveCompanyName}</p>
+                  </div>
+                ) : liveDeals.length > 0 ? (
+                  <div className="space-y-2">
+                    {liveDeals.filter((d) => d.assignedBrokerName).slice(0, 1).map((d) => (
+                      <div key={d.id}>
+                        <p className="text-xs text-stone-600 uppercase font-semibold mb-1">Via Deal</p>
+                        <p className="font-bold text-stone-900 text-sm">{d.title}</p>
+                      </div>
+                    ))}
+                    {!liveDeals.some((d) => d.assignedBrokerName) && (
+                      <p className="text-stone-500 text-sm text-center py-4">No linked company</p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-stone-500 text-sm text-center py-4">No linked company</p>
@@ -525,10 +703,10 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                 <h3 className="font-bold text-stone-900 flex items-center gap-2">💰 Linked Fund</h3>
               </div>
               <div className="p-6 bg-white">
-                {property.linkedFundName ? (
+                {(property.linkedFundName || liveFundName) ? (
                   <div>
                     <p className="text-xs text-stone-600 uppercase font-semibold mb-2">Fund Name</p>
-                    <p className="font-bold text-stone-900 text-base">{property.linkedFundName}</p>
+                    <p className="font-bold text-stone-900 text-base">{property.linkedFundName || liveFundName}</p>
                   </div>
                 ) : (
                   <p className="text-stone-500 text-sm text-center py-4">No linked fund</p>
@@ -663,7 +841,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
 
           {/* Linked Documents */}
           <div className="border border-stone-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
-            <SectionHeader section="documents" icon="📄" title="Linked Documents" count={linkedDocuments.length} onAdd={() => setShowAddDocument((v) => !v)} />
+            <SectionHeader section="documents" icon="📄" title="Linked Documents" count={linkedDocuments.length + liveDealDocuments.length} onAdd={() => setShowAddDocument((v) => !v)} />
             {expandedSection === 'documents' && (
               <div className="p-4 bg-white space-y-3">
                 {showAddDocument && (
@@ -700,7 +878,24 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                       </div>
                     </div>
                   ))
-                ) : (
+                ) : null}
+                {liveDealDocuments.map((doc) => (
+                  <div key={doc.id} className="rounded-lg p-4 border-2 bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-300">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-stone-900">📄 {doc.name}</h4>
+                        <span className="text-xs text-emerald-600 font-medium">From Deal</span>
+                      </div>
+                      <span className="bg-emerald-200 text-emerald-800 text-xs px-2 py-0.5 rounded">{doc.type}</span>
+                    </div>
+                    {doc.description && <p className="text-sm text-stone-600 mb-2">{doc.description}</p>}
+                    <div className="flex justify-between items-center text-xs text-stone-500">
+                      <span>Added: {new Date(doc.uploadDate).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                      {doc.url && <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">View →</a>}
+                    </div>
+                  </div>
+                ))}
+                {linkedDocuments.length === 0 && liveDealDocuments.length === 0 && (
                   <p className="text-stone-500 text-sm text-center py-4">No documents linked — click + to add one</p>
                 )}
               </div>

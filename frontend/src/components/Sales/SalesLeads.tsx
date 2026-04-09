@@ -584,10 +584,6 @@ export const SalesLeads: React.FC = () => {
       alert("Please fill in name and email fields");
       return;
     }
-    if (!newLead.contactId) {
-      alert("Please select a sales contact or investor");
-      return;
-    }
     if (!newLead.notes) {
       alert("Notes/Comments section is mandatory");
       return;
@@ -616,11 +612,11 @@ export const SalesLeads: React.FC = () => {
         closingTimeline: newLead.closingTimeline,
         notes: newLead.notes,
         comment: newLead.notes,
-        contactId: newLead.contactId,
-        brokerAssigned: newLead.brokerAssigned,
-        additionalBroker: newLead.additionalBroker,
+        contactId: newLead.contactId || undefined,
+        brokerAssigned: newLead.brokerAssigned || undefined,
+        additionalBroker: newLead.additionalBroker || undefined,
         commissionSplit: newLead.commissionSplit,
-        propertyAddress: newLead.propertyInterest,
+        propertyAddress: newLead.propertyInterest || undefined,
         leadType: "Sales",
         moduleType: "sales",
         legalDocumentId: (newLead as any).legalDocumentId || undefined,
@@ -888,13 +884,13 @@ export const SalesLeads: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h3 className="text-xl font-bold text-stone-900 mb-1">Add New Sales Lead</h3>
-              <p className="text-stone-600 text-sm mb-6">Link to a sales contact or investor and fill in the lead details</p>
+              <p className="text-stone-600 text-sm mb-6">Select an existing contact (investor) to convert to a lead</p>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Contact Selection */}
+                {/* Contact / Investor Selection */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-2">
-                    Search Sales Contacts / Investors *
+                    Select Contact / Investor <span className="text-red-500">*</span>
                   </label>
                   <div className="space-y-2">
                     <input
@@ -905,7 +901,7 @@ export const SalesLeads: React.FC = () => {
                       className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     />
                     {contactSearchQuery && (
-                      <div className="border border-stone-200 rounded-lg max-h-40 overflow-y-auto">
+                      <div className="border border-stone-200 rounded-lg max-h-48 overflow-y-auto shadow-sm">
                         {filteredContacts.length > 0 ? (
                           filteredContacts.map((contact) => (
                             <button
@@ -921,21 +917,29 @@ export const SalesLeads: React.FC = () => {
                                 });
                                 setContactSearchQuery("");
                               }}
-                              className="w-full text-left px-4 py-2 hover:bg-stone-50 border-b border-stone-200 last:border-b-0"
+                              className="w-full text-left px-4 py-2 hover:bg-violet-50 border-b border-stone-100 last:border-b-0 transition-colors"
                             >
                               <p className="font-medium text-stone-900">{contact.firstName} {contact.lastName}</p>
-                              <p className="text-xs text-stone-600">{contact.email}</p>
+                              <p className="text-xs text-stone-500">{contact.email}{contact.company ? ` · ${contact.company}` : ""}</p>
                             </button>
                           ))
                         ) : (
-                          <p className="px-4 py-2 text-sm text-stone-600">No contacts found</p>
+                          <p className="px-4 py-3 text-sm text-stone-500">No contacts found</p>
                         )}
                       </div>
                     )}
-                    {newLead.contactId && (
-                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-                        ✓ Contact selected: {newLead.name}
+                    {newLead.contactId ? (
+                      <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg flex justify-between items-center">
+                        <span className="text-sm text-violet-700 font-medium">✓ {newLead.name}{newLead.company ? ` · ${newLead.company}` : ""}</span>
+                        <button
+                          onClick={() => setNewLead({ ...newLead, contactId: "", name: "", email: "", phone: "", company: "" })}
+                          className="text-xs text-stone-400 hover:text-red-500 transition-colors"
+                        >
+                          Clear
+                        </button>
                       </div>
+                    ) : (
+                      <p className="text-xs text-stone-400">Start typing to search contacts already in the CRM</p>
                     )}
                   </div>
                 </div>

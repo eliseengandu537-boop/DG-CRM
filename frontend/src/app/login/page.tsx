@@ -3,54 +3,52 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import {
-  FiLock,
-  FiMail,
-  FiMonitor,
-  FiSmartphone,
-} from "react-icons/fi";
+import { FiLock, FiMail, FiArrowRight, FiShield, FiTrendingUp, FiLayers } from "react-icons/fi";
 
 const HERO_IMAGES = [
-  "/twilight-real-estate-photography-tnhometour-com-img~460146a40a667d5a_9-7068-1-7208b0c.jpg",
-  "/1100xxs.webp",
-  "/main.jpg",
+  "/back1.jpg",
+  "/back2.jpg",
+  "/back3.jpg",
+  "/back4.jpg",
+  "/back5.jpg",
+  "/back6.jpg",
+  "/back7.jpg",
+  "/back8.jpg",
+  "/back9.jpg",
+  "/back10.jpg",
+];
+
+const FEATURES = [
+  { icon: FiTrendingUp, label: "Deal pipeline & WIP tracking" },
+  { icon: FiLayers,     label: "Properties, stock & asset management" },
+  { icon: FiShield,     label: "Role-based secure access" },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
-  const {
-    login,
-    error: authError,
-    clearError,
-    isAuthenticated,
-    isLoading: authLoading,
-  } = useAuth();
+  const { login, error: authError, clearError, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail]           = useState("");
+  const [password, setPassword]     = useState("");
+  const [loading, setLoading]       = useState(false);
   const [activeImage, setActiveImage] = useState(0);
-  const [showLoginCard, setShowLoginCard] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => {
       setActiveImage((current) => (current + 1) % HERO_IMAGES.length);
     }, 6000);
-
     return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      router.replace("/");
-    }
+    if (!authLoading && isAuthenticated) router.replace("/");
   }, [authLoading, isAuthenticated, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     clearError();
     setLoading(true);
-
     try {
       await login(email.trim(), password);
     } catch {
@@ -60,208 +58,230 @@ export default function LoginPage() {
     }
   };
 
-  const revealLoginCard = () => {
-    setShowLoginCard(true);
-    window.setTimeout(() => {
-      document
-        .getElementById("login-card")
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 80);
-  };
-
   return (
-    <div className="min-h-screen bg-[#e8edf3] text-slate-900">
-      <div className="min-h-screen w-full overflow-x-hidden">
-        <header className="sticky top-0 z-50 flex h-20 items-center justify-between border-b border-slate-200 bg-white px-5 sm:px-8 lg:px-12">
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-950">
+
+      {/* ════ LEFT PANEL — slideshow ════ */}
+      <div className="relative hidden flex-1 lg:flex">
+
+        {/* Slideshow images */}
+        {HERO_IMAGES.map((src, index) => (
+          <div
+            key={src}
+            className={`absolute inset-0 bg-cover bg-center transition-opacity duration-1000 ${
+              activeImage === index ? "opacity-100" : "opacity-0"
+            }`}
+            style={{ backgroundImage: `url(${src})` }}
+            aria-hidden="true"
+          />
+        ))}
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-950/40 to-slate-950/60" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent" />
+
+        {/* Overlaid content */}
+        <div className="relative z-10 flex h-full w-full flex-col justify-between p-10 xl:p-14">
+
+          {/* Logo */}
           <div className="flex items-center gap-4">
             <img
               src="/logo-colour (1).png"
               alt="De Gennaro Property"
-              className="h-11 w-auto object-contain"
+              className="h-20 w-auto object-contain drop-shadow-lg brightness-0 invert"
             />
-            <div className="hidden sm:block">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-400">
-                Digital Workspace
-              </p>
-              <p className="text-xl font-semibold leading-none text-slate-700">
-                Property management made accessible
-              </p>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-4xl font-semibold leading-none text-[#888e7d]">DG-property</p>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-400">
-              Commercial Property Platform
+            <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white/60">
+              Commercial Property
             </p>
           </div>
-        </header>
 
-        <div className="relative">
-          <section className="relative min-h-[500px] overflow-hidden px-4 py-10 sm:px-8 lg:min-h-[560px] lg:px-16">
-            {HERO_IMAGES.map((src, index) => (
-              <div
-                key={src}
-                className={`absolute inset-0 bg-cover bg-center transition-opacity duration-1000 ${
-                  activeImage === index ? "opacity-100" : "opacity-0"
-                }`}
-                style={{ backgroundImage: `url(${src})` }}
-                aria-hidden
-              />
-            ))}
-            <div className="absolute inset-0 bg-slate-950/45" />
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/30 via-slate-900/25 to-slate-900/55" />
-            <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center text-center text-white">
-              <span className="rounded-full border border-white/45 bg-white/10 px-6 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-white/95 backdrop-blur">
-                Welcome Back
-              </span>
-              <h1 className="mt-6 text-balance text-4xl font-light leading-tight sm:text-6xl">
-                Welcome to <span className="font-semibold">DG-property</span>
-              </h1>
-              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-100/95">
-                Everything you need to manage properties and track deals is right here.
-                <span className="block">
-                  Stay organized, move faster, and turn every opportunity into a closed deal.
-                </span>
-              </p>
+          {/* Tagline */}
+          <div>
+            <span className="inline-block rounded-full border border-white/30 bg-white/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] text-white/80 backdrop-blur-sm">
+              DG Property CRM Platform
+            </span>
+            <h1 className="mt-5 text-4xl font-light leading-tight text-white xl:text-5xl">
+              Every deal.<br />
+              Every property.<br />
+              <span className="font-bold">One workspace.</span>
+            </h1>
+            <p className="mt-4 max-w-sm text-base leading-7 text-white/70">
+              Manage your pipeline, track commissions, and close deals — all from a single, powerful platform.
+            </p>
+            <ul className="mt-8 space-y-3">
+              {FEATURES.map(({ icon: Icon, label }) => (
+                <li key={label} className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 backdrop-blur-sm">
+                    <Icon className="h-4 w-4 text-white" />
+                  </span>
+                  <span className="text-sm font-medium text-white/85">{label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-              <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
-                <a
-                  href="mailto:info@dg-property.co.za"
-                  className="inline-flex min-w-48 items-center justify-center rounded-md border border-white/55 px-8 py-3 text-xl font-semibold text-white transition hover:bg-white/10"
-                >
-                  Contact Us
-                </a>
+          {/* Dots + copyright */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1.5">
+              {HERO_IMAGES.map((_, i) => (
                 <button
+                  key={i}
                   type="button"
-                  onClick={revealLoginCard}
-                  className="inline-flex min-w-48 items-center justify-center rounded-md bg-emerald-400 px-8 py-3 text-xl font-semibold text-slate-900 transition hover:bg-emerald-300"
-                >
-                  Login
-                </button>
-              </div>
+                  onClick={() => setActiveImage(i)}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    activeImage === i ? "w-6 bg-white" : "w-1.5 bg-white/35"
+                  }`}
+                  aria-label={`Image ${i + 1}`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-white/40">
+              © {new Date().getFullYear()} De Gennaro Property
+            </p>
+          </div>
 
+        </div>
+        {/* end overlaid content */}
+      </div>
+      {/* end left panel */}
 
+      {/* ════ RIGHT PANEL — login form ════ */}
+      <div className="relative flex w-full flex-col justify-center overflow-hidden px-6 py-10 sm:px-10 lg:w-[420px] lg:shrink-0 xl:w-[480px]">
 
-              <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-                <span className="rounded-full border border-white/40 bg-white/12 px-5 py-2 text-sm font-semibold backdrop-blur">
-                  Secure sign-in
-                </span>
-                <span className="rounded-full border border-white/40 bg-white/12 px-5 py-2 text-sm font-semibold backdrop-blur">
-                  Desktop and tablet ready
-                </span>
-                <span className="rounded-full border border-white/40 bg-white/12 px-5 py-2 text-sm font-semibold backdrop-blur">
-                  Fast access to your workspace
-                </span>
+        {/* Background video */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 h-full w-full object-cover"
+          aria-hidden="true"
+        >
+          <source src="/dog.mp4" type="video/mp4" />
+        </video>
+
+        {/* White frosted overlay */}
+        <div className="absolute inset-0 bg-white/90 backdrop-blur-[2px]" />
+
+        {/* Form content */}
+        <div className="relative z-10 mx-auto w-full max-w-sm">
+
+          {/* Mobile logo */}
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <img
+              src="/logo-colour (1).png"
+              alt="De Gennaro Property"
+              className="h-9 w-auto object-contain"
+            />
+            <span className="text-lg font-bold text-slate-800">DG-property</span>
+          </div>
+
+          {/* Heading */}
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900">Welcome back</h2>
+            <p className="mt-2 text-sm text-slate-500">Sign in to your property workspace</p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Email */}
+            <div>
+              <label htmlFor="email" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Email address
+              </label>
+              <div className={`flex items-center gap-3 rounded-xl border bg-slate-50 px-4 py-3 transition-all focus-within:border-[#888e7d] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(136,142,125,0.12)] ${authError ? "border-red-300" : "border-slate-200"}`}>
+                <FiMail className="h-4 w-4 shrink-0 text-slate-400" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                  required
+                  placeholder="name@dg-property.co.za"
+                  className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                />
               </div>
             </div>
-          </section>
 
-          <section
-            className={`relative z-10 mx-auto -mt-10 grid max-w-5xl gap-5 px-3 pb-10 sm:px-6 lg:-mt-14 ${
-              showLoginCard ? "lg:grid-cols-[1.1fr,0.9fr] lg:items-stretch" : "lg:grid-cols-1"
-            }`}
-          >
-            <article className="h-full rounded-[34px] border border-slate-200 bg-white p-7 shadow-[0_20px_45px_rgba(15,23,42,0.1)] sm:p-8">
-              <span className="inline-flex rounded-full bg-[#888e7d]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-[#888e7d]">
-                Universally Accessible
-              </span>
-              <h2 className="mt-5 text-[clamp(1.8rem,2.8vw,2.55rem)] font-semibold leading-[1.1] text-slate-900">
-                Work from desktop, tablet, or wherever the day starts.
-              </h2>
-              <p className="mt-5 text-lg leading-8 text-slate-600">
-                Whether you're in the office or on the go, your deals, contacts, and properties
-                are always within reach — seamlessly optimised for any screen size.
-              </p>
-
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#888e7d] text-white shadow-[0_10px_20px_rgba(136,142,125,0.35)]">
-                    <FiMonitor className="h-7 w-7" />
-                  </div>
-                  <p className="mt-3 text-lg font-semibold text-slate-900">Desktop ready</p>
-                  <p className="mt-1 text-sm text-slate-600">Large-screen focused workflow for office users.</p>
-                </div>
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#888e7d] text-white shadow-[0_10px_20px_rgba(136,142,125,0.35)]">
-                    <FiSmartphone className="h-7 w-7" />
-                  </div>
-                  <p className="mt-3 text-lg font-semibold text-slate-900">Tablet friendly</p>
-                  <p className="mt-1 text-sm text-slate-600">Responsive layout for mobile and tablet access.</p>
-                </div>
+            {/* Password */}
+            <div>
+              <label htmlFor="password" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Password
+              </label>
+              <div className={`flex items-center gap-3 rounded-xl border bg-slate-50 px-4 py-3 transition-all focus-within:border-[#888e7d] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(136,142,125,0.12)] ${authError ? "border-red-300" : "border-slate-200"}`}>
+                <FiLock className="h-4 w-4 shrink-0 text-slate-400" />
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                  required
+                  placeholder="Enter your password"
+                  className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="shrink-0 text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
               </div>
-            </article>
+            </div>
 
-            {showLoginCard ? (
-              <article
-                id="login-card"
-                className="h-full rounded-[34px] border border-slate-200 bg-white p-7 shadow-[0_20px_45px_rgba(15,23,42,0.1)] sm:p-8"
+            {/* Error message */}
+            {authError && (
+              <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-400 text-[10px] font-bold text-white">!</span>
+                <p className="text-sm text-red-700">{authError}</p>
+              </div>
+            )}
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={loading || authLoading}
+              className="group mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(15,23,42,0.25)] transition-all hover:bg-[#888e7d] hover:shadow-[0_4px_20px_rgba(136,142,125,0.4)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading || authLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Signing in…
+                </>
+              ) : (
+                <>
+                  Sign in
+                  <FiArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </>
+              )}
+            </button>
+
+          </form>
+          {/* end form */}
+
+          {/* Footer */}
+          <div className="mt-10 border-t border-slate-100 pt-6">
+            <p className="text-center text-xs text-slate-400">
+              Need access?{" "}
+              <a
+                href="mailto:info@dg-property.co.za"
+                className="font-semibold text-[#888e7d] hover:underline"
               >
-                <span className="inline-flex rounded-full bg-[#888e7d]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-[#888e7d]">
-                  Secure Login
-                </span>
-                <h2 className="mt-5 text-[clamp(1.8rem,2.8vw,2.55rem)] font-semibold leading-[1.1] tracking-tight text-slate-900">
-                  Sign in to continue
-                </h2>
-                <p className="mt-3 text-lg leading-8 text-slate-600">
-                  Use your work email and password to access your property dashboard.
-                </p>
+                Contact your administrator
+              </a>
+            </p>
+          </div>
 
-                <form onSubmit={handleSubmit} className="mt-6 space-y-3.5">
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">Email</span>
-                    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition focus-within:border-[#888e7d] focus-within:bg-white">
-                      <FiMail className="h-5 w-5 shrink-0 text-slate-400" />
-                      <input
-                        id="email"
-                        name="email"
-                        type="email"
-                        autoComplete="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        required
-                        placeholder="name@company.com"
-                        className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
-                      />
-                    </div>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">Password</span>
-                    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition focus-within:border-[#888e7d] focus-within:bg-white">
-                      <FiLock className="h-5 w-5 shrink-0 text-slate-400" />
-                      <input
-                        id="password"
-                        name="password"
-                        type="password"
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        required
-                        placeholder="Enter your password"
-                        className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
-                      />
-                    </div>
-                  </label>
-
-                  {authError ? (
-                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                      {authError}
-                    </div>
-                  ) : null}
-
-                  <button
-                    type="submit"
-                    disabled={loading || authLoading}
-                    className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-400 px-6 py-3 text-lg font-semibold text-slate-900 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {loading || authLoading ? "Signing in..." : "Login"}
-                  </button>
-                </form>
-              </article>
-            ) : null}
-          </section>
         </div>
+
       </div>
+      {/* end right panel */}
+
     </div>
+    /* end outer */
   );
 }

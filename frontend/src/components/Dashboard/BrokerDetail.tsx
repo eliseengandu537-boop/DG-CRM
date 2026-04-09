@@ -311,11 +311,27 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [editingCommissionId, setEditingCommissionId] = useState<string | null>(null);
   const [editingCommissionValue, setEditingCommissionValue] = useState<string>('');
   const [savingCommissionId, setSavingCommissionId] = useState<string | null>(null);
+  const [viewingLeadId, setViewingLeadId] = useState<string | null>(null);
+  const [viewingLead, setViewingLead] = useState<import('@/services/leadService').Lead | null>(null);
+  const [loadingLeadDetail, setLoadingLeadDetail] = useState(false);
+  const [timelineItemId, setTimelineItemId] = useState<string | null>(null);
 
   useEffect(() => {
     setRows(wipSheets);
     setRowErrors({});
   }, [wipSheets]);
+
+  useEffect(() => {
+    if (!viewingLeadId) {
+      setViewingLead(null);
+      return;
+    }
+    setLoadingLeadDetail(true);
+    leadService.getLeadById(viewingLeadId)
+      .then(lead => setViewingLead(lead))
+      .catch(() => setViewingLead(null))
+      .finally(() => setLoadingLeadDetail(false));
+  }, [viewingLeadId]);
 
   const handleSaveCommission = async (item: BrokerWipItem) => {
     const parsed = parseFloat(editingCommissionValue.replace(/[^\d.]/g, ''));
@@ -1261,11 +1277,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
             <table className="w-full">
               <thead className="bg-gradient-to-r from-stone-100 to-stone-50 border-b border-stone-200">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Property Name</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Lead Name</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Address</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Deal Type</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Action Required</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Expected Value</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Gross Comm</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Closure Date</th>
@@ -1305,7 +1320,19 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                         index % 2 === 0 ? "bg-white" : "bg-stone-50/50"
                       } hover:bg-blue-50/40`}
                     >
-                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 whitespace-nowrap">{propertyName}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 whitespace-nowrap">
+                        {item.leadId ? (
+                          <button
+                            type="button"
+                            onClick={() => setViewingLeadId(item.leadId!)}
+                            className="text-blue-700 hover:text-blue-900 hover:underline font-semibold text-left"
+                          >
+                            {item.leadName || parseDealTitle(item.dealName).dealName}
+                          </button>
+                        ) : (
+                          <span>{item.leadName || parseDealTitle(item.dealName).dealName}</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm text-stone-600">{item.address || "-"}</td>
                       <td className="px-6 py-4 text-sm">
                         <span
@@ -1340,27 +1367,6 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                             </option>
                           ))}
                         </select>
-                        {Array.isArray(item.statusHistory) && item.statusHistory.length > 0 && (
-                          <div className="mt-1.5 space-y-0.5">
-                            {[...item.statusHistory]
-                              .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
-                              .slice(0, 3)
-                              .map(h => (
-                                <p key={h.id} className="text-xs text-stone-400">
-                                  {formatStatusLabel(h.status)} &middot; {new Date(h.changedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })}
-                                </p>
-                              ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        {item.actionRequired && item.actionRequired !== '-' ? (
-                          <span className="inline-flex px-2 py-1 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            {item.actionRequired}
-                          </span>
-                        ) : (
-                          <span className="text-stone-400 text-xs">—</span>
-                        )}
                       </td>
                       <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right">
                         {formatRand(item.expectedValue)}
@@ -1399,21 +1405,18 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm">
+                        {/* Clickable created date — opens timeline modal */}
                         <button
-                          onClick={() => setSelectedDealForDateModal(item)}
-                          className="text-blue-600 hover:text-blue-700 font-medium hover:underline transition-colors cursor-pointer"
+                          type="button"
+                          onClick={() => setTimelineItemId(item.id)}
+                          className="group flex items-center gap-1.5 text-left"
+                          title="Click to view status timeline"
                         >
-                          {item.forecastedClosureDate || item.updatedAt
-                            ? new Date(item.forecastedClosureDate || item.updatedAt).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                              })
-                            : "-"}
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                          <span className="text-xs font-semibold text-stone-700 group-hover:text-emerald-700 group-hover:underline transition-colors">
+                            {new Date(item.createdAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
                         </button>
-                        {item.forecastedClosureDate && (
-                          <p className="text-xs text-stone-400 mt-0.5">Target</p>
-                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-stone-600">
                         <div className="min-w-[200px] space-y-1.5">
@@ -1623,6 +1626,165 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         }}
         isSaving={selectedDealForCommentModal?.id ? savingCommentId === selectedDealForCommentModal.id : false}
       />
+
+      {/* Status Timeline Modal */}
+      {timelineItemId && (() => {
+        const timelineItem = rows.find(r => r.id === timelineItemId);
+        if (!timelineItem) return null;
+        const sortedHistory = Array.isArray(timelineItem.statusHistory)
+          ? [...timelineItem.statusHistory].sort((a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime())
+          : [];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setTimelineItemId(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100 bg-stone-50">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-950">{timelineItem.leadName || parseDealTitle(timelineItem.dealName).dealName}</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">Status Timeline</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTimelineItemId(null)}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-stone-400 hover:bg-stone-200 hover:text-stone-700 transition-colors"
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+              {/* Timeline body */}
+              <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
+                <div className="relative">
+                  {/* Vertical connector line */}
+                  <div className="absolute left-[7px] top-3 bottom-3 w-px bg-stone-200" />
+                  <ol className="space-y-5">
+                    {/* Created entry */}
+                    <li className="flex items-start gap-4">
+                      <span className="relative z-10 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white shadow flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Deal Created</p>
+                        <p className="text-sm font-semibold text-stone-800 mt-0.5">
+                          {new Date(timelineItem.createdAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </p>
+                        <p className="text-xs text-stone-400">
+                          {new Date(timelineItem.createdAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </li>
+                    {/* Status change entries */}
+                    {sortedHistory.map((h, idx) => {
+                      const isLatest = idx === sortedHistory.length - 1;
+                      return (
+                        <li key={h.id} className="flex items-start gap-4">
+                          <span className={`relative z-10 w-3.5 h-3.5 rounded-full border-2 border-white shadow flex-shrink-0 mt-0.5 ${
+                            isLatest ? 'bg-blue-500' : 'bg-stone-300'
+                          }`} />
+                          <div>
+                            <p className={`text-xs font-bold uppercase tracking-wide ${isLatest ? 'text-blue-600' : 'text-stone-400'}`}>
+                              {isLatest ? 'Current Status' : `Step ${idx + 1}`}
+                            </p>
+                            <p className={`text-sm font-semibold mt-0.5 ${isLatest ? 'text-blue-800' : 'text-stone-700'}`}>
+                              {formatStatusLabel(h.status)}
+                            </p>
+                            <p className="text-xs text-stone-400">
+                              {new Date(h.changedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })}
+                              {' · '}
+                              {new Date(h.changedAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                    {/* Target close if set */}
+                    {timelineItem.forecastedClosureDate && (
+                      <li className="flex items-start gap-4">
+                        <span className="relative z-10 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white shadow flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-bold text-amber-600 uppercase tracking-wide">Target Close</p>
+                          <p className="text-sm font-semibold text-amber-800 mt-0.5">
+                            {new Date(timelineItem.forecastedClosureDate).toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })}
+                          </p>
+                        </div>
+                      </li>
+                    )}
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Lead Detail Modal */}
+      {viewingLeadId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 relative">
+            <button
+              type="button"
+              onClick={() => setViewingLeadId(null)}
+              className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 text-xl font-bold"
+              aria-label="Close"
+            >
+              ×
+            </button>
+            <h3 className="text-lg font-bold text-stone-950 mb-4">Lead Details</h3>
+            {loadingLeadDetail ? (
+              <p className="text-stone-500 text-sm">Loading…</p>
+            ) : !viewingLead ? (
+              <p className="text-stone-500 text-sm">Could not load lead details.</p>
+            ) : (
+              <dl className="space-y-3 text-sm">
+                <div className="flex gap-2">
+                  <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Name</dt>
+                  <dd className="text-stone-950 font-semibold">{viewingLead.name || '—'}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Email</dt>
+                  <dd className="text-stone-700 break-all">{viewingLead.email || '—'}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Phone</dt>
+                  <dd className="text-stone-700">{viewingLead.phone || '—'}</dd>
+                </div>
+                {viewingLead.company && (
+                  <div className="flex gap-2">
+                    <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Company</dt>
+                    <dd className="text-stone-700">{viewingLead.company}</dd>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Status</dt>
+                  <dd className="text-stone-700">{viewingLead.status || '—'}</dd>
+                </div>
+                {viewingLead.stage && (
+                  <div className="flex gap-2">
+                    <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Stage</dt>
+                    <dd className="text-stone-700">{viewingLead.stage}</dd>
+                  </div>
+                )}
+                {viewingLead.leadSource && (
+                  <div className="flex gap-2">
+                    <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Source</dt>
+                    <dd className="text-stone-700">{viewingLead.leadSource}</dd>
+                  </div>
+                )}
+                {viewingLead.propertyAddress && (
+                  <div className="flex gap-2">
+                    <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Property</dt>
+                    <dd className="text-stone-700">{viewingLead.propertyAddress}</dd>
+                  </div>
+                )}
+                {viewingLead.notes && (
+                  <div className="flex gap-2">
+                    <dt className="w-32 text-stone-500 font-medium flex-shrink-0">Notes</dt>
+                    <dd className="text-stone-600 italic">{viewingLead.notes}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -83,6 +83,7 @@ export interface DealFilters {
   status?: string;
   type?: string;
   brokerId?: string;
+  propertyId?: string;
   wip?: boolean;
 }
 
@@ -114,6 +115,7 @@ class DealService {
       if (filters?.status) params.append('status', filters.status);
       if (filters?.type) params.append('type', filters.type);
       if (filters?.brokerId) params.append('brokerId', filters.brokerId);
+      if (filters?.propertyId) params.append('propertyId', filters.propertyId);
       if (filters?.wip) params.append('wip', 'true');
 
       const response = await apiClient.get<{

@@ -2,8 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '@/types';
 import { reminderService } from '@/services/reminderService';
 import { createReminderSchema, updateReminderSchema } from '@/validators';
-import { emitDashboardRefresh, emitScopedEvent } from '@/realtime';
-import { emitActivityNotification } from '@/lib/realtimeNotifications';
+import { emitScopedEvent } from '@/realtime';
 
 export class ReminderController {
   private getScope(req: AuthRequest) {
@@ -77,30 +76,21 @@ export class ReminderController {
       const reminder = await reminderService.createReminder(validated, this.getScope(req));
 
       try {
-        emitScopedEvent({
-          event: 'reminder:created',
-          payload: reminder,
-          brokerId: reminder.brokerId || null,
-          includePrivileged: true,
-        });
-        emitActivityNotification({
-          action: 'reminder_created',
-          entityType: 'reminder',
-          entityId: reminder.id,
-          entityName: reminder.title,
-          brokerId: reminder.brokerId || null,
-          actor: req.user,
-          visibilityScope: 'private',
-          payload: {
-            reminderId: reminder.id,
-            dealId: reminder.dealId || null,
-          },
-        });
-        emitDashboardRefresh({
-          type: 'reminder:created',
-          id: reminder.id,
-          brokerId: reminder.brokerId || null,
-        });
+        const creatorUserId = req.user?.id;
+        if (creatorUserId) {
+          emitScopedEvent({
+            event: 'reminder:created',
+            payload: reminder,
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+          emitScopedEvent({
+            event: 'dashboard:refresh',
+            payload: { type: 'reminder:created', id: reminder.id },
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+        }
       } catch {
         console.warn('Realtime not initialized - skipping emit');
       }
@@ -126,31 +116,21 @@ export class ReminderController {
       const reminder = await reminderService.updateReminder(req.params.id, validated, this.getScope(req));
 
       try {
-        emitScopedEvent({
-          event: 'reminder:updated',
-          payload: reminder,
-          brokerId: reminder.brokerId || null,
-          includePrivileged: true,
-        });
-        emitActivityNotification({
-          action: 'reminder_updated',
-          entityType: 'reminder',
-          entityId: reminder.id,
-          entityName: reminder.title,
-          brokerId: reminder.brokerId || null,
-          actor: req.user,
-          visibilityScope: 'private',
-          payload: {
-            reminderId: reminder.id,
-            dealId: reminder.dealId || null,
-            status: reminder.status,
-          },
-        });
-        emitDashboardRefresh({
-          type: 'reminder:updated',
-          id: reminder.id,
-          brokerId: reminder.brokerId || null,
-        });
+        const creatorUserId = req.user?.id;
+        if (creatorUserId) {
+          emitScopedEvent({
+            event: 'reminder:updated',
+            payload: reminder,
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+          emitScopedEvent({
+            event: 'dashboard:refresh',
+            payload: { type: 'reminder:updated', id: reminder.id },
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+        }
       } catch {
         console.warn('Realtime not initialized - skipping emit');
       }
@@ -178,30 +158,21 @@ export class ReminderController {
       const reminder = await reminderService.markReminderCompleted(req.params.id, this.getScope(req));
 
       try {
-        emitScopedEvent({
-          event: 'reminder:completed',
-          payload: reminder,
-          brokerId: reminder.brokerId || null,
-          includePrivileged: true,
-        });
-        emitActivityNotification({
-          action: 'reminder_status_changed',
-          entityType: 'reminder',
-          entityId: reminder.id,
-          entityName: reminder.title,
-          brokerId: reminder.brokerId || null,
-          actor: req.user,
-          visibilityScope: 'private',
-          payload: {
-            reminderId: reminder.id,
-            status: reminder.status,
-          },
-        });
-        emitDashboardRefresh({
-          type: 'reminder:completed',
-          id: reminder.id,
-          brokerId: reminder.brokerId || null,
-        });
+        const creatorUserId = req.user?.id;
+        if (creatorUserId) {
+          emitScopedEvent({
+            event: 'reminder:completed',
+            payload: reminder,
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+          emitScopedEvent({
+            event: 'dashboard:refresh',
+            payload: { type: 'reminder:completed', id: reminder.id },
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+        }
       } catch {
         console.warn('Realtime not initialized - skipping emit');
       }
@@ -230,29 +201,21 @@ export class ReminderController {
       await reminderService.deleteReminder(req.params.id, this.getScope(req));
 
       try {
-        emitScopedEvent({
-          event: 'reminder:deleted',
-          payload: { id: req.params.id },
-          brokerId: existing.brokerId || null,
-          includePrivileged: true,
-        });
-        emitActivityNotification({
-          action: 'reminder_deleted',
-          entityType: 'reminder',
-          entityId: req.params.id,
-          entityName: existing.title,
-          brokerId: existing.brokerId || null,
-          actor: req.user,
-          visibilityScope: 'private',
-          payload: {
-            reminderId: req.params.id,
-          },
-        });
-        emitDashboardRefresh({
-          type: 'reminder:deleted',
-          id: req.params.id,
-          brokerId: existing.brokerId || null,
-        });
+        const creatorUserId = req.user?.id;
+        if (creatorUserId) {
+          emitScopedEvent({
+            event: 'reminder:deleted',
+            payload: { id: req.params.id },
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+          emitScopedEvent({
+            event: 'dashboard:refresh',
+            payload: { type: 'reminder:deleted', id: req.params.id },
+            userIds: [creatorUserId],
+            includePrivileged: false,
+          });
+        }
       } catch {
         console.warn('Realtime not initialized - skipping emit');
       }

@@ -1473,7 +1473,7 @@ export const Leads: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">
-                      ${lead.value.toLocaleString()}
+                      {formatRand(lead.value)}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <div className="flex flex-col gap-2">

@@ -284,9 +284,13 @@ export class LeadService {
     assertBrokerCanAccessModule(options?.user, moduleType);
     await assertAssignedBroker(brokerId, moduleType);
 
+    let resolvedContactId: string | undefined = data.contactId;
     if (data.contactId) {
       const contact = await prisma.contact.findUnique({ where: { id: data.contactId } });
-      if (!contact) throw new Error('Contact not found');
+      if (!contact) {
+        // contactId may refer to a non-Contact record (e.g. an investor custom record); store as null
+        resolvedContactId = undefined;
+      }
     }
 
     await assertPropertyMatchesModule(data.propertyId, moduleType);
@@ -323,7 +327,7 @@ export class LeadService {
           closingTimeline: data.closingTimeline,
           notes: resolvedNotes,
           comment: resolvedComment,
-          contactId: data.contactId,
+          contactId: resolvedContactId,
           brokerAssigned: data.brokerAssigned,
           additionalBroker: data.additionalBroker,
           commissionSplit: data.commissionSplit,
