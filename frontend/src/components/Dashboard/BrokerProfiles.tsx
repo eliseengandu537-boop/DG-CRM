@@ -59,6 +59,9 @@ export const BrokerProfiles: React.FC = () => {
   const [checkingMyProfile, setCheckingMyProfile] = useState(false);
   const [creatingMyProfile, setCreatingMyProfile] = useState(false);
   const [createProfileError, setCreateProfileError] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newProfilePhone, setNewProfilePhone] = useState('');
+  const [newProfileDept, setNewProfileDept] = useState<'sales' | 'leasing'>('sales');
 
   const isPrivileged = user?.role === 'admin' || user?.role === 'manager';
 
@@ -226,14 +229,20 @@ export const BrokerProfiles: React.FC = () => {
 
   const handleCreateMyProfile = async () => {
     if (!user || creatingMyProfile) return;
+    const phone = newProfilePhone.trim();
+    const digits = phone.replace(/\D/g, '');
+    if (!phone || digits.length < 7 || digits.length > 15) {
+      setCreateProfileError('Please enter a valid phone number (7–15 digits).');
+      return;
+    }
     setCreatingMyProfile(true);
     setCreateProfileError(null);
     try {
       await brokerService.createBroker({
         name: user.name,
         email: user.email,
-        phone: '',
-        department: user.role === 'manager' ? 'Management' : 'Administration',
+        phone,
+        department: newProfileDept,
       });
       const profile = await brokerService.getMyBrokerProfile();
       if (profile) {
@@ -331,22 +340,63 @@ export const BrokerProfiles: React.FC = () => {
             </div>
           ) : (
             <div className="flex items-start gap-4">
-              <div>
+              <div className="w-full max-w-md">
                 <p className="text-sm text-stone-600 mb-3">
                   You don&apos;t have a broker profile yet. Create one to get your own WIP
                   sheet, track deals, and appear in broker performance reports.
                 </p>
-                {createProfileError && (
-                  <p className="text-sm text-red-600 mb-2">{createProfileError}</p>
+                {!showCreateForm ? (
+                  <button
+                    onClick={() => setShowCreateForm(true)}
+                    className="inline-flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-violet-700 transition-colors"
+                  >
+                    <FiPlus size={16} />
+                    Create My Broker Profile
+                  </button>
+                ) : (
+                  <div className="space-y-3 bg-white border border-violet-200 rounded-lg p-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-700 mb-1">Phone number</label>
+                      <input
+                        type="tel"
+                        value={newProfilePhone}
+                        onChange={e => { setNewProfilePhone(e.target.value); setCreateProfileError(null); }}
+                        placeholder="e.g. 0821234567"
+                        className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-700 mb-1">Department</label>
+                      <select
+                        value={newProfileDept}
+                        onChange={e => setNewProfileDept(e.target.value as 'sales' | 'leasing')}
+                        className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        <option value="sales">Sales</option>
+                        <option value="leasing">Leasing</option>
+                      </select>
+                    </div>
+                    {createProfileError && (
+                      <p className="text-sm text-red-600">{createProfileError}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void handleCreateMyProfile()}
+                        disabled={creatingMyProfile}
+                        className="inline-flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                      >
+                        <FiPlus size={16} />
+                        {creatingMyProfile ? 'Creating…' : 'Create Profile'}
+                      </button>
+                      <button
+                        onClick={() => { setShowCreateForm(false); setCreateProfileError(null); }}
+                        className="px-4 py-2 rounded-lg text-sm font-semibold border border-stone-300 text-stone-600 hover:bg-stone-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 )}
-                <button
-                  onClick={() => void handleCreateMyProfile()}
-                  disabled={creatingMyProfile}
-                  className="inline-flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors"
-                >
-                  <FiPlus size={16} />
-                  {creatingMyProfile ? 'Creating…' : 'Create My Broker Profile'}
-                </button>
               </div>
             </div>
           )}
