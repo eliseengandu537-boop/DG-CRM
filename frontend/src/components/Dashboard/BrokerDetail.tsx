@@ -363,15 +363,15 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const handleDeleteDeal = async (item: BrokerWipItem) => {
     setDeletingId(item.id);
     try {
-      // Delete forecast deal if it exists
-      const forecastId = item.forecastDealId || (item.dealId ? undefined : item.id);
+      // Delete the forecast deal if one is linked
+      const forecastId = String(item.forecastDealId || '').trim();
       if (forecastId) {
-        await forecastDealApiService.deleteForecastDeal(forecastId).catch(() => {});
+        await forecastDealApiService.deleteForecastDeal(forecastId);
       }
-      // Delete the underlying deal if it exists
-      const dealId = item.dealId || (item.forecastDealId ? item.id : undefined);
-      if (dealId) {
-        await dealService.deleteDeal(dealId).catch(() => {});
+      // Delete the underlying real deal if one is linked (and it's a real deal id, not just the forecast id)
+      const dealId = String(item.dealId || '').trim();
+      if (dealId && dealId !== forecastId) {
+        await dealService.deleteDeal(dealId);
       }
       setRows(prev => prev.filter(r => r.id !== item.id));
     } catch (error) {

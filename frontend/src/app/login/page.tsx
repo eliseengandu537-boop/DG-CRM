@@ -159,7 +159,7 @@ export default function LoginPage() {
         </video>
 
         {/* White frosted overlay */}
-        <div className="absolute inset-0 bg-white/90 backdrop-blur-[2px]" />
+        <div className="absolute inset-0 bg-white/55 backdrop-blur-[2px]" />
 
         {/* Form content */}
         <div className="relative z-10 mx-auto w-full max-w-sm">
