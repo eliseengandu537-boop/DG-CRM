@@ -1,8 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import React, { useState, useMemo } from "react";
-import { useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from 'next/dynamic';
 import { Property } from "../../data/properties";
 import { PropertyPin } from "./PropertyPin";
@@ -10,8 +9,12 @@ import { FiMapPin, FiX, FiPlus, FiTrash2 } from "react-icons/fi";
 import { Asset } from "../../data/crm-types";
 import { customRecordService, type CustomRecord } from "@/services/customRecordService";
 import { propertyService } from "@/services/propertyService";
+import { brokerService } from "@/services/brokerService";
+import { contactService } from "@/services/contactService";
+import { landlordService } from "@/services/landlordService";
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
+import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
 
 const GoogleMapWrapper = dynamic(() => import('./GoogleMapWrapper'), { ssr: false });
 
@@ -32,6 +35,23 @@ const isAuctionStatus = (status?: string): boolean =>
 
 const shouldAppearInStock = (status?: string): boolean =>
   isForSaleStatus(status) || isForLeaseStatus(status) || isAuctionStatus(status);
+
+const normalizeMapPropertyType = (typeValue: unknown): string => {
+  const rawType = String(typeValue || '').trim();
+  if (!rawType) return 'Unknown';
+
+  const normalized = rawType
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized === 'marketing materials') {
+    return 'Unknown';
+  }
+
+  return rawType;
+};
 
 const toPropertyRecordStatus = (status?: string): string => {
   if (isForSaleStatus(status)) return 'For Sale';
@@ -56,6 +76,11 @@ type FundOption = {
   id: string;
   name: string;
   fundType: 'Listed' | 'Non-Listed';
+};
+
+type CompanyOption = {
+  id: string;
+  name: string;
 };
 
 type AssetPayload = {
@@ -115,7 +140,12 @@ const normalizeProperty = (raw: any): Property | null => {
     longitude,
     markerColor: String(raw.markerColor || '#16a34a'),
     details: {
-      type: String(raw.details?.type || (metadata as Record<string, unknown>).propertyType || raw.type || 'Unknown'),
+      type: normalizeMapPropertyType(
+        raw.details?.type ||
+          (metadata as Record<string, unknown>).propertyType ||
+          raw.type ||
+          'Unknown'
+      ),
       squareFeet: Number(raw.details?.squareFeet || (metadata as Record<string, unknown>).squareFeet || 0),
       gla: Number(raw.details?.gla || raw.details?.squareFeet || (metadata as Record<string, unknown>).gla || 0),
       yearBuilt: Number(raw.details?.yearBuilt || (metadata as Record<string, unknown>).yearBuilt || new Date().getFullYear()),
@@ -177,7 +207,11 @@ const mapBackendPropertyToMapProperty = (
 
 const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const { user } = useAuth();
+  const { isLoaded: isGoogleMapsLoaded } = useGoogleMapsLoader();
   const canDeleteProperties = user?.role === 'admin';
+  const propertyAddressInputRef = useRef<HTMLInputElement | null>(null);
+  const propertyAddressAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const propertyAddressAutocompleteListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const zoom = 12;
@@ -185,7 +219,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [expandedPropertyId, setExpandedPropertyId] = useState<string | null>(null);
   const [fundOptions, setFundOptions] = useState<FundOption[]>([]);
+  const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
+  const [showFundSuggestions, setShowFundSuggestions] = useState(false);
   const [newAsset, setNewAsset] = useState({
     propertyName: "",
     propertyAddress: "",
@@ -203,34 +240,77 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     ownershipStatus: "",
     latitude: "",
     longitude: "",
+    linkedCompanyId: "",
     linkedCompanyName: "",
+    linkedFundId: "",
     linkedFundName: "",
   });
 
   const loadData = React.useCallback(async () => {
     try {
-      const [apiResponse, fundResponse, assetResponse] = await Promise.all([
+      const [apiResponse, fundResponse, assetResponse, brokerResponse, contactResponse, landlordResponse] = await Promise.all([
         propertyService.getAllProperties({ limit: 500 }),
         customRecordService.getAllCustomRecords({ entityType: 'fund', limit: 500 }),
         customRecordService.getAllCustomRecords<AssetPayload>({ entityType: 'asset', limit: 500 }),
+        brokerService.getAllBrokers().catch(() => []),
+        contactService.getAllContacts({ limit: 1000 }).catch(() => ({ data: [] })),
+        landlordService.getAllLandlords({ limit: 1000 }).catch(() => ({ data: [] })),
       ]);
 
       const apiProperties = apiResponse.data
         .map((item) => mapBackendPropertyToMapProperty(item))
         .filter((item): item is Property => Boolean(item));
+      const nextFundOptions = fundResponse.data.map((record) => ({
+        id: record.id,
+        name: record.name,
+        fundType: ((record.payload as Record<string, unknown>)?.fundType as FundOption['fundType']) || 'Listed',
+      }));
+      const companyMap = new Map<string, CompanyOption>();
+      const addCompanyOption = (
+        companyName: unknown,
+        companyId: unknown,
+        fallbackIdPrefix: string
+      ) => {
+        const name = String(companyName || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (companyMap.has(key)) return;
+        const derivedId = String(companyId || `${fallbackIdPrefix}:${key.replace(/\s+/g, '-')}`);
+        companyMap.set(key, { id: derivedId, name });
+      };
+
+      fundResponse.data.forEach((fundRecord) => {
+        const payload =
+          fundRecord.payload && typeof fundRecord.payload === 'object' && !Array.isArray(fundRecord.payload)
+            ? (fundRecord.payload as Record<string, unknown>)
+            : {};
+        addCompanyOption(
+          payload.linkedCompanyName,
+          payload.linkedCompanyId,
+          `fund-company:${fundRecord.id}`
+        );
+      });
+      brokerResponse.forEach((broker) => {
+        addCompanyOption(broker.company, `broker:${broker.id}`, 'company');
+      });
+      contactResponse.data.forEach((contact) => {
+        addCompanyOption(contact.company, `contact:${contact.id}`, 'company');
+      });
+      landlordResponse.data.forEach((landlord) => {
+        addCompanyOption(landlord.name, `landlord:${landlord.id}`, 'company');
+      });
+
       setProperties(apiProperties);
-      setFundOptions(
-        fundResponse.data.map((record) => ({
-          id: record.id,
-          name: record.name,
-          fundType: ((record.payload as Record<string, unknown>)?.fundType as FundOption['fundType']) || 'Listed',
-        }))
+      setFundOptions(nextFundOptions);
+      setCompanyOptions(
+        Array.from(companyMap.values()).sort((a, b) => a.name.localeCompare(b.name))
       );
       setAssets(assetResponse.data.map((record) => toAsset(record)));
     } catch (error) {
       console.warn('Failed to load properties from API.', error);
       setProperties([]);
       setFundOptions([]);
+      setCompanyOptions([]);
       setAssets([]);
     }
   }, []);
@@ -378,6 +458,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     }));
   }, [filteredProperties]);
 
+  const filteredCompanyOptions = useMemo(() => {
+    const query = newProperty.linkedCompanyName.trim().toLowerCase();
+    if (!query) return companyOptions.slice(0, 8);
+    return companyOptions
+      .filter((company) => company.name.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [companyOptions, newProperty.linkedCompanyName]);
+
+  const filteredFundOptions = useMemo(() => {
+    const query = newProperty.linkedFundName.trim().toLowerCase();
+    if (!query) return fundOptions.slice(0, 8);
+    return fundOptions
+      .filter((fund) => fund.name.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [fundOptions, newProperty.linkedFundName]);
+
   const fetchAddressGeocode = async (
     address: string
   ): Promise<{ formattedAddress: string; lat: number; lng: number } | null> => {
@@ -421,10 +517,59 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       ownershipStatus: "",
       latitude: "",
       longitude: "",
+      linkedCompanyId: "",
       linkedCompanyName: "",
+      linkedFundId: "",
       linkedFundName: "",
     });
+    setShowCompanySuggestions(false);
+    setShowFundSuggestions(false);
   };
+
+  useEffect(() => {
+    if (!showAddPropertyModal) {
+      propertyAddressAutocompleteListenerRef.current?.remove();
+      propertyAddressAutocompleteListenerRef.current = null;
+      propertyAddressAutocompleteRef.current = null;
+      return;
+    }
+
+    if (!isGoogleMapsLoaded || !(window as any)?.google?.maps?.places || !propertyAddressInputRef.current) {
+      return;
+    }
+
+    propertyAddressAutocompleteRef.current = new google.maps.places.Autocomplete(propertyAddressInputRef.current, {
+      fields: ['formatted_address', 'geometry', 'name'],
+      types: ['geocode'],
+    });
+
+    propertyAddressAutocompleteListenerRef.current = propertyAddressAutocompleteRef.current.addListener(
+      'place_changed',
+      () => {
+        const place = propertyAddressAutocompleteRef.current?.getPlace();
+        const fallbackAddress = propertyAddressInputRef.current?.value?.trim() || '';
+        const resolvedAddress = place?.formatted_address || place?.name || fallbackAddress;
+        const location = place?.geometry?.location;
+        const lat = typeof location?.lat === 'function' ? location.lat() : null;
+        const lng = typeof location?.lng === 'function' ? location.lng() : null;
+
+        setNewProperty((prev) => ({
+          ...prev,
+          address: resolvedAddress,
+          latitude:
+            typeof lat === 'number' && Number.isFinite(lat) ? String(lat) : prev.latitude,
+          longitude:
+            typeof lng === 'number' && Number.isFinite(lng) ? String(lng) : prev.longitude,
+        }));
+      }
+    );
+
+    return () => {
+      propertyAddressAutocompleteListenerRef.current?.remove();
+      propertyAddressAutocompleteListenerRef.current = null;
+      propertyAddressAutocompleteRef.current = null;
+    };
+  }, [showAddPropertyModal, isGoogleMapsLoaded]);
 
   const handleCreateAsset = async () => {
     if (!newAsset.propertyName.trim()) {
@@ -788,7 +933,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     Property Address *
                   </label>
                   <input
+                    ref={propertyAddressInputRef}
                     type="text"
+                    autoComplete="off"
                     placeholder="e.g., 123 Main Street, New York, NY 10001"
                     value={newProperty.address}
                     onChange={(e) =>
@@ -796,6 +943,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     }
                     className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                  <p className="mt-1 text-xs text-stone-500">
+                    {isGoogleMapsLoaded
+                      ? "Start typing to search Google Maps addresses."
+                      : "Google Maps address search will appear once the map finishes loading."}
+                  </p>
                 </div>
               </div>
 
@@ -955,34 +1107,118 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
                 <h3 className="font-semibold text-stone-900 mb-3">Links & Associations</h3>
                 
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-stone-900 mb-1">
                     Linked Company Name
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g., TechCorp Inc."
+                    placeholder="Search CRM company..."
                     value={newProperty.linkedCompanyName}
-                    onChange={(e) =>
-                      setNewProperty({ ...newProperty, linkedCompanyName: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setNewProperty({
+                        ...newProperty,
+                        linkedCompanyId: "",
+                        linkedCompanyName: e.target.value,
+                      });
+                      setShowCompanySuggestions(true);
+                    }}
+                    onFocus={() => setShowCompanySuggestions(true)}
+                    onBlur={() => {
+                      setTimeout(() => setShowCompanySuggestions(false), 150);
+                    }}
                     className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                  {showCompanySuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {filteredCompanyOptions.length > 0 ? (
+                        filteredCompanyOptions.map((company) => (
+                          <button
+                            key={company.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setNewProperty({
+                                ...newProperty,
+                                linkedCompanyId: company.id,
+                                linkedCompanyName: company.name,
+                              });
+                              setShowCompanySuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-100 border-b border-stone-100 last:border-b-0"
+                          >
+                            {company.name}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2 text-xs text-stone-500">
+                          No matching CRM company found.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-stone-500">
+                    {newProperty.linkedCompanyId
+                      ? "Company linked from CRM."
+                      : "Select an existing CRM company to link this property."}
+                  </p>
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 relative">
                   <label className="block text-sm font-medium text-stone-900 mb-1">
                     Linked Fund Name
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g., Premium Commercial Fund"
+                    placeholder="Search Property Funds..."
                     value={newProperty.linkedFundName}
-                    onChange={(e) =>
-                      setNewProperty({ ...newProperty, linkedFundName: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setNewProperty({
+                        ...newProperty,
+                        linkedFundId: "",
+                        linkedFundName: e.target.value,
+                      });
+                      setShowFundSuggestions(true);
+                    }}
+                    onFocus={() => setShowFundSuggestions(true)}
+                    onBlur={() => {
+                      setTimeout(() => setShowFundSuggestions(false), 150);
+                    }}
                     className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                  {showFundSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {filteredFundOptions.length > 0 ? (
+                        filteredFundOptions.map((fund) => (
+                          <button
+                            key={fund.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setNewProperty({
+                                ...newProperty,
+                                linkedFundId: fund.id,
+                                linkedFundName: fund.name,
+                              });
+                              setShowFundSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-100 border-b border-stone-100 last:border-b-0"
+                          >
+                            {fund.name}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2 text-xs text-stone-500">
+                          No matching fund found in CRM Property Funds.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-stone-500">
+                    {newProperty.linkedFundId
+                      ? "Fund linked from CRM Property Funds."
+                      : "Select an existing CRM fund to link this property."}
+                  </p>
                 </div>
               </div>
 
@@ -1032,6 +1268,35 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     alert("Please select ownership status");
                     return;
                   }
+
+                  const linkedCompanyQuery = newProperty.linkedCompanyName.trim();
+                  const linkedFundQuery = newProperty.linkedFundName.trim();
+                  const selectedCompany = newProperty.linkedCompanyId
+                    ? companyOptions.find((company) => company.id === newProperty.linkedCompanyId)
+                    : companyOptions.find(
+                        (company) => company.name.toLowerCase() === linkedCompanyQuery.toLowerCase()
+                      );
+                  const selectedFund = newProperty.linkedFundId
+                    ? fundOptions.find((fund) => fund.id === newProperty.linkedFundId)
+                    : fundOptions.find(
+                        (fund) => fund.name.toLowerCase() === linkedFundQuery.toLowerCase()
+                      );
+
+                  if (linkedCompanyQuery && !selectedCompany) {
+                    alert("Please select a valid linked company from CRM suggestions.");
+                    return;
+                  }
+
+                  if (linkedFundQuery && !selectedFund) {
+                    alert("Please select a valid linked fund from CRM Property Funds suggestions.");
+                    return;
+                  }
+
+                  const linkedCompanyId = selectedCompany?.id || undefined;
+                  const linkedCompanyName = selectedCompany?.name || undefined;
+                  const linkedFundId = selectedFund?.id || undefined;
+                  const linkedFundName = selectedFund?.name || undefined;
+
                   let resolvedLat: number | null = null;
                   let resolvedLng: number | null = null;
                   let resolvedAddress = newProperty.address.trim();
@@ -1082,8 +1347,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       metadata: {
                         displayName: newProperty.name.trim(),
                         ownershipStatus: newProperty.ownershipStatus,
-                        linkedCompanyName: newProperty.linkedCompanyName || undefined,
-                        linkedFundName: newProperty.linkedFundName || undefined,
+                        linkedCompanyId,
+                        linkedCompanyName,
+                        linkedFundId,
+                        linkedFundName,
                         propertyType: newProperty.type,
                         squareFeet: parseInt(newProperty.squareFeet),
                         gla: parseInt(newProperty.gla),
@@ -1123,8 +1390,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     linkedDeals: [],
                     leasingSalesRecords: [],
                     linkedContacts: [],
-                    linkedCompanyName: newProperty.linkedCompanyName || undefined,
-                    linkedFundName: newProperty.linkedFundName || undefined,
+                    linkedCompanyId,
+                    linkedCompanyName,
+                    linkedFundId,
+                    linkedFundName,
                     brokerName: createdProperty.assignedBrokerName || "Unassigned",
                     brokerId: createdProperty.assignedBrokerId || createdProperty.brokerId,
                   };

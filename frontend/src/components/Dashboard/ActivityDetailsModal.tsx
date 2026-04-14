@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FiX, FiClock, FiUser, FiTag, FiInfo } from 'react-icons/fi';
+import { FiX, FiClock, FiUser, FiHash, FiCalendar, FiTag, FiAlertCircle, FiCheckCircle, FiEdit2, FiTrash2, FiRefreshCw, FiZap } from 'react-icons/fi';
 
 interface ActivityDetailsModalProps {
   activity: {
@@ -18,203 +18,214 @@ interface ActivityDetailsModalProps {
   onClose: () => void;
 }
 
-const getActivityIcon = (description: string) => {
-  const desc = description.toLowerCase();
-  if (desc.includes('deal')) return '📊';
-  if (desc.includes('lead')) return '👤';
-  if (desc.includes('contact')) return '📞';
-  if (desc.includes('property')) return '🏠';
-  if (desc.includes('created')) return '✨';
-  if (desc.includes('updated')) return '📝';
-  if (desc.includes('deleted')) return '🗑️';
-  if (desc.includes('status')) return '⚡';
-  if (desc.includes('synced')) return '🔄';
-  return '📌';
-};
-
-const getActivityTypeColor = (description: string) => {
-  const desc = description.toLowerCase();
-  if (desc.includes('created')) return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-100' };
-  if (desc.includes('updated') || desc.includes('status changed')) return { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100' };
-  if (desc.includes('deleted')) return { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-100' };
-  if (desc.includes('synced')) return { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', badge: 'bg-purple-100' };
-  return { bg: 'bg-stone-50', border: 'border-stone-200', text: 'text-stone-700', badge: 'bg-stone-100' };
-};
-
-const extractActivityType = (description: string) => {
-  const desc = description.toLowerCase();
-  if (desc.includes('created')) return 'Created';
-  if (desc.includes('updated')) return 'Updated';
-  if (desc.includes('status changed')) return 'Status Changed';
-  if (desc.includes('deleted')) return 'Deleted';
-  if (desc.includes('synced')) return 'Synced';
-  return 'Modified';
-};
-
-const formatDetailedTime = (timestamp: string) => {
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return timestamp;
-  }
-};
-
-const formatFullDateTime = (timestamp: string) => {
-  try {
-    const date = new Date(timestamp);
+const resolveVariant = (description: string): {
+  accent: string;
+  headerBg: string;
+  badgeBg: string;
+  badgeText: string;
+  iconBg: string;
+  icon: React.ReactNode;
+  label: string;
+} => {
+  const d = description.toLowerCase();
+  if (d.includes('deleted'))
     return {
-      date: date.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-      time: date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-      iso: date.toISOString(),
+      accent: 'border-t-red-500',
+      headerBg: 'bg-gradient-to-br from-red-50 to-rose-50',
+      badgeBg: 'bg-red-100',
+      badgeText: 'text-red-700',
+      iconBg: 'bg-red-500',
+      icon: <FiTrash2 size={18} className="text-white" />,
+      label: 'Deleted',
     };
-  } catch {
-    return { date: 'Unknown', time: 'Unknown', iso: timestamp };
-  }
+  if (d.includes('created'))
+    return {
+      accent: 'border-t-emerald-500',
+      headerBg: 'bg-gradient-to-br from-emerald-50 to-green-50',
+      badgeBg: 'bg-emerald-100',
+      badgeText: 'text-emerald-700',
+      iconBg: 'bg-emerald-500',
+      icon: <FiCheckCircle size={18} className="text-white" />,
+      label: 'Created',
+    };
+  if (d.includes('updated') || d.includes('status changed'))
+    return {
+      accent: 'border-t-blue-500',
+      headerBg: 'bg-gradient-to-br from-blue-50 to-sky-50',
+      badgeBg: 'bg-blue-100',
+      badgeText: 'text-blue-700',
+      iconBg: 'bg-blue-500',
+      icon: <FiEdit2 size={18} className="text-white" />,
+      label: 'Updated',
+    };
+  if (d.includes('synced'))
+    return {
+      accent: 'border-t-purple-500',
+      headerBg: 'bg-gradient-to-br from-purple-50 to-violet-50',
+      badgeBg: 'bg-purple-100',
+      badgeText: 'text-purple-700',
+      iconBg: 'bg-purple-500',
+      icon: <FiRefreshCw size={18} className="text-white" />,
+      label: 'Synced',
+    };
+  return {
+    accent: 'border-t-stone-400',
+    headerBg: 'bg-gradient-to-br from-stone-50 to-slate-50',
+    badgeBg: 'bg-stone-100',
+    badgeText: 'text-stone-600',
+    iconBg: 'bg-stone-500',
+    icon: <FiZap size={18} className="text-white" />,
+    label: 'Activity',
+  };
+};
+
+const formatRelativeTime = (timestamp: string): string => {
+  try {
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(diff / 3600000);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(diff / 86400000);
+    return `${days}d ago`;
+  } catch { return '—'; }
+};
+
+const formatDateTime = (timestamp: string) => {
+  try {
+    const d = new Date(timestamp);
+    return {
+      date: d.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+      time: d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      iso: d.toISOString(),
+    };
+  } catch { return { date: '—', time: '—', iso: timestamp }; }
 };
 
 export const ActivityDetailsModal: React.FC<ActivityDetailsModalProps> = ({ activity, isOpen, onClose }) => {
   if (!isOpen || !activity) return null;
 
-  const colors = getActivityTypeColor(activity.description);
-  const activityType = extractActivityType(activity.description);
-  const icon = getActivityIcon(activity.description);
+  const v = resolveVariant(activity.description);
+  const { date, time, iso } = formatDateTime(activity.timestamp);
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className={`bg-white rounded-2xl shadow-2xl w-full max-w-xl border ${colors.border}`}>
-        {/* Header */}
-        <div className={`${colors.bg} rounded-t-2xl p-6 flex items-start justify-between`}>
-          <div className="flex items-start gap-4 flex-1">
-            <div className="text-4xl">{icon}</div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${colors.badge} ${colors.text}`}>
-                  {activityType}
-                </span>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-stone-200 border-t-4 ${v.accent} overflow-hidden`}>
+
+        {/* ── Header ── */}
+        <div className={`${v.headerBg} px-6 pt-6 pb-5`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4 flex-1 min-w-0">
+              <div className={`${v.iconBg} rounded-xl p-3 shrink-0 shadow-sm`}>
+                {v.icon}
               </div>
-              <h2 className={`text-xl font-bold ${colors.text}`}>{activity.description}</h2>
+              <div className="min-w-0">
+                <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${v.badgeBg} ${v.badgeText} mb-2`}>
+                  {v.label}
+                </span>
+                <h2 className="text-base font-bold text-stone-900 leading-snug">{activity.description}</h2>
+              </div>
             </div>
+            <button
+              onClick={onClose}
+              className="shrink-0 p-1.5 rounded-lg hover:bg-black/10 text-stone-500 transition-colors"
+            >
+              <FiX size={20} />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/30 rounded-lg transition-colors text-stone-600"
-          >
-            <FiX size={24} />
-          </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Metadata */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Actor */}
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-stone-100 rounded-lg text-stone-600">
-                <FiUser size={18} />
+        {/* ── Body ── */}
+        <div className="px-6 py-5 space-y-4">
+
+          {/* Performed by + Relative time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+              <div className="p-2 rounded-lg bg-white border border-stone-200 text-stone-500">
+                <FiUser size={15} />
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-stone-500 uppercase">Performed By</p>
-                <p className="text-sm font-medium text-stone-900 mt-1">{activity.actor}</p>
+              <div>
+                <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Performed By</p>
+                <p className="text-sm font-semibold text-stone-800 mt-0.5">{activity.actor}</p>
               </div>
             </div>
-
-            {/* Timestamp */}
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-stone-100 rounded-lg text-stone-600">
-                <FiClock size={18} />
+            <div className="flex items-center gap-3 bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+              <div className="p-2 rounded-lg bg-white border border-stone-200 text-stone-500">
+                <FiClock size={15} />
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-stone-500 uppercase">Time</p>
-                <p className="text-sm font-medium text-stone-900 mt-1">{formatDetailedTime(activity.timestamp)}</p>
+              <div>
+                <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Time</p>
+                <p className="text-sm font-semibold text-stone-800 mt-0.5">{formatRelativeTime(activity.timestamp)}</p>
               </div>
             </div>
           </div>
 
-          {/* Related Entity */}
+          {/* Related entity */}
           {activity.relatedEntity && (
-            <div className="flex items-start gap-3 p-4 bg-stone-50 rounded-xl border border-stone-200">
-              <div className="p-2 bg-stone-200 rounded-lg text-stone-700">
-                <FiTag size={18} />
+            <div className="flex items-center gap-3 bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+              <div className="p-2 rounded-lg bg-white border border-stone-200 text-stone-500">
+                <FiTag size={15} />
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-stone-500 uppercase">Related To</p>
-                <p className="text-sm font-medium text-stone-900 mt-1">{activity.relatedEntity}</p>
+              <div>
+                <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Related To</p>
+                <p className="text-sm font-semibold text-stone-800 mt-0.5">{activity.relatedEntity}</p>
                 {activity.relatedEntityType && (
-                  <p className="text-xs text-stone-500 mt-1">{activity.relatedEntityType}</p>
+                  <p className="text-xs text-stone-400 mt-0.5">{activity.relatedEntityType}</p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Additional Details */}
+          {/* Additional details */}
           {activity.details && (
-            <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="p-2 bg-blue-200 rounded-lg text-blue-700">
-                <FiInfo size={18} />
+            <div className="flex items-start gap-3 bg-amber-50 rounded-xl px-4 py-3 border border-amber-100">
+              <div className="p-2 rounded-lg bg-white border border-amber-200 text-amber-500 shrink-0">
+                <FiAlertCircle size={15} />
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-blue-600 uppercase">Additional Details</p>
-                <p className="text-sm text-stone-900 mt-2">{activity.details}</p>
+              <div>
+                <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide">Details</p>
+                <p className="text-sm text-stone-700 mt-0.5 leading-relaxed">{activity.details}</p>
               </div>
             </div>
           )}
 
-          {/* Activity ID and Timestamp */}
-          <div className="space-y-3 border-t border-stone-200 pt-4">
-            <div className="bg-stone-50 p-4 rounded-lg border border-stone-200">
-              <p className="text-xs font-semibold text-stone-500 uppercase mb-2">Activity Timestamp</p>
-              {(() => {
-                const { date, time, iso } = formatFullDateTime(activity.timestamp);
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-stone-900">{date}</span>
-                      <span className="text-sm font-semibold text-blue-600">{time}</span>
-                    </div>
-                    <p className="text-xs text-stone-400 font-mono">{iso}</p>
-                  </div>
-                );
-              })()}
+          {/* Divider */}
+          <div className="border-t border-stone-100" />
+
+          {/* Timestamp */}
+          <div className="flex items-start gap-3 bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+            <div className="p-2 rounded-lg bg-white border border-stone-200 text-stone-500 shrink-0">
+              <FiCalendar size={15} />
             </div>
-            <div className="bg-stone-50 p-4 rounded-lg border border-stone-200">
-              <p className="text-xs font-semibold text-stone-500 uppercase mb-2">Activity ID</p>
-              <code className="text-sm text-stone-600 font-mono break-all">{activity.id}</code>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1">Timestamp</p>
+              <p className="text-sm font-semibold text-stone-800">{date}</p>
+              <p className="text-sm font-bold text-blue-600">{time}</p>
+              <p className="text-[11px] text-stone-400 font-mono mt-1 break-all">{iso}</p>
+            </div>
+          </div>
+
+          {/* Activity ID */}
+          <div className="flex items-center gap-3 bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+            <div className="p-2 rounded-lg bg-white border border-stone-200 text-stone-500 shrink-0">
+              <FiHash size={15} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1">Activity ID</p>
+              <p className="text-[12px] font-mono text-stone-500 break-all">{activity.id}</p>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 bg-stone-50 rounded-b-2xl flex justify-end gap-3">
+        {/* ── Footer ── */}
+        <div className="px-6 pb-5 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-white border border-stone-300 rounded-lg text-stone-700 font-medium hover:bg-stone-50 transition-colors"
+            className="px-5 py-2 rounded-lg bg-stone-900 text-white text-sm font-semibold hover:bg-stone-700 transition-colors"
           >
             Close
           </button>
@@ -223,3 +234,4 @@ export const ActivityDetailsModal: React.FC<ActivityDetailsModalProps> = ({ acti
     </div>
   );
 };
+

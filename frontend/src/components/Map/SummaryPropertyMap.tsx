@@ -44,6 +44,23 @@ const isCompletedSalesStatus = (value: string): boolean => {
   return ['closed', 'won', 'completed', 'awaiting_payment', 'invoice'].includes(normalized);
 };
 
+const normalizeMapPropertyType = (typeValue: unknown): string => {
+  const rawType = String(typeValue || '').trim();
+  if (!rawType) return 'Unknown';
+
+  const normalized = rawType
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized === 'marketing materials') {
+    return 'Unknown';
+  }
+
+  return rawType;
+};
+
 const toLocation = (record: PropertyRecord): PropertyLocation | null => {
   const lat = Number(record.latitude);
   const lng = Number(record.longitude);
@@ -70,7 +87,7 @@ const toLocation = (record: PropertyRecord): PropertyLocation | null => {
     type,
     contact: String(metadata.contactNumber || ''),
     fund: String(metadata.linkedFundName || ''),
-    details: String(metadata.propertyType || record.type || ''),
+    details: normalizeMapPropertyType(metadata.propertyType || record.type || ''),
     contactNumber: String(metadata.contactNumber || ''),
     centerContact: String(metadata.linkedFundName || ''),
     phone: String(metadata.contactNumber || ''),
@@ -79,7 +96,7 @@ const toLocation = (record: PropertyRecord): PropertyLocation | null => {
     occupancy: Number(metadata.occupancy || (type === 'leasing' && leaseStatus === 'vacant' ? 0 : 100)),
     dealValue: Number(metadata.dealValue || record.price || 0),
     monthlyRent: Number(metadata.monthlyRent || record.price || 0),
-    propertyType: String(metadata.propertyType || record.type || ''),
+    propertyType: normalizeMapPropertyType(metadata.propertyType || record.type || ''),
     dealStatus: isCompletedSalesStatus(saleStatus) ? 'completed' : saleStatus || 'active',
     leaseStatus: leaseStatus || (type === 'leasing' ? 'occupied' : 'active'),
   };
