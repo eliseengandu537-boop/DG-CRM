@@ -9,11 +9,10 @@ export const Search = () => {
 
   return (
     <>
-      <div className="flex flex-col items-center mb-2">
-        
-        <div 
+      <div className="mb-2">
+        <div
           onClick={() => setOpen(true)}
-          className="bg-stone-200 w-full relative rounded flex items-center px-2 py-1.5 text-sm cursor-pointer hover:bg-stone-300 transition-colors"
+          className="bg-stone-200 w-full relative rounded-md flex items-center px-2 py-1.5 text-sm cursor-pointer hover:bg-stone-300 transition-colors"
         >
           <FiSearch className="mr-2" />
           <input

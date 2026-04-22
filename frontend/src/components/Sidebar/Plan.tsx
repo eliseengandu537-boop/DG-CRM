@@ -8,6 +8,7 @@ import {
 
 interface PlanProps {
   onPageChange?: (page: string) => void;
+  collapsed?: boolean;
 }
 
 interface UserProfileData {
@@ -67,7 +68,7 @@ const DEFAULT_PROFILE: UserProfileData = {
   },
 };
 
-export const Plan: React.FC<PlanProps> = ({ onPageChange }) => {
+export const Plan: React.FC<PlanProps> = ({ onPageChange, collapsed = false }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfileData>(DEFAULT_PROFILE);
   const [managerBrokerProfile, setManagerBrokerProfile] = useState<BrokerDirectoryEntry | null>(null);
@@ -223,27 +224,32 @@ export const Plan: React.FC<PlanProps> = ({ onPageChange }) => {
       {/* User Profile Section - Clickable */}
       <button
         onClick={() => setShowMenu(!showMenu)}
-        className="flex items-center gap-3 hover:bg-stone-100 rounded-lg p-2 transition-colors text-left w-full"
+        title={collapsed ? `${displayProfile.name} · ${displayProfile.role}` : undefined}
+        className={`flex items-center hover:bg-stone-100 rounded-lg p-2 transition-colors text-left w-full ${collapsed ? 'justify-center' : 'gap-3'}`}
       >
         {displayProfile.profileImage ? (
           <img
             src={displayProfile.profileImage}
             alt="avatar"
-            className="w-10 h-10 rounded-full shrink-0 object-cover"
+            className="w-8 h-8 rounded-full shrink-0 object-cover"
           />
         ) : (
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-violet-500 text-white font-semibold flex-shrink-0">
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-violet-500 text-white font-semibold text-xs flex-shrink-0">
             {displayProfile.avatar}
           </div>
         )}
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-stone-950 truncate">{displayProfile.name}</p>
-          <p className="text-stone-500 text-xs truncate">{displayProfile.role}</p>
-        </div>
-        <FiChevronUp
-          size={16}
-          className={`flex-shrink-0 transition-transform ${showMenu ? "rotate-0" : "rotate-180"}`}
-        />
+        {!collapsed && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-stone-950 truncate">{displayProfile.name}</p>
+              <p className="text-stone-500 text-xs truncate">{displayProfile.role}</p>
+            </div>
+            <FiChevronUp
+              size={16}
+              className={`flex-shrink-0 transition-transform ${showMenu ? 'rotate-0' : 'rotate-180'}`}
+            />
+          </>
+        )}
       </button>
 
       {/* Dropdown Menu - Fixed position to prevent movement */}

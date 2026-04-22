@@ -21,6 +21,7 @@ import {
 interface RouteSelectProps {
   currentPage?: string;
   onPageChange?: (page: string) => void;
+  collapsed?: boolean;
 }
 
 const NAV_ROUTES: Array<{ title: AppPage; icon: IconType }> = [
@@ -41,6 +42,7 @@ const NAV_ROUTES: Array<{ title: AppPage; icon: IconType }> = [
 export const RouteSelect: React.FC<RouteSelectProps> = ({
   currentPage = 'Dashboard',
   onPageChange,
+  collapsed = false,
 }) => {
   const { user } = useAuth();
   const { pendingCount } = useReminderNotifications();
@@ -49,13 +51,14 @@ export const RouteSelect: React.FC<RouteSelectProps> = ({
   const visibleRoutes = NAV_ROUTES.filter(route => allowedPages.includes(route.title));
 
   return (
-    <div className="space-y-0.5 pt-0.5">
+    <div className={`space-y-0.5 pt-0.5 ${collapsed ? 'px-0' : ''}`}>
       {visibleRoutes.map(route => (
         <Route
           key={route.title}
           Icon={route.icon}
           selected={currentPage === route.title}
           title={route.title}
+          collapsed={collapsed}
           badgeCount={route.title === 'Reminders' ? pendingCount : undefined}
           onClick={() => onPageChange?.(route.title)}
         />
@@ -69,29 +72,37 @@ const Route = ({
   Icon,
   title,
   badgeCount,
+  collapsed,
   onClick,
 }: {
   selected: boolean;
   Icon: IconType;
   title: string;
   badgeCount?: number;
+  collapsed?: boolean;
   onClick?: () => void;
 }) => {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center justify-start gap-2 w-full rounded px-2 py-1.5 text-sm transition-[box-shadow,_background-color,_color] ${
+      title={collapsed ? title : undefined}
+      className={`flex items-center w-full rounded-md transition-colors ${
+        collapsed ? 'justify-center px-0 py-2.5' : 'justify-start gap-2.5 px-2.5 py-2'
+      } text-sm ${
         selected
-          ? 'bg-white text-stone-950 shadow'
-          : 'hover:bg-stone-200 bg-transparent text-stone-500 shadow-none'
+          ? 'bg-white text-stone-950 shadow-sm'
+          : 'hover:bg-stone-200 bg-transparent text-stone-500'
       }`}
     >
-      <Icon className={selected ? 'text-violet-500' : ''} />
-      <span>{title}</span>
-      {badgeCount !== undefined && badgeCount > 0 && (
+      <Icon className={`shrink-0 ${selected ? 'text-violet-500' : ''}`} size={16} />
+      {!collapsed && <span className="truncate">{title}</span>}
+      {!collapsed && badgeCount !== undefined && badgeCount > 0 && (
         <span className="ml-auto rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
           {badgeCount}
         </span>
+      )}
+      {collapsed && badgeCount !== undefined && badgeCount > 0 && (
+        <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-violet-500" />
       )}
     </button>
   );
