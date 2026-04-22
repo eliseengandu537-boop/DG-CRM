@@ -5,6 +5,8 @@ import React, { useEffect, useState } from "react";
 import { Contact } from "../../data/leasing";
 import { FiEdit2, FiTrash2, FiPlus, FiSearch, FiLink2 } from "react-icons/fi";
 import { contactService } from "@/services/contactService";
+import { tenantService } from "@/services/tenantService";
+import { landlordService } from "@/services/landlordService";
 
 const normalizeContactType = (type: string) => {
   const value = String(type || "").trim();
@@ -134,6 +136,58 @@ export const Contacts: React.FC = () => {
       });
       const contactWithId = toLeasingContact(created);
       setContacts([...contacts, contactWithId]);
+
+      // Sync to Tenants or Landlords section automatically
+      if (newContact.type === "Tenant") {
+        try {
+          await tenantService.createTenant({
+            name: `${newContact.firstName} ${newContact.lastName}`.trim(),
+            companyName: newContact.company || `${newContact.firstName} ${newContact.lastName}`.trim(),
+            unit: "",
+            leaseStartDate: new Date().toISOString().split("T")[0],
+            leaseEndDate: "",
+            monthlyRent: 0,
+            email: newContact.email,
+            phone: newContact.phone,
+            status: "Active",
+            details: {
+              companyName: newContact.company || `${newContact.firstName} ${newContact.lastName}`.trim(),
+              unit: "",
+              leaseStartDate: new Date().toISOString().split("T")[0],
+              leaseEndDate: "",
+              monthlyRent: 0,
+              email: newContact.email,
+              phone: newContact.phone,
+              status: "Active",
+            },
+          });
+        } catch {
+          // non-blocking – contact was still saved
+        }
+      } else if (newContact.type === "Landlord") {
+        try {
+          await landlordService.createLandlord({
+            name: `${newContact.firstName} ${newContact.lastName}`.trim(),
+            contact: `${newContact.firstName} ${newContact.lastName}`.trim(),
+            email: newContact.email,
+            phone: newContact.phone,
+            address: "",
+            status: "Active",
+            details: {
+              companyName: newContact.company || `${newContact.firstName} ${newContact.lastName}`.trim(),
+              contactPerson: `${newContact.firstName} ${newContact.lastName}`.trim(),
+              email: newContact.email,
+              phone: newContact.phone,
+              address: "",
+              status: "Active",
+              notes: "",
+            },
+          });
+        } catch {
+          // non-blocking – contact was still saved
+        }
+      }
+
       setShowAddModal(false);
       setNewContact({
         firstName: "",

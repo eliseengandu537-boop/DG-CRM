@@ -45,8 +45,11 @@ export const SalesStock: React.FC = () => {
   const [contacts, setContacts] = useState<Array<{ id: string; name?: string; firstName?: string; lastName?: string }>>([]);
   const [tenants, setTenants] = useState<Array<{ id: string; firstName?: string; lastName?: string }>>([]);
   const [leads, setLeads] = useState<Array<{ id: string; name: string }>>([]);
-  const [properties, setProperties] = useState<Array<{ id: string; name: string; brokerName?: string; assignedBrokerName?: string }>>([]);
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; title?: string; address?: string; latitude?: number; longitude?: number; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string; brokerName?: string; assignedBrokerName?: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [propertySearchInput, setPropertySearchInput] = useState('');
+  const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
+  const [ownerPopup, setOwnerPopup] = useState<{ title: string; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string } | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -118,7 +121,14 @@ export const SalesStock: React.FC = () => {
       setProperties(
         propertyResult.data.map((property) => ({
           id: property.id,
-          name: property.address || property.title || property.id,
+          name: property.title || property.address || property.id,
+          title: property.title || property.address || property.id,
+          address: property.address || '',
+          latitude: typeof property.latitude === 'number' ? property.latitude : undefined,
+          longitude: typeof property.longitude === 'number' ? property.longitude : undefined,
+          ownerName: property.metadata?.ownerName ? String(property.metadata.ownerName) : undefined,
+          ownerEmail: property.metadata?.ownerEmail ? String(property.metadata.ownerEmail) : undefined,
+          ownerContactNumber: property.metadata?.ownerContactNumber ? String(property.metadata.ownerContactNumber) : undefined,
           brokerName: property.assignedBrokerName,
           assignedBrokerName: property.assignedBrokerName,
         }))
@@ -328,8 +338,12 @@ export const SalesStock: React.FC = () => {
   };
 
   const handleAddAsset = async () => {
-    if (!isValidMapSelection(newAsset)) {
-      alert("Please search and select a valid property from Google Maps");
+    if (!String(newAsset.itemName || '').trim()) {
+      alert('Please enter a property name');
+      return;
+    }
+    if (!String(newAsset.location || '').trim()) {
+      alert('Please enter a location/address');
       return;
     }
     try {
@@ -430,8 +444,8 @@ export const SalesStock: React.FC = () => {
 
   const handleSaveEdit = async () => {
     if (!editingStock) return;
-    if (!isValidMapSelection(editingStock)) {
-      alert("Please search and select a valid property from Google Maps");
+    if (!String(editingStock.itemName || '').trim()) {
+      alert('Please enter a property name');
       return;
     }
     try {
@@ -470,12 +484,16 @@ export const SalesStock: React.FC = () => {
       await loadStockItems();
       setShowEditModal(false);
       setEditingStock(null);
+      setPropertySearchInput('');
+      setShowPropertyDropdown(false);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Failed to update asset");
     }
   };
 
   const handleCloseModal = () => {
+    setPropertySearchInput('');
+    setShowPropertyDropdown(false);
     setShowAddModal(false);
     setNewAsset({
       searchQuery: "",
@@ -529,21 +547,64 @@ export const SalesStock: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h3 className="text-xl font-bold text-stone-900 mb-1">Add New Sales Asset</h3>
-              <p className="text-stone-600 text-sm mb-6">
-                Search and select a property from Google Maps, then fill in the asset details.
-              </p>
-               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Search Property on Map *
+                    Select Existing Property (optional)
                   </label>
-                  <GooglePlaceAutocompleteInput
-                    value={newAsset.searchQuery}
-                    onInputChange={handleNewAssetSearchChange}
-                    onPlaceSelect={applyPlaceToNewAsset}
-                    placeholder="Search for a building, office, mall, address, or named property"
-                  />
+                  <div className="relative">
+                    <div className="flex items-center border border-stone-200 rounded-lg focus-within:ring-2 focus-within:ring-violet-500 bg-white">
+                      <FiSearch className="ml-3 text-stone-400 shrink-0" size={15} />
+                      <input
+                        type="text"
+                        value={propertySearchInput}
+                        onChange={(e) => { setPropertySearchInput(e.target.value); setShowPropertyDropdown(true); }}
+                        onFocus={() => setShowPropertyDropdown(true)}
+                        placeholder="Search properties by name or address..."
+                        className="w-full px-3 py-2 text-sm text-stone-900 bg-transparent focus:outline-none"
+                      />
+                      {propertySearchInput && (
+                        <button type="button" onClick={() => { setPropertySearchInput(''); setShowPropertyDropdown(false); setNewAsset({ ...newAsset, itemName: '', location: '', address: '', relatedProperty: '', latitude: undefined, longitude: undefined }); }} className="mr-2 text-stone-400 hover:text-stone-600">✕</button>
+                      )}
+                    </div>
+                    {showPropertyDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                        {properties
+                          .filter((p) => { const q = propertySearchInput.toLowerCase(); return !q || (p.title || p.name).toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q); })
+                          .map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              className="w-full text-left px-4 py-2.5 text-sm hover:bg-violet-50 border-b border-stone-100 last:border-0"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setNewAsset((cur) => ({
+                                  ...cur,
+                                  itemName: p.title || p.name,
+                                  location: p.address || '',
+                                  address: p.address || '',
+                                  formattedAddress: p.address || '',
+                                  relatedProperty: p.id,
+                                  placeId: `existing:${p.id}`,
+                                  selectedFromMap: true,
+                                  latitude: p.latitude,
+                                  longitude: p.longitude,
+                                }));
+                                setPropertySearchInput(`${p.title || p.name}${p.address ? ` — ${p.address}` : ''}`);
+                                setShowPropertyDropdown(false);
+                              }}
+                            >
+                              <span className="font-medium text-stone-900">{p.title || p.name}</span>
+                              {p.address && <span className="text-stone-500 ml-1">— {p.address}</span>}
+                            </button>
+                          ))}
+                        {properties.filter((p) => { const q = propertySearchInput.toLowerCase(); return !q || (p.title || p.name).toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q); }).length === 0 && (
+                          <p className="px-4 py-3 text-sm text-stone-400">No matching properties found.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {properties.length === 0 && <p className="text-xs text-stone-400 mt-1">No properties found. Add properties from the Map module first.</p>}
                 </div>
 
                 <div>
@@ -553,9 +614,9 @@ export const SalesStock: React.FC = () => {
                   <input
                     type="text"
                     value={newAsset.itemName}
-                    readOnly
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                    placeholder="Auto-filled from map selection"
+                    onChange={(e) => setNewAsset({ ...newAsset, itemName: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Auto-filled when property selected, or type manually"
                   />
                 </div>
 
@@ -578,30 +639,10 @@ export const SalesStock: React.FC = () => {
                   <input
                     type="text"
                     value={newAsset.location}
-                    readOnly
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                    placeholder="Auto-filled from map selection"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Link Existing Property (optional)
-                  </label>
-                  <select
-                    value={newAsset.relatedProperty}
-                    onChange={(e) =>
-                      setNewAsset({ ...newAsset, relatedProperty: e.target.value })
-                    }
+                    onChange={(e) => setNewAsset({ ...newAsset, location: e.target.value })}
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  >
-                    <option value="">Select a property (optional)</option>
-                    {properties.map((prop) => (
-                      <option key={prop.id} value={prop.id}>
-                        {prop.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Auto-filled when property selected, or type manually"
+                  />
                 </div>
 
                 <div>
@@ -657,12 +698,12 @@ export const SalesStock: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={newAsset.purchasePrice}
+                    value={newAsset.purchasePrice === 0 ? "" : newAsset.purchasePrice}
                     onChange={(e) =>
                       setNewAsset({ ...newAsset, purchasePrice: parseFloat(e.target.value) || 0 })
                     }
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="0"
+                    placeholder="Enter price"
                   />
                 </div>
 
@@ -751,19 +792,7 @@ export const SalesStock: React.FC = () => {
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Documents (attach files or paste URLs)
-                  </label>
-                  <input type="file" multiple onChange={(e) => handleAddDocsToNew(e.target.files)} className="w-full" />
-                  {(newAsset.documents || []).length > 0 && (
-                    <ul className="mt-2 text-sm">
-                      {(newAsset.documents || []).map((d, i) => (
-                        <li key={i}><a href={d.url} target="_blank" rel="noreferrer" className="text-violet-600">{d.name}</a></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+
               </div>
 
               <div className="flex gap-3 mt-6 justify-end">
@@ -791,21 +820,65 @@ export const SalesStock: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h3 className="text-xl font-bold text-stone-900 mb-1">Edit Sales Asset</h3>
-              <p className="text-stone-600 text-sm mb-6">
-                Search and select a property from Google Maps, then update asset details.
-              </p>
                
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Search Property on Map *
+                    Select Existing Property (optional)
                   </label>
-                  <GooglePlaceAutocompleteInput
-                    value={String(editingStock.searchQuery || "")}
-                    onInputChange={handleEditingSearchChange}
-                    onPlaceSelect={applyPlaceToEditingAsset}
-                    placeholder="Search for a building, office, mall, address, or named property"
-                  />
+                  <div className="relative">
+                    <div className="flex items-center border border-stone-200 rounded-lg focus-within:ring-2 focus-within:ring-violet-500 bg-white">
+                      <FiSearch className="ml-3 text-stone-400 shrink-0" size={15} />
+                      <input
+                        type="text"
+                        value={propertySearchInput}
+                        onChange={(e) => { setPropertySearchInput(e.target.value); setShowPropertyDropdown(true); }}
+                        onFocus={() => setShowPropertyDropdown(true)}
+                        placeholder="Search properties by name or address..."
+                        className="w-full px-3 py-2 text-sm text-stone-900 bg-transparent focus:outline-none"
+                      />
+                      {propertySearchInput && (
+                        <button type="button" onClick={() => { setPropertySearchInput(''); setShowPropertyDropdown(false); }} className="mr-2 text-stone-400 hover:text-stone-600">✕</button>
+                      )}
+                    </div>
+                    {showPropertyDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                        {properties
+                          .filter((p) => { const q = propertySearchInput.toLowerCase(); return !q || (p.title || p.name).toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q); })
+                          .map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              className="w-full text-left px-4 py-2.5 text-sm hover:bg-violet-50 border-b border-stone-100 last:border-0"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setEditingStock((cur) => cur ? ({
+                                  ...cur,
+                                  itemName: p.title || p.name,
+                                  location: p.address || '',
+                                  address: p.address || '',
+                                  formattedAddress: p.address || '',
+                                  relatedProperty: p.id,
+                                  placeId: `existing:${p.id}`,
+                                  selectedFromMap: true,
+                                  latitude: p.latitude,
+                                  longitude: p.longitude,
+                                }) : cur);
+                                setPropertySearchInput(`${p.title || p.name}${p.address ? ` — ${p.address}` : ''}`);
+                                setShowPropertyDropdown(false);
+                              }}
+                            >
+                              <span className="font-medium text-stone-900">{p.title || p.name}</span>
+                              {p.address && <span className="text-stone-500 ml-1">— {p.address}</span>}
+                            </button>
+                          ))}
+                        {properties.filter((p) => { const q = propertySearchInput.toLowerCase(); return !q || (p.title || p.name).toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q); }).length === 0 && (
+                          <p className="px-4 py-3 text-sm text-stone-400">No matching properties found.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {properties.length === 0 && <p className="text-xs text-stone-400 mt-1">No properties found. Add properties from the Map module first.</p>}
                 </div>
 
                 <div>
@@ -815,9 +888,9 @@ export const SalesStock: React.FC = () => {
                   <input
                     type="text"
                     value={editingStock.itemName}
-                    readOnly
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                    placeholder="Auto-filled from map selection"
+                    onChange={(e) => setEditingStock({ ...editingStock, itemName: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Auto-filled when property selected, or type manually"
                   />
                 </div>
 
@@ -840,33 +913,11 @@ export const SalesStock: React.FC = () => {
                   <input
                     type="text"
                     value={editingStock.location}
-                    readOnly
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                    placeholder="Auto-filled from map selection"
+                    onChange={(e) => setEditingStock({ ...editingStock, location: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Auto-filled when property selected, or type manually"
                   />
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Link Existing Property (optional)
-                  </label>
-                  <select
-                    value={editingStock.relatedProperty || ""}
-                    onChange={(e) =>
-                      setEditingStock({ ...editingStock, relatedProperty: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  >
-                    <option value="">Select a property (optional)</option>
-                    {properties.map((prop) => (
-                      <option key={prop.id} value={prop.id}>
-                        {prop.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Category removed from edit form per request */}
 
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">
@@ -921,12 +972,12 @@ export const SalesStock: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={editingStock.purchasePrice}
+                    value={editingStock.purchasePrice === 0 ? "" : editingStock.purchasePrice}
                     onChange={(e) =>
                       setEditingStock({ ...editingStock, purchasePrice: parseFloat(e.target.value) || 0 })
                     }
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="0"
+                    placeholder="Enter price"
                   />
                 </div>
 
@@ -1015,19 +1066,6 @@ export const SalesStock: React.FC = () => {
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Documents (attach files or paste URLs)
-                  </label>
-                  <input type="file" multiple onChange={(e) => handleAddDocsToEditing(e.target.files)} className="w-full" />
-                  {(editingStock.documents || []).length > 0 && (
-                    <ul className="mt-2 text-sm">
-                      {(editingStock.documents || []).map((d, i) => (
-                        <li key={i}><a href={d.url} target="_blank" rel="noreferrer" className="text-violet-600">{d.name}</a></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
               </div>
 
               <div className="flex gap-3 mt-6 justify-end">
@@ -1035,6 +1073,8 @@ export const SalesStock: React.FC = () => {
                   onClick={() => {
                     setShowEditModal(false);
                     setEditingStock(null);
+                    setPropertySearchInput('');
+                    setShowPropertyDropdown(false);
                   }}
                   className="px-4 py-2 border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
                 >
@@ -1157,7 +1197,21 @@ export const SalesStock: React.FC = () => {
                   >
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">
                       <div className="flex items-center gap-2">
-                        {stock.itemName}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prop = properties.find((p) => p.id === stock.relatedProperty);
+                            setOwnerPopup({
+                              title: stock.itemName || '-',
+                              ownerName: prop?.ownerName,
+                              ownerEmail: prop?.ownerEmail,
+                              ownerContactNumber: prop?.ownerContactNumber,
+                            });
+                          }}
+                          className="text-left hover:text-violet-600 hover:underline transition-colors"
+                        >
+                          {stock.itemName}
+                        </button>
                         {isExpired(stock.expiryDate) && (
                           <FiAlertCircle size={16} className="text-red-600" />
                         )}
@@ -1178,7 +1232,21 @@ export const SalesStock: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-600">
-                      {stock.location}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prop = properties.find((p) => p.id === stock.relatedProperty);
+                          setOwnerPopup({
+                            title: stock.itemName || '-',
+                            ownerName: prop?.ownerName,
+                            ownerEmail: prop?.ownerEmail,
+                            ownerContactNumber: prop?.ownerContactNumber,
+                          });
+                        }}
+                        className="text-left hover:text-violet-600 hover:underline transition-colors"
+                      >
+                        {stock.location || '-'}
+                      </button>
                     </td>
                     
                     <td className="px-6 py-4 text-sm">
@@ -1315,6 +1383,48 @@ export const SalesStock: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Owner Info Popup */}
+      {ownerPopup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setOwnerPopup(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-stone-900">{ownerPopup.title}</h3>
+                <p className="text-xs text-stone-500 mt-0.5">Owner Details</p>
+              </div>
+              <button onClick={() => setOwnerPopup(null)} className="text-stone-400 hover:text-stone-600 text-xl leading-none">&times;</button>
+            </div>
+            {ownerPopup.ownerName || ownerPopup.ownerEmail || ownerPopup.ownerContactNumber ? (
+              <div className="space-y-3">
+                {ownerPopup.ownerName && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Name</span>
+                    <span className="text-sm text-stone-900">{ownerPopup.ownerName}</span>
+                  </div>
+                )}
+                {ownerPopup.ownerEmail && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Email</span>
+                    <a href={`mailto:${ownerPopup.ownerEmail}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerEmail}</a>
+                  </div>
+                )}
+                {ownerPopup.ownerContactNumber && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Phone</span>
+                    <a href={`tel:${ownerPopup.ownerContactNumber}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerContactNumber}</a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-stone-400 italic">No owner details have been added for this property. You can add them in the Map module.</p>
+            )}
+            <button onClick={() => setOwnerPopup(null)} className="mt-5 w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-medium rounded-lg transition-colors">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

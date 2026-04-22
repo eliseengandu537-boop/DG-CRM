@@ -56,6 +56,10 @@ export interface Property {
   linkedCompanyName?: string;
   linkedFundId?: string;
   linkedFundName?: string;
+  registrationNumber?: string;
+  registrationName?: string;
+  ownerContactNumber?: string;
+  tenantContactNumber?: string;
   brokerName: string;
   brokerId?: string;
   brokerEmail?: string;

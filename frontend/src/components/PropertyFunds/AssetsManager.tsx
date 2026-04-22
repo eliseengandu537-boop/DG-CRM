@@ -43,10 +43,7 @@ export const AssetsManager: React.FC = () => {
       setProperties(
         propResult.data.filter(p => {
           if (p.deletedAt) return false;
-          const meta = p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
-            ? p.metadata as Record<string, unknown>
-            : {};
-          return Boolean(meta.ownershipStatus);
+          return true;
         })
       );
       setFunds(

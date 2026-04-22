@@ -108,15 +108,11 @@ const toForm = (listing: Listing): ListingForm => ({
 });
 
 const validate = (form: ListingForm): string | null => {
-  const isExisting = String(form.placeId || '').startsWith('existing:');
-  if (!isExisting && (!form.selectedFromMap || !form.placeId)) {
-    return 'Please select a valid property from the map';
+  if (!form.itemName.trim()) {
+    return 'Please enter a property name';
   }
-  if (!form.itemName.trim() || !form.address.trim()) {
-    return 'Please select a valid property from the map';
-  }
-  if (!isExisting && (toNumber(form.latitude) === undefined || toNumber(form.longitude) === undefined)) {
-    return 'Please select a valid property from the map';
+  if (!form.address.trim()) {
+    return 'Please enter a location/address';
   }
   if (Number(form.purchasePrice || 0) <= 0) {
     return 'Price is required and must be greater than 0';
@@ -169,8 +165,11 @@ const buildPayload = (form: ListingForm) => ({
 export const Stock: React.FC = () => {
   const [stocks, setStocks] = useState<Listing[]>([]);
   const [brokers, setBrokers] = useState<Array<{ id: string; name: string }>>([]);
-  const [existingProperties, setExistingProperties] = useState<Array<{ id: string; title: string; address: string; latitude?: number; longitude?: number }>>([]);
+  const [existingProperties, setExistingProperties] = useState<Array<{ id: string; title: string; address: string; latitude?: number; longitude?: number; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string }>>([]); 
+  const [ownerPopup, setOwnerPopup] = useState<{ title: string; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string } | null>(null);
   const [useExistingProperty, setUseExistingProperty] = useState(false);
+  const [propertySearchInput, setPropertySearchInput] = useState('');
+  const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -197,7 +196,7 @@ export const Stock: React.FC = () => {
         const [stockResult, brokerResult, propertyResult] = await Promise.all([
           stockService.getAllStockItems({ module: 'leasing', limit: 1000 }),
           brokerService.getAllBrokers(),
-          propertyService.getAllProperties({ moduleType: 'leasing', limit: 1000 }).catch(() => ({ data: [] })),
+          propertyService.getAllProperties({ limit: 1000 }).catch(() => ({ data: [] })),
         ]);
 
         if (!mounted) return;
@@ -214,6 +213,9 @@ export const Stock: React.FC = () => {
             address: String(p.address || ''),
             latitude: typeof p.latitude === 'number' ? p.latitude : undefined,
             longitude: typeof p.longitude === 'number' ? p.longitude : undefined,
+            ownerName: p.metadata?.ownerName ? String(p.metadata.ownerName) : undefined,
+            ownerEmail: p.metadata?.ownerEmail ? String(p.metadata.ownerEmail) : undefined,
+            ownerContactNumber: p.metadata?.ownerContactNumber ? String(p.metadata.ownerContactNumber) : undefined,
           }))
         );
       } catch {
@@ -296,12 +298,16 @@ export const Stock: React.FC = () => {
   const closeAdd = () => {
     setShowAddModal(false);
     setUseExistingProperty(false);
+    setPropertySearchInput('');
+    setShowPropertyDropdown(false);
     resetAdd();
   };
 
   const closeEdit = () => {
     setShowEditModal(false);
     setUseExistingProperty(false);
+    setPropertySearchInput('');
+    setShowPropertyDropdown(false);
     setEditing(null);
     setEditForm(emptyForm());
     setFormError(null);
@@ -380,84 +386,87 @@ export const Stock: React.FC = () => {
         <div className="p-6">
           <h3 className="text-xl font-bold text-stone-900 mb-1">{title}</h3>
           <p className="text-stone-600 text-sm mb-6">
-            Search a real property, select it from Google Maps, then enter the price manually.
+            Search a real property, select it from existing properties or enter address directly.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-stone-700 mb-1">
-                Property Source
+                Select Existing Property (optional)
               </label>
-              <div className="flex gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setUseExistingProperty(false)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${!useExistingProperty ? 'bg-violet-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
-                >
-                  Search Google Maps
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUseExistingProperty(true)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${useExistingProperty ? 'bg-violet-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
-                >
-                  Select from Existing Properties
-                </button>
-              </div>
-            </div>
-
-            <div className="md:col-span-2">
-              {useExistingProperty ? (
-                <>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Select Existing Property *
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    defaultValue=""
+              <div className="relative">
+                <div className="flex items-center border border-stone-200 rounded-lg focus-within:ring-2 focus-within:ring-violet-500 bg-white">
+                  <FiSearch className="ml-3 text-stone-400 shrink-0" size={15} />
+                  <input
+                    type="text"
+                    value={propertySearchInput}
                     onChange={(e) => {
-                      const property = existingProperties.find((p) => p.id === e.target.value);
-                      if (property) {
-                        setter((current) => ({
-                          ...current,
-                          searchQuery: `${property.title} — ${property.address}`,
-                          itemName: property.title,
-                          address: property.address,
-                          formattedAddress: property.address,
-                          placeId: `existing:${property.id}`,
-                          selectedFromMap: true,
-                          propertyId: property.id,
-                          latitude: property.latitude,
-                          longitude: property.longitude,
-                        }));
-                        setFormError(null);
-                      }
+                      setPropertySearchInput(e.target.value);
+                      setShowPropertyDropdown(true);
                     }}
-                  >
-                    <option value="" disabled>-- Select a property --</option>
-                    {existingProperties.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.title}{p.address ? ` — ${p.address}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {existingProperties.length === 0 && (
-                    <p className="text-xs text-stone-400 mt-1">No leasing properties found. Add properties from the Map module first.</p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Search Property on Map *
-                  </label>
-                  <GooglePlaceAutocompleteInput
-                    value={form.searchQuery}
-                    onInputChange={(value) => updateSearch(setter, value)}
-                    onPlaceSelect={(place) => applyPlace(setter, place)}
-                    error={formError && formError.includes('valid property') ? formError : undefined}
-                    placeholder="Search for a building, office, mall, address, or named property"
+                    onFocus={() => setShowPropertyDropdown(true)}
+                    placeholder="Search properties by name or address..."
+                    className="w-full px-3 py-2 text-sm text-stone-900 bg-transparent focus:outline-none"
                   />
-                </>
+                  {propertySearchInput && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPropertySearchInput('');
+                        setShowPropertyDropdown(false);
+                      }}
+                      className="mr-2 text-stone-400 hover:text-stone-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                {showPropertyDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                    {existingProperties
+                      .filter((p) => {
+                        const q = propertySearchInput.toLowerCase();
+                        return !q || p.title.toLowerCase().includes(q) || p.address.toLowerCase().includes(q);
+                      })
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-violet-50 border-b border-stone-100 last:border-0"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setter((current) => ({
+                              ...current,
+                              searchQuery: `${p.title} — ${p.address}`,
+                              itemName: p.title,
+                              address: p.address,
+                              formattedAddress: p.address,
+                              placeId: `existing:${p.id}`,
+                              selectedFromMap: true,
+                              propertyId: p.id,
+                              latitude: p.latitude,
+                              longitude: p.longitude,
+                            }));
+                            setPropertySearchInput(`${p.title}${p.address ? ` — ${p.address}` : ''}`);
+                            setShowPropertyDropdown(false);
+                            setFormError(null);
+                          }}
+                        >
+                          <span className="font-medium text-stone-900">{p.title}</span>
+                          {p.address && <span className="text-stone-500 ml-1">— {p.address}</span>}
+                        </button>
+                      ))}
+                    {existingProperties.filter((p) => {
+                      const q = propertySearchInput.toLowerCase();
+                      return !q || p.title.toLowerCase().includes(q) || p.address.toLowerCase().includes(q);
+                    }).length === 0 && (
+                      <p className="px-4 py-3 text-sm text-stone-400">No matching properties found.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              {existingProperties.length === 0 && (
+                <p className="text-xs text-stone-400 mt-1">No properties found. Add properties from the Map module first.</p>
               )}
             </div>
 
@@ -470,7 +479,7 @@ export const Stock: React.FC = () => {
                 value={form.itemName}
                 onChange={(event) => setter((current) => ({ ...current, itemName: event.target.value }))}
                 className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-stone-900"
-                placeholder="Auto-filled from map — you can edit this"
+                placeholder="Auto-filled when property selected, or type manually"
               />
             </div>
 
@@ -498,9 +507,9 @@ export const Stock: React.FC = () => {
               <input
                 type="text"
                 value={form.address}
-                readOnly
-                className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700"
-                placeholder="Auto-filled from map selection"
+                onChange={(event) => setter((current) => ({ ...current, address: event.target.value, formattedAddress: event.target.value }))}
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-stone-900"
+                placeholder="Auto-filled when property selected, or type manually"
               />
             </div>
 
@@ -512,7 +521,7 @@ export const Stock: React.FC = () => {
                 type="number"
                 min="0"
                 step="0.01"
-                value={form.purchasePrice}
+                value={form.purchasePrice === 0 ? "" : form.purchasePrice}
                 onChange={(event) =>
                   setter((current) => ({
                     ...current,
@@ -520,7 +529,7 @@ export const Stock: React.FC = () => {
                   }))
                 }
                 className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="Enter price manually"
+                placeholder="Enter price"
               />
             </div>
 
@@ -608,7 +617,7 @@ export const Stock: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-stone-900">Stock</h2>
           <p className="text-stone-600 text-sm mt-1">
-            Property listings are saved from Google Maps into the database with coordinates.
+            Property listings are saved into the database with coordinates.
           </p>
         </div>
         <button
@@ -663,10 +672,40 @@ export const Stock: React.FC = () => {
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">
                       <div className="flex items-center gap-2">
                         <FiMapPin className="text-violet-500" />
-                        <span>{stock.itemName || stock.propertyName || '-'}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prop = existingProperties.find((p) => p.id === stock.propertyId);
+                            setOwnerPopup({
+                              title: stock.itemName || stock.propertyName || '-',
+                              ownerName: prop?.ownerName,
+                              ownerEmail: prop?.ownerEmail,
+                              ownerContactNumber: prop?.ownerContactNumber,
+                            });
+                          }}
+                          className="text-left hover:text-violet-600 hover:underline transition-colors"
+                        >
+                          {stock.itemName || stock.propertyName || '-'}
+                        </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-stone-600">{stock.address || stock.location || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prop = existingProperties.find((p) => p.id === stock.propertyId);
+                          setOwnerPopup({
+                            title: stock.itemName || stock.propertyName || '-',
+                            ownerName: prop?.ownerName,
+                            ownerEmail: prop?.ownerEmail,
+                            ownerContactNumber: prop?.ownerContactNumber,
+                          });
+                        }}
+                        className="text-left hover:text-violet-600 hover:underline transition-colors"
+                      >
+                        {stock.address || stock.location || '-'}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-sm text-stone-600">{stock.category || '-'}</td>
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">{formatRand(stock.purchasePrice)}</td>
                     <td className="px-6 py-4 text-sm text-stone-600">
@@ -727,6 +766,48 @@ export const Stock: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Owner Info Popup */}
+      {ownerPopup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setOwnerPopup(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-stone-900">{ownerPopup.title}</h3>
+                <p className="text-xs text-stone-500 mt-0.5">Owner Details</p>
+              </div>
+              <button onClick={() => setOwnerPopup(null)} className="text-stone-400 hover:text-stone-600 text-xl leading-none">&times;</button>
+            </div>
+            {ownerPopup.ownerName || ownerPopup.ownerEmail || ownerPopup.ownerContactNumber ? (
+              <div className="space-y-3">
+                {ownerPopup.ownerName && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Name</span>
+                    <span className="text-sm text-stone-900">{ownerPopup.ownerName}</span>
+                  </div>
+                )}
+                {ownerPopup.ownerEmail && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Email</span>
+                    <a href={`mailto:${ownerPopup.ownerEmail}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerEmail}</a>
+                  </div>
+                )}
+                {ownerPopup.ownerContactNumber && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Phone</span>
+                    <a href={`tel:${ownerPopup.ownerContactNumber}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerContactNumber}</a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-stone-400 italic">No owner details have been added for this property. You can add them in the Map module.</p>
+            )}
+            <button onClick={() => setOwnerPopup(null)} className="mt-5 w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-medium rounded-lg transition-colors">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

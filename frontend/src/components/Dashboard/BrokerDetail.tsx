@@ -7,6 +7,7 @@ import { BrokerWipItem } from '@/services/brokerPerformanceService';
 import { forecastDealApiService } from '@/services/forecastDealService';
 import { dealService } from '@/services/dealService';
 import { legalDocService } from '@/services/legalDocService';
+import { propertyService } from '@/services/propertyService';
 import { leadService } from '@/services/leadService';
 import { customRecordService } from '@/services/customRecordService';
 import { reminderService, ReminderRecord } from '@/services/reminderService';
@@ -315,6 +316,8 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [viewingLead, setViewingLead] = useState<import('@/services/leadService').Lead | null>(null);
   const [loadingLeadDetail, setLoadingLeadDetail] = useState(false);
   const [timelineItemId, setTimelineItemId] = useState<string | null>(null);
+  const [allProperties, setAllProperties] = useState<Array<{ id: string; title: string; address: string; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string }>>([]);
+  const [ownerPopup, setOwnerPopup] = useState<{ title: string; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string } | null>(null);
 
   useEffect(() => {
     setRows(wipSheets);
@@ -408,6 +411,24 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    propertyService.getAllProperties({ limit: 1000 }).then((result) => {
+      if (!active) return;
+      setAllProperties(
+        result.data.map((p) => ({
+          id: p.id,
+          title: String(p.title || p.address || ''),
+          address: String(p.address || ''),
+          ownerName: p.metadata?.ownerName ? String(p.metadata.ownerName) : undefined,
+          ownerEmail: p.metadata?.ownerEmail ? String(p.metadata.ownerEmail) : undefined,
+          ownerContactNumber: p.metadata?.ownerContactNumber ? String(p.metadata.ownerContactNumber) : undefined,
+        }))
+      );
+    }).catch(() => { if (active) setAllProperties([]); });
+    return () => { active = false; };
   }, []);
 
   // Load due outcome-check reminders for this broker's deals
@@ -1330,10 +1351,40 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                             {item.leadName || parseDealTitle(item.dealName).dealName}
                           </button>
                         ) : (
-                          <span>{item.leadName || parseDealTitle(item.dealName).dealName}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const prop = allProperties.find((p) => p.id === item.propertyId);
+                              setOwnerPopup({
+                                title: item.leadName || parseDealTitle(item.dealName).dealName,
+                                ownerName: prop?.ownerName,
+                                ownerEmail: prop?.ownerEmail,
+                                ownerContactNumber: prop?.ownerContactNumber,
+                              });
+                            }}
+                            className="text-left hover:text-violet-600 hover:underline transition-colors font-semibold"
+                          >
+                            {item.leadName || parseDealTitle(item.dealName).dealName}
+                          </button>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-stone-600">{item.address || "-"}</td>
+                      <td className="px-6 py-4 text-sm text-stone-600">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prop = allProperties.find((p) => p.id === item.propertyId);
+                            setOwnerPopup({
+                              title: item.leadName || parseDealTitle(item.dealName).dealName,
+                              ownerName: prop?.ownerName,
+                              ownerEmail: prop?.ownerEmail,
+                              ownerContactNumber: prop?.ownerContactNumber,
+                            });
+                          }}
+                          className="text-left hover:text-violet-600 hover:underline transition-colors"
+                        >
+                          {item.address || "-"}
+                        </button>
+                      </td>
                       <td className="px-6 py-4 text-sm">
                         <span
                           className={`inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold ${getDealTypeColor(item.dealType)}`}
@@ -1782,6 +1833,48 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                 )}
               </dl>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Owner Info Popup */}
+      {ownerPopup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setOwnerPopup(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-stone-900">{ownerPopup.title}</h3>
+                <p className="text-xs text-stone-500 mt-0.5">Owner Details</p>
+              </div>
+              <button onClick={() => setOwnerPopup(null)} className="text-stone-400 hover:text-stone-600 text-xl leading-none">&times;</button>
+            </div>
+            {ownerPopup.ownerName || ownerPopup.ownerEmail || ownerPopup.ownerContactNumber ? (
+              <div className="space-y-3">
+                {ownerPopup.ownerName && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Name</span>
+                    <span className="text-sm text-stone-900">{ownerPopup.ownerName}</span>
+                  </div>
+                )}
+                {ownerPopup.ownerEmail && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Email</span>
+                    <a href={`mailto:${ownerPopup.ownerEmail}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerEmail}</a>
+                  </div>
+                )}
+                {ownerPopup.ownerContactNumber && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-stone-500 w-16 shrink-0">Phone</span>
+                    <a href={`tel:${ownerPopup.ownerContactNumber}`} className="text-sm text-violet-600 hover:underline">{ownerPopup.ownerContactNumber}</a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-stone-400 italic">No owner details have been added for this property. You can add them in the Map module.</p>
+            )}
+            <button onClick={() => setOwnerPopup(null)} className="mt-5 w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-medium rounded-lg transition-colors">
+              Close
+            </button>
           </div>
         </div>
       )}

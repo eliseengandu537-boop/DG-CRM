@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, GoogleMap, InfoWindow, Marker, StreetViewPanorama } from '@react-google-maps/api';
+import { Autocomplete, GoogleMap, InfoWindow, Marker } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
 
 type AnyObj = Record<string, any>;
@@ -9,6 +9,15 @@ type LatLngLiteral = google.maps.LatLngLiteral;
 type LayerId = 'traffic' | 'transit';
 type StreetViewState = { lat: number; lng: number; heading?: number } | null;
 type SupportedMapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
+
+interface SearchResultMarker {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  rating?: number;
+}
 
 interface Props {
   properties: AnyObj[];
@@ -18,7 +27,134 @@ interface Props {
   mapTypeId?: 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
   enableGoogleMapControls?: boolean;
   enableMapSearch?: boolean;
+  searchResultMarkers?: SearchResultMarker[];
+  onSearchResultMarkerClick?: (marker: SearchResultMarker) => void;
+  onMapReady?: (map: google.maps.Map) => void;
+  focusLocation?: { lat: number; lng: number; zoom?: number } | null;
 }
+
+// ─── Collapsible map controls panel ────────────────────────────────────────
+interface MapControlsPanelProps {
+  activeMapType: SupportedMapType;
+  layerVisibility: Record<LayerId, boolean>;
+  streetViewError: boolean;
+  selectedPropertyName?: string;
+  onToggleSatellite: () => void;
+  onToggleTraffic: () => void;
+  onToggleTransit: () => void;
+  onMyLocation: () => void;
+  onStreetView: () => void;
+}
+
+const MapControlsPanel: React.FC<MapControlsPanelProps> = ({
+  activeMapType,
+  layerVisibility,
+  streetViewError,
+  selectedPropertyName,
+  onToggleSatellite,
+  onToggleTraffic,
+  onToggleTransit,
+  onMyLocation,
+  onStreetView,
+}) => {
+  const [expanded, setExpanded] = useState(true);
+  const isSatellite = activeMapType === 'satellite' || activeMapType === 'hybrid';
+
+  return (
+    <div className="absolute bottom-24 right-4 z-10 flex flex-col-reverse items-end gap-0" style={{ minWidth: '140px' }}>
+      {/* Toggle header */}
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl shadow-lg px-3 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors select-none mt-2"
+        style={{ whiteSpace: 'nowrap' }}
+      >
+        <svg
+          className={`w-3.5 h-3.5 text-stone-500 transition-transform duration-200 ${expanded ? 'rotate-180' : 'rotate-0'}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        Map Controls
+      </button>
+
+      {/* Expandable controls — expands upward */}
+      {expanded && (
+        <div className="bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden" style={{ minWidth: '140px' }}>
+          {/* Satellite */}
+          <button
+            onClick={onToggleSatellite}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
+              isSatellite
+                ? 'bg-stone-900 text-white'
+                : 'bg-white text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            <span className="text-base">🛰</span>
+            {isSatellite ? 'Road Map' : 'Satellite'}
+          </button>
+
+          {/* Traffic */}
+          <button
+            onClick={onToggleTraffic}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
+              layerVisibility.traffic
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            <span className="text-base">🚦</span>
+            Traffic
+            {layerVisibility.traffic && (
+              <span className="ml-auto text-[10px] bg-white bg-opacity-30 px-1.5 py-0.5 rounded-full font-bold">ON</span>
+            )}
+          </button>
+
+          {/* Transit */}
+          <button
+            onClick={onToggleTransit}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
+              layerVisibility.transit
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            <span className="text-base">🚌</span>
+            Transit
+            {layerVisibility.transit && (
+              <span className="ml-auto text-[10px] bg-white bg-opacity-30 px-1.5 py-0.5 rounded-full font-bold">ON</span>
+            )}
+          </button>
+
+          {/* My Location */}
+          <button
+            onClick={onMyLocation}
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-stone-700 border-b border-stone-100 hover:bg-stone-50 transition-colors bg-white"
+          >
+            <span className="text-base">📍</span>
+            My Location
+          </button>
+
+          {/* Street View */}
+          <button
+            onClick={onStreetView}
+            title={selectedPropertyName ? `Street View: ${selectedPropertyName}` : 'Street View at map center'}
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50 transition-colors bg-white"
+          >
+            <span className="text-base">🚶</span>
+            Street View
+          </button>
+
+          {streetViewError && (
+            <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-t border-red-100">
+              No Street View available here.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 const GoogleMapWrapper: React.FC<Props> = ({
   properties,
@@ -28,6 +164,10 @@ const GoogleMapWrapper: React.FC<Props> = ({
   mapTypeId = 'roadmap',
   enableGoogleMapControls = false,
   enableMapSearch = false,
+  searchResultMarkers,
+  onSearchResultMarkerClick,
+  onMapReady,
+  focusLocation,
 }) => {
   const { mapsApiKey, isLoaded, loadError } = useGoogleMapsLoader();
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -39,6 +179,7 @@ const GoogleMapWrapper: React.FC<Props> = ({
   const [myLocationMarker, setMyLocationMarker] = useState<LatLngLiteral | null>(null);
   const [myLocationAccuracy, setMyLocationAccuracy] = useState<number>(0);
   const accuracyCircleRef = useRef<google.maps.Circle | null>(null);
+  const streetViewContainerRef = useRef<HTMLDivElement | null>(null);
   const [streetViewState, setStreetViewState] = useState<StreetViewState>(null);
   const [streetViewError, setStreetViewError] = useState(false);
   const [activeMapType, setActiveMapType] = useState<SupportedMapType>(mapTypeId);
@@ -329,7 +470,8 @@ const GoogleMapWrapper: React.FC<Props> = ({
     transitLayerRef.current = new google.maps.TransitLayer();
 
     apply3DView(map);
-  }, [safeProperties, apply3DView]);
+    onMapReady?.(map);
+  }, [safeProperties, apply3DView, onMapReady]);
 
   const handleUnmount = useCallback(() => {
     if (trafficLayerRef.current) trafficLayerRef.current.setMap(null);
@@ -356,6 +498,12 @@ const GoogleMapWrapper: React.FC<Props> = ({
   useEffect(() => {
     setActiveMapType(mapTypeId);
   }, [mapTypeId]);
+
+  useEffect(() => {
+    if (!mapRef.current || !focusLocation) return;
+    mapRef.current.panTo({ lat: focusLocation.lat, lng: focusLocation.lng });
+    mapRef.current.setZoom(focusLocation.zoom ?? 15);
+  }, [focusLocation]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -426,6 +574,16 @@ const GoogleMapWrapper: React.FC<Props> = ({
     };
   }, []);
 
+  const getSearchResultNumberedIcon = useCallback((index: number) => {
+    const num = index + 1;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40"><path d="M16 0 C7.163 0 0 7.163 0 16 C0 28 16 40 16 40 C16 40 32 28 32 16 C32 7.163 24.837 0 16 0 Z" fill="#EA4335"/><circle cx="16" cy="16" r="9" fill="white"/><text x="16" y="20.5" text-anchor="middle" dominant-baseline="middle" font-family="Arial,sans-serif" font-size="${num > 9 ? 9 : 11}" font-weight="bold" fill="#EA4335">${num}</text></svg>`;
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(32, 40),
+      anchor: new google.maps.Point(16, 40),
+    };
+  }, []);
+
   const mapOptions = useMemo(
     () => ({
       streetViewControl: true,
@@ -439,6 +597,28 @@ const GoogleMapWrapper: React.FC<Props> = ({
     }),
     [activeMapType]
   );
+
+  // Mount Street View panorama into the overlay div whenever streetViewState changes
+  useEffect(() => {
+    if (!streetViewState || !streetViewContainerRef.current) return;
+    if (!(window as any)?.google?.maps) return;
+
+    const pano = new google.maps.StreetViewPanorama(streetViewContainerRef.current, {
+      position: { lat: streetViewState.lat, lng: streetViewState.lng },
+      pov: { heading: streetViewState.heading ?? 0, pitch: 5 },
+      zoom: 1,
+      addressControl: true,
+      addressControlOptions: { position: google.maps.ControlPosition.BOTTOM_CENTER },
+      fullscreenControl: false,
+      motionTracking: false,
+      motionTrackingControl: false,
+      showRoadLabels: true,
+    });
+
+    return () => {
+      pano.setVisible(false);
+    };
+  }, [streetViewState]);
 
   if (!mapsApiKey) {
     return (
@@ -463,6 +643,7 @@ const GoogleMapWrapper: React.FC<Props> = ({
   }
 
   return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '500px' }}>
     <GoogleMap
       mapContainerStyle={{ width: '100%', height: '100%', minHeight: '500px' }}
       center={center}
@@ -523,58 +704,18 @@ const GoogleMapWrapper: React.FC<Props> = ({
         )}
 
       {enableGoogleMapControls && (
-          <div className="absolute top-14 right-3 z-10 flex flex-col gap-2">
-            <button
-              onClick={toggleSatelliteView}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium shadow ${
-                activeMapType === 'satellite' || activeMapType === 'hybrid'
-                  ? 'border-stone-900 bg-stone-900 text-white'
-                  : 'border-stone-300 bg-white text-stone-700'
-              }`}
-            >
-              {activeMapType === 'satellite' || activeMapType === 'hybrid' ? 'Map' : 'Satellite'}
-            </button>
-            <button
-              onClick={() => toggleLayer('traffic')}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium shadow ${
-                layerVisibility.traffic
-                  ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-stone-300 bg-white text-stone-700'
-              }`}
-            >
-              Traffic
-            </button>
-            <button
-              onClick={() => toggleLayer('transit')}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium shadow ${
-                layerVisibility.transit
-                  ? 'border-emerald-600 bg-emerald-600 text-white'
-                  : 'border-stone-300 bg-white text-stone-700'
-              }`}
-            >
-              Transit
-            </button>
-            <button
-              onClick={focusMyLocation}
-              title="Center map on your current GPS location"
-              className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow hover:bg-stone-50 active:bg-stone-100 transition-colors"
-            >
-              📍 My Location
-            </button>
-            <button
-              onClick={handleOpenStreetView}
-              title={selectedProperty ? `Street View: ${selectedProperty.name || 'property'}` : 'Street View at map center'}
-              className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow hover:bg-stone-50 active:bg-stone-100 transition-colors"
-            >
-              🚶 Street View
-            </button>
-            {streetViewError && (
-              <div className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-700">
-                No Street View here
-              </div>
-            )}
-          </div>
-        )}
+        <MapControlsPanel
+          activeMapType={activeMapType}
+          layerVisibility={layerVisibility}
+          streetViewError={streetViewError}
+          onToggleSatellite={toggleSatelliteView}
+          onToggleTraffic={() => toggleLayer('traffic')}
+          onToggleTransit={() => toggleLayer('transit')}
+          onMyLocation={focusMyLocation}
+          onStreetView={handleOpenStreetView}
+          selectedPropertyName={selectedProperty?.name}
+        />
+      )}
 
         {safeProperties.map((location) => (
           <Marker
@@ -588,30 +729,69 @@ const GoogleMapWrapper: React.FC<Props> = ({
                 position={{ lat: location.lat, lng: location.lng }}
                 onCloseClick={() => setSelectedProperty(null)}
               >
-                <div className="max-w-xs space-y-2">
-                  <h4 className="font-bold text-sm mb-1">{location.name}</h4>
-                  <p className="text-xs text-gray-600">{location.address}</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <p><span className="font-semibold">Asset:</span> {location.assetId ?? '-'}</p>
-                    <p><span className="font-semibold">Type:</span> {location.propertyType ?? '-'}</p>
-                    <p><span className="font-semibold">SQM:</span> {location.sqm ?? '-'}</p>
-                    <p><span className="font-semibold">GLA:</span> {location.gla ?? '-'}</p>
-                    <p><span className="font-semibold">Year:</span> {location.yearBuilt ?? '-'}</p>
-                    <p><span className="font-semibold">Status:</span> {location.ownershipStatus ?? '-'}</p>
-                    <p><span className="font-semibold">Condition:</span> {location.condition ?? '-'}</p>
-                    <p><span className="font-semibold">Broker:</span> {location.brokerName ?? '-'}</p>
-                    <p><span className="font-semibold">Deals:</span> {location.linkedDealsCount ?? 0}</p>
-                    <p><span className="font-semibold">Contacts:</span> {location.linkedContactsCount ?? 0}</p>
-                    <p><span className="font-semibold">Company:</span> {location.linkedCompanyName ?? '-'}</p>
-                    <p><span className="font-semibold">Fund:</span> {location.linkedFundName ?? '-'}</p>
-                    <p><span className="font-semibold">Lat:</span> {Number(location.lat).toFixed(6)}</p>
-                    <p><span className="font-semibold">Lng:</span> {Number(location.lng).toFixed(6)}</p>
+                <div className="max-w-xs" style={{ minWidth: '240px' }}>
+                  {/* Name + address */}
+                  <h4 className="font-bold text-sm mb-0.5 text-gray-900">{location.name}</h4>
+                  <p className="text-xs text-gray-700 mb-2 flex items-start gap-1">
+                    <span style={{ marginTop: '1px' }}>📍</span>
+                    <span>{location.address || 'Address not available'}</span>
+                  </p>
+
+                  {/* Satellite + Street View buttons */}
+                  <div className="flex gap-1.5 mb-2">
+                    <button
+                      onClick={toggleSatelliteView}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border transition-colors"
+                      style={
+                        activeMapType === 'satellite' || activeMapType === 'hybrid'
+                          ? { background: '#1e293b', color: '#fff', borderColor: '#1e293b' }
+                          : { background: '#f8fafc', color: '#334155', borderColor: '#cbd5e1' }
+                      }
+                    >
+                      🛰 {activeMapType === 'satellite' || activeMapType === 'hybrid' ? 'Map' : 'Satellite'}
+                    </button>
+                    <button
+                      onClick={() => openStreetViewAt(location.lat, location.lng)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border transition-colors"
+                      style={{ background: '#f8fafc', color: '#334155', borderColor: '#cbd5e1' }}
+                    >
+                      🚶 Street View
+                    </button>
                   </div>
-                  <p className="text-[11px] text-stone-500">Clicking this pin also opens the full property profile panel.</p>
+
+                  {streetViewError && (
+                    <p className="text-xs text-red-600 mb-2">No Street View available here.</p>
+                  )}
+
+                  {/* Property details grid */}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs border-t border-gray-100 pt-2">
+                    <p><span className="font-semibold text-gray-500">Type:</span> <span className="text-gray-800">{location.propertyType ?? '-'}</span></p>
+                    <p><span className="font-semibold text-gray-500">Status:</span> <span className="text-gray-800">{location.ownershipStatus ?? '-'}</span></p>
+                    <p><span className="font-semibold text-gray-500">SQM:</span> <span className="text-gray-800">{location.sqm ?? '-'}</span></p>
+                    <p><span className="font-semibold text-gray-500">GLA:</span> <span className="text-gray-800">{location.gla ?? '-'}</span></p>
+                    <p><span className="font-semibold text-gray-500">Year:</span> <span className="text-gray-800">{location.yearBuilt ?? '-'}</span></p>
+                    <p><span className="font-semibold text-gray-500">Condition:</span> <span className="text-gray-800">{location.condition ?? '-'}</span></p>
+                    {location.brokerName && location.brokerName !== 'Unassigned' && (
+                      <p className="col-span-2"><span className="font-semibold text-gray-500">Broker:</span> <span className="text-gray-800">{location.brokerName}</span></p>
+                    )}
+                    {location.linkedCompanyName && (
+                      <p className="col-span-2"><span className="font-semibold text-gray-500">Company:</span> <span className="text-gray-800">{location.linkedCompanyName}</span></p>
+                    )}
+                  </div>
                 </div>
               </InfoWindow>
             )}
           </Marker>
+        ))}
+
+        {searchResultMarkers?.map((marker, index) => (
+          <Marker
+            key={`sr-${marker.id}`}
+            position={{ lat: marker.lat, lng: marker.lng }}
+            icon={getSearchResultNumberedIcon(index)}
+            onClick={() => onSearchResultMarkerClick?.(marker)}
+            zIndex={100 + index}
+          />
         ))}
 
         {searchMarker && (
@@ -668,23 +848,42 @@ const GoogleMapWrapper: React.FC<Props> = ({
             </InfoWindow>
           </Marker>
         )}
-
-        {streetViewState && (
-          <StreetViewPanorama
-            options={{
-              position: { lat: streetViewState.lat, lng: streetViewState.lng },
-              visible: true,
-              pov: { heading: streetViewState.heading ?? 0, pitch: 0 },
-              zoom: 1,
-              addressControl: true,
-              fullscreenControl: true,
-              motionTracking: false,
-              motionTrackingControl: false,
-            }}
-            onCloseclick={() => setStreetViewState(null)}
-          />
-        )}
     </GoogleMap>
+
+    {/* ─── Street View overlay ─────────────────────────────────────── */}
+    {streetViewState && (
+      <div
+        style={{ position: 'absolute', inset: 0, zIndex: 20 }}
+      >
+        {/* Panorama renders here via useEffect */}
+        <div ref={streetViewContainerRef} style={{ width: '100%', height: '100%' }} />
+        {/* Close button */}
+        <button
+          onClick={() => setStreetViewState(null)}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            left: '16px',
+            zIndex: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'white',
+            border: '1px solid #d1d5db',
+            borderRadius: '8px',
+            padding: '8px 14px',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#374151',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+            cursor: 'pointer',
+          }}
+        >
+          ← Back to Map
+        </button>
+      </div>
+    )}
+    </div>
   );
 };
 

@@ -3,13 +3,15 @@
 import React, { useState } from 'react';
 import { PropertyFundsManager } from './PropertyFundsManager';
 import { AssetsManager } from './AssetsManager';
+import { CompanyManager } from './CompanyManager';
 
 export default function PropertyFunds() {
-  const [activeTab, setActiveTab] = useState<'funds' | 'assets'>('funds');
+  const [activeTab, setActiveTab] = useState<'funds' | 'assets' | 'company'>('funds');
 
   const tabs = [
     { id: 'funds', label: '💰 Funds' },
     { id: 'assets', label: '🏢 Assets' },
+    { id: 'company', label: '🏦 Company' },
   ];
 
   return (
@@ -35,6 +37,7 @@ export default function PropertyFunds() {
       <div>
         {activeTab === 'funds' && <PropertyFundsManager />}
         {activeTab === 'assets' && <AssetsManager />}
+        {activeTab === 'company' && <CompanyManager />}
       </div>
     </div>
   );

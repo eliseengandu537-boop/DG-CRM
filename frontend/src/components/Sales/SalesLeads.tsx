@@ -997,12 +997,7 @@ export const SalesLeads: React.FC = () => {
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   >
                     <option>New</option>
-                    <option>Contacted</option>
                     <option>Qualified</option>
-                    <option>Proposal</option>
-                    <option>OTP</option>
-                    <option>Won</option>
-                    <option>Lost</option>
                   </select>
                 </div>
 
@@ -1293,11 +1288,7 @@ export const SalesLeads: React.FC = () => {
             >
               <option>All</option>
               <option>New</option>
-              <option>Contacted</option>
               <option>Qualified</option>
-              <option>Proposal</option>
-              <option>Won</option>
-              <option>Lost</option>
             </select>
           </div>
         </div>
@@ -1382,12 +1373,7 @@ export const SalesLeads: React.FC = () => {
                         className={`px-2 py-1 rounded text-xs font-medium border-0 focus:ring-2 focus:ring-violet-500 cursor-pointer ${getStatusColor(lead.status)}`}
                       >
                         <option value="New">New</option>
-                        <option value="Contacted">Contacted</option>
                         <option value="Qualified">Qualified</option>
-                        <option value="Proposal">Proposal</option>
-                        <option value="OTP">OTP</option>
-                        <option value="Won">Won</option>
-                        <option value="Lost">Lost</option>
                       </select>
                     </td>
                     <td className="px-6 py-4 text-sm font-medium text-indigo-600">

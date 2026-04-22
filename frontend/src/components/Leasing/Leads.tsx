@@ -919,10 +919,7 @@ export const Leads: React.FC = () => {
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   >
                     <option>New</option>
-                    <option>Contacted</option>
                     <option>Qualified</option>
-                    <option>Negotiating</option>
-                    <option>Lease Agreement</option>
                     <option>Lost</option>
                   </select>
                 </div>

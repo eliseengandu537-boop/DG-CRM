@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import dynamic from 'next/dynamic';
 import { Property } from "../../data/properties";
 import { PropertyPin } from "./PropertyPin";
@@ -22,7 +22,7 @@ interface MapPropertiesProps {
   onPageChange?: (page: string) => void;
 }
 
-const OWNERSHIP_STATUS_OPTIONS = ['Owned', 'For Lease', 'Mortgaged', 'For Sale', 'Auction'] as const;
+const OWNERSHIP_STATUS_OPTIONS = ['Owned', 'For Lease', 'For Sale', 'Auction'] as const;
 
 const isForSaleStatus = (status?: string): boolean =>
   ['for sale', 'for_sale'].includes(String(status || '').trim().toLowerCase());
@@ -59,7 +59,6 @@ const toPropertyRecordStatus = (status?: string): string => {
   if (isAuctionStatus(status)) return 'Auction';
 
   const normalized = String(status || '').trim().toLowerCase();
-  if (normalized === 'mortgaged') return 'Mortgaged';
   if (normalized === 'owned') return 'Owned';
   return 'Active';
 };
@@ -200,6 +199,10 @@ const mapBackendPropertyToMapProperty = (
     linkedCompanyName: metadata.linkedCompanyName ? String(metadata.linkedCompanyName) : undefined,
     linkedFundId: metadata.linkedFundId ? String(metadata.linkedFundId) : undefined,
     linkedFundName: metadata.linkedFundName ? String(metadata.linkedFundName) : undefined,
+    registrationNumber: metadata.registrationNumber ? String(metadata.registrationNumber) : undefined,
+    registrationName: metadata.registrationName ? String(metadata.registrationName) : undefined,
+    ownerContactNumber: metadata.ownerContactNumber ? String(metadata.ownerContactNumber) : undefined,
+    tenantContactNumber: metadata.tenantContactNumber ? String(metadata.tenantContactNumber) : undefined,
     brokerName: raw.assignedBrokerName || metadata.assignedBrokerName || 'Unassigned',
     brokerId: raw.assignedBrokerId || raw.brokerId,
   });
@@ -218,6 +221,28 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [showAddPropertyModal, setShowAddPropertyModal] = useState(false);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [expandedPropertyId, setExpandedPropertyId] = useState<string | null>(null);
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
+  const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+
+  const startDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    const rect = (e.currentTarget.closest('[data-panel]') as HTMLElement)?.getBoundingClientRect();
+    if (!rect) return;
+    dragState.current = { startX: e.clientX, startY: e.clientY, originX: rect.left, originY: rect.top };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragState.current) return;
+      const dx = ev.clientX - dragState.current.startX;
+      const dy = ev.clientY - dragState.current.startY;
+      setPanelPos({ x: dragState.current.originX + dx, y: dragState.current.originY + dy });
+    };
+    const onUp = () => {
+      dragState.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
   const [fundOptions, setFundOptions] = useState<FundOption[]>([]);
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -244,7 +269,33 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     linkedCompanyName: "",
     linkedFundId: "",
     linkedFundName: "",
+    registrationNumber: "",
+    registrationName: "",
+    ownerName: "",
+    ownerEmail: "",
+    ownerContactNumber: "",
+    tenantName: "",
+    tenantEmail: "",
+    tenantContactNumber: "",
   });
+
+  // ── Google Maps-style search state ──────────────────────────────────────
+  const [mapSearch, setMapSearch] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [placesResults, setPlacesResults] = useState<Array<{
+    id: string; name: string; address: string; lat: number; lng: number; rating?: number;
+  }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedPlacesResult, setSelectedPlacesResult] = useState<{
+    id: string; name: string; address: string; lat: number; lng: number;
+  } | null>(null);
+  const [showResultsPanel, setShowResultsPanel] = useState(false);
+  const [activePanel, setActivePanel] = useState<'search' | 'properties'>('search');
+  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
+  const [focusLocation, setFocusLocation] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const mapSearchInputRef = useRef<HTMLInputElement | null>(null);
+  // ────────────────────────────────────────────────────────────────────────
 
   const loadData = React.useCallback(async () => {
     try {
@@ -521,6 +572,14 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       linkedCompanyName: "",
       linkedFundId: "",
       linkedFundName: "",
+      registrationNumber: "",
+      registrationName: "",
+      ownerName: "",
+      ownerEmail: "",
+      ownerContactNumber: "",
+      tenantName: "",
+      tenantEmail: "",
+      tenantContactNumber: "",
     });
     setShowCompanySuggestions(false);
     setShowFundSuggestions(false);
@@ -619,260 +678,393 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     }
   };
 
+  // ── Google Maps-style search helpers ────────────────────────────────────
+  const crmMatches = React.useMemo(() => {
+    if (!mapSearch.trim() || mapSearch.length < 2) return [];
+    const q = mapSearch.toLowerCase();
+    return filteredProperties.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.address?.toLowerCase() ?? '').includes(q)
+    ).slice(0, 5);
+  }, [mapSearch, filteredProperties]);
+
+  const runTextSearch = React.useCallback(
+    (query: string) => {
+      const q = query.trim();
+      if (!q) return;
+      if (!(window as any)?.google?.maps) return;
+      setIsSearching(true);
+      setShowSearchDropdown(false);
+      const service = new google.maps.places.PlacesService(
+        mapInstance || document.createElement('div')
+      );
+      service.textSearch({ query: q }, (results, status) => {
+        setIsSearching(false);
+        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+          const mapped = results
+            .filter((r) => r.geometry?.location)
+            .map((r) => ({
+              id: r.place_id || `sr-${Math.random().toString(36).slice(2)}`,
+              name: r.name || '',
+              address: r.formatted_address || (r as any).vicinity || '',
+              lat: r.geometry!.location!.lat(),
+              lng: r.geometry!.location!.lng(),
+              rating: r.rating,
+            }));
+          setPlacesResults(mapped);
+          setActivePanel('search');
+          setShowResultsPanel(true);
+          if (mapInstance && mapped.length > 0) {
+            const bounds = new google.maps.LatLngBounds();
+            mapped.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
+            mapInstance.fitBounds(bounds, 80);
+          }
+        }
+      });
+    },
+    [mapInstance]
+  );
+
+  const clearSearch = React.useCallback(() => {
+    setMapSearch('');
+    setShowSearchDropdown(false);
+    setPlacesResults([]);
+    setSelectedPlacesResult(null);
+    setShowResultsPanel((prev) => (activePanel === 'search' ? false : prev));
+  }, [activePanel]);
+
+  const selectCrmProperty = React.useCallback((property: Property) => {
+    setSelectedProperty(property);
+    setFocusLocation({ lat: property.latitude, lng: property.longitude, zoom: 16 });
+    setShowSearchDropdown(false);
+    setMapSearch(property.name);
+  }, []);
+  // ────────────────────────────────────────────────────────────────────────
+
   return (
-    <div className="flex flex-col h-screen bg-gray-100 relative">
-      {/* Header */}
-      <div className="bg-white shadow-md px-6 py-4 z-10">
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => setShowPropertiesPanel(!showPropertiesPanel)}
-            className="flex items-center gap-2 bg-white text-stone-700 border border-stone-300 hover:border-stone-400 px-4 py-2 rounded-lg font-medium transition-all"
-          >
-            Properties
-          </button>
-          <button
-            onClick={() => setShowAddPropertyModal(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg transition-colors font-medium shadow-md whitespace-nowrap"
-          >
-            <FiPlus size={20} />
-            Add Property
-          </button>
-        </div>
-        <p className="text-xs text-stone-500 mt-3">
-          Use the single search bar inside the map to find any external place and exact Google address.
-        </p>
+    <div className={isFullscreen ? 'fixed inset-0 z-[60] overflow-hidden' : 'relative w-full h-screen overflow-hidden'}>
+      {/* ─── Full-screen map ─────────────────────────────────────── */}
+      <div className="absolute inset-0">
+        <GoogleMapWrapper
+          properties={mapProperties}
+          selectedProperty={
+            selectedProperty
+              ? {
+                  id: selectedProperty.id,
+                  lat: selectedProperty.latitude,
+                  lng: selectedProperty.longitude,
+                }
+              : null
+          }
+          zoom={zoom}
+          mapTypeId="roadmap"
+          enableGoogleMapControls
+          enableMapSearch={false}
+          searchResultMarkers={placesResults}
+          onSearchResultMarkerClick={(m) => {
+            setSelectedPlacesResult(m);
+            setFocusLocation({ lat: m.lat, lng: m.lng, zoom: 16 });
+          }}
+          onMapReady={(map) => setMapInstance(map)}
+          focusLocation={focusLocation}
+          setSelectedProperty={(property) => {
+            if (!property) {
+              setSelectedProperty(null);
+              return;
+            }
+            const matched = filteredProperties.find((p) => p.id === property.id) || null;
+            setSelectedProperty(matched);
+          }}
+        />
       </div>
 
-      {/* Main Map Area */}
-      <div className="flex-1 relative overflow-hidden">
-        <div className="w-full h-full bg-white rounded-xl shadow-lg border border-stone-200 overflow-hidden flex flex-col">
-          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-stone-200 p-4 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <FiMapPin className="text-indigo-600 w-5 h-5" />
-              <span className="font-semibold text-stone-900">Interactive Map</span>
-              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">
-                {filteredProperties.length} properties
-              </span>
-            </div>
-
-            <p className="text-xs text-stone-600">
-              Google controls are active on the map itself.
-            </p>
-          </div>
-
-          <div className="flex-1 relative overflow-hidden min-h-[530px]">
-            <GoogleMapWrapper
-              properties={mapProperties}
-              selectedProperty={
-                selectedProperty
-                  ? {
-                      id: selectedProperty.id,
-                      lat: selectedProperty.latitude,
-                      lng: selectedProperty.longitude,
-                    }
-                  : null
-              }
-              zoom={zoom}
-              mapTypeId="roadmap"
-              enableGoogleMapControls
-              enableMapSearch
-              setSelectedProperty={(property) => {
-                if (!property) {
-                  setSelectedProperty(null);
-                  return;
-                }
-
-                const matched = filteredProperties.find((p) => p.id === property.id) || null;
-                setSelectedProperty(matched);
+      {/* ─── Google Maps-style Search Bar ───────────────────────────── */}
+      <div className="absolute top-4 left-4 z-30" style={{ width: '380px' }}>
+        <div className="bg-white rounded-2xl shadow-xl overflow-visible">
+          <div className="flex items-center px-4 py-3.5 gap-3">
+            {isSearching ? (
+              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+            ) : (
+              <svg className="w-5 h-5 text-stone-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            )}
+            <input
+              ref={mapSearchInputRef}
+              value={mapSearch}
+              onChange={(e) => {
+                setMapSearch(e.target.value);
+                setShowSearchDropdown(e.target.value.length > 1);
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && mapSearch.trim()) runTextSearch(mapSearch);
+                if (e.key === 'Escape') setShowSearchDropdown(false);
+              }}
+              onFocus={() => { if (mapSearch.length > 1) setShowSearchDropdown(true); }}
+              placeholder="Search for places, e.g. Shoprite Johannesburg"
+              className="flex-1 text-sm text-stone-900 placeholder-stone-400 outline-none bg-transparent"
             />
+            {mapSearch && (
+              <button
+                onClick={clearSearch}
+                className="text-stone-400 hover:text-stone-600 shrink-0 p-0.5 rounded-full hover:bg-stone-100 transition-colors"
+              >
+                <FiX size={16} />
+              </button>
+            )}
           </div>
-
-          <div className="bg-stone-50 border-t border-stone-200 px-4 py-3 text-xs text-stone-600">
-            <div className="flex items-center gap-2">
-              <span>Google Maps Mode</span>
-              <span className="ml-auto">Live place search, traffic, transit, and marker interactions are enabled.</span>
-            </div>
-            <p className="text-xs mt-2">Use the search bar for live Google place results and click any marker for property details.</p>
-          </div>
-        </div>
-
-        {/* Floating Properties Panel - Left Side */}
-        {showPropertiesPanel && (
-          <div className="fixed left-4 bottom-24 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[600px] z-20 transition-all duration-300 ease-out">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 px-6 py-4 border-b border-indigo-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                    <FiMapPin className="text-white w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-white text-base">Properties</h2>
-                    <p className="text-xs text-indigo-100">{filteredProperties.length} total</p>
-                  </div>
-                </div>
+          {/* Suggestions dropdown */}
+          {showSearchDropdown && mapSearch.length > 1 && (
+            <div className="border-t border-stone-100 rounded-b-2xl overflow-hidden">
+              {crmMatches.map((p) => (
                 <button
-                  onClick={() => setShowPropertiesPanel(false)}
-                  className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg transition-all duration-200"
+                  key={p.id}
+                  onClick={() => selectCrmProperty(p)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-stone-50 text-left transition-colors"
                 >
-                  <FiX size={20} />
+                  <FiMapPin className="text-indigo-500 shrink-0" size={14} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-stone-900 truncate">{p.name}</p>
+                    <p className="text-xs text-stone-500 truncate">{p.address}</p>
+                  </div>
+                  <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium shrink-0">CRM</span>
                 </button>
-              </div>
+              ))}
+              <button
+                onClick={() => runTextSearch(mapSearch)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-t border-stone-100 transition-colors"
+              >
+                <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <p className="text-sm text-blue-600">
+                  Search Google Maps for &ldquo;<span className="font-semibold">{mapSearch}</span>&rdquo;
+                </p>
+              </button>
             </div>
+          )}
+        </div>
+      </div>
 
-            {/* Properties List */}
-            <div className="overflow-y-auto flex-1">
-              {filteredProperties.length > 0 ? (
-                <div className="divide-y divide-gray-200">
-                  {filteredProperties.map((property) => (
+      {/* ─── Results / Properties Panel ─────────────────────────────── */}
+      {showResultsPanel && (
+        <div
+          className="absolute z-30 bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col"
+          style={{ top: '80px', left: '16px', width: '380px', maxHeight: 'calc(100vh - 100px)' }}
+        >
+          <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between shrink-0">
+            <div>
+              <h3 className="font-semibold text-stone-900 text-sm">
+                {activePanel === 'search' ? 'Search Results' : 'My Properties'}
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                {activePanel === 'search'
+                  ? `${placesResults.length} place${placesResults.length !== 1 ? 's' : ''} found`
+                  : `${filteredProperties.length} propert${filteredProperties.length !== 1 ? 'ies' : 'y'}`}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowResultsPanel(false)}
+              className="text-stone-400 hover:text-stone-600 p-1.5 rounded-full hover:bg-stone-100 transition-colors"
+            >
+              <FiX size={15} />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {/* Google Places results */}
+            {activePanel === 'search' && (
+              <>
+                {placesResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-stone-400">
+                    <p className="text-sm">No results found</p>
+                  </div>
+                ) : (
+                  placesResults.map((result, index) => (
+                    <button
+                      key={result.id}
+                      onClick={() => {
+                        setSelectedPlacesResult(result);
+                        setFocusLocation({ lat: result.lat, lng: result.lng, zoom: 16 });
+                      }}
+                      className={`w-full flex items-start gap-3 px-4 py-3.5 hover:bg-stone-50 border-b border-stone-50 text-left transition-colors ${
+                        selectedPlacesResult?.id === result.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                      }`}
+                    >
+                      <div className="w-7 h-7 bg-[#EA4335] text-white rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-stone-900 leading-tight">{result.name}</p>
+                        <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{result.address}</p>
+                        {result.rating && (
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <span className="text-xs text-amber-500">★</span>
+                            <span className="text-xs font-medium text-stone-600">{result.rating}</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </>
+            )}
+            {/* CRM Properties list */}
+            {activePanel === 'properties' && (
+              <>
+                {filteredProperties.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-stone-400">
+                    <FiMapPin size={28} className="mb-2 opacity-50" />
+                    <p className="text-sm">No properties found</p>
+                  </div>
+                ) : (
+                  filteredProperties.map((property) => (
                     <div
                       key={property.id}
-                      className={`transition-all duration-200 ${
-                        selectedProperty?.id === property.id ? "bg-indigo-50 border-l-4 border-indigo-600" : "hover:bg-gray-50 border-l-4 border-transparent"
+                      className={`border-b border-stone-50 transition-all ${
+                        selectedProperty?.id === property.id
+                          ? 'bg-indigo-50 border-l-4 border-indigo-500'
+                          : 'hover:bg-stone-50'
                       }`}
                     >
                       <button
                         onClick={() => {
                           setSelectedProperty(property);
+                          setFocusLocation({ lat: property.latitude, lng: property.longitude, zoom: 16 });
                           setExpandedPropertyId(expandedPropertyId === property.id ? null : property.id);
                         }}
-                        className="w-full text-left p-4 flex items-start justify-between gap-3 group"
+                        className="w-full text-left px-4 py-3.5 flex items-start justify-between gap-3"
                       >
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 text-sm mb-1 group-hover:text-indigo-600 transition-colors">
-                            {property.name}
-                          </h3>
-                          <p className="text-xs text-gray-600 line-clamp-1 flex items-center gap-1">
+                          <h3 className="font-semibold text-stone-900 text-sm leading-tight">{property.name}</h3>
+                          <p className="text-xs text-stone-500 mt-0.5 line-clamp-1 flex items-center gap-1">
                             📍 {property.address}
                           </p>
-                          <div className="flex gap-2 mt-2">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                          <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
                               {property.details.type}
                             </span>
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                              {property.assetId}
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-stone-100 text-stone-600">
+                              {property.details.ownershipStatus}
                             </span>
                           </div>
                         </div>
-                        <div className="flex-shrink-0">
-                          <div className={`transform transition-transform duration-200 ${expandedPropertyId === property.id ? "rotate-180" : ""}`}>
-                            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                            </svg>
-                          </div>
-                        </div>
+                        <svg
+                          className={`w-4 h-4 text-stone-400 mt-1 shrink-0 transition-transform ${expandedPropertyId === property.id ? 'rotate-180' : ''}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
                       </button>
-
-                      {/* Expanded Details */}
                       {expandedPropertyId === property.id && (
-                        <div className="px-4 pb-4 bg-white border-t border-gray-200 animate-in fade-in slide-in-from-top-2 duration-200">
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Size</p>
-                                <p className="text-sm font-medium text-gray-900">{property.details.squareFeet.toLocaleString()} sqm</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">GLA</p>
-                                <p className="text-sm font-medium text-gray-900">{(property.details.gla ?? property.details.squareFeet).toLocaleString()} sqm</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Year Built</p>
-                                <p className="text-sm font-medium text-gray-900">{property.details.yearBuilt}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Condition</p>
-                                <p className="text-sm font-medium text-gray-900">{property.details.condition}</p>
-                              </div>
-                              <div className="col-span-2">
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Status</p>
-                                <select
-                                  value={property.details.ownershipStatus}
-                                  onChange={(event) =>
-                                    handleOwnershipStatusChange(property.id, event.target.value)
-                                  }
-                                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm font-medium text-gray-900"
-                                >
-                                  {OWNERSHIP_STATUS_OPTIONS.map((status) => (
-                                    <option key={status} value={status}>
-                                      {status}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Latitude</p>
-                                <p className="text-sm font-medium text-gray-900">{property.latitude.toFixed(6)}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-600 uppercase">Longitude</p>
-                                <p className="text-sm font-medium text-gray-900">{property.longitude.toFixed(6)}</p>
-                              </div>
+                        <div className="px-4 pb-4 bg-white border-t border-stone-100">
+                          <div className="grid grid-cols-2 gap-2 mt-3">
+                            <div>
+                              <p className="text-xs font-semibold text-stone-500 uppercase">Size</p>
+                              <p className="text-sm text-stone-900">{property.details.squareFeet.toLocaleString()} sqm</p>
                             </div>
-                            <div className="border-t border-gray-200 pt-3">
-                              <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Assigned Broker</p>
-                              <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                                👤 {property.brokerName}
-                              </p>
+                            <div>
+                              <p className="text-xs font-semibold text-stone-500 uppercase">GLA</p>
+                              <p className="text-sm text-stone-900">{(property.details.gla ?? property.details.squareFeet).toLocaleString()} sqm</p>
                             </div>
-                            <div className="border-t border-gray-200 pt-3">
-                              {canDeleteProperties ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleDeleteProperty(property)}
-                                  className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                >
-                                  <FiTrash2 size={14} />
-                                  Delete Property
-                                </button>
-                              ) : (
-                                <p className="text-xs font-medium text-gray-500">
-                                  Only admins can delete properties.
-                                </p>
-                              )}
+                            <div>
+                              <p className="text-xs font-semibold text-stone-500 uppercase">Year Built</p>
+                              <p className="text-sm text-stone-900">{property.details.yearBuilt}</p>
                             </div>
-                            {property.linkedDeals.length > 0 && (
-                              <div className="border-t border-gray-200 pt-3">
-                                <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Deals</p>
-                                <div className="space-y-1">
-                                  {property.linkedDeals.map((deal) => (
-                                    <div key={deal.id} className="text-xs text-gray-700 flex items-center gap-2">
-                                      <span className="inline-block w-2 h-2 bg-indigo-600 rounded-full"></span>
-                                      {deal.dealName}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
+                            <div>
+                              <p className="text-xs font-semibold text-stone-500 uppercase">Condition</p>
+                              <p className="text-sm text-stone-900">{property.details.condition}</p>
+                            </div>
                           </div>
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Ownership Status</p>
+                            <select
+                              value={property.details.ownershipStatus}
+                              onChange={(e) => handleOwnershipStatusChange(property.id, e.target.value)}
+                              className="w-full rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              {OWNERSHIP_STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {canDeleteProperties && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteProperty(property)}
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                            >
+                              <FiTrash2 size={12} />
+                              Delete Property
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-                  <FiMapPin size={32} className="mb-2 opacity-50" />
-                  <p className="text-sm font-medium">No properties found</p>
-                  <p className="text-xs mt-1">Try adjusting your search</p>
-                </div>
-              )}
-            </div>
+                  ))
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
-            {/* Footer */}
-            <div className="bg-gray-50 border-t border-gray-200 px-6 py-3">
-              <p className="text-xs text-gray-600 text-center">Click a property to view details</p>
+      {/* ─── Selected Google Place Info Card ────────────────────────── */}
+      {selectedPlacesResult && (
+        <div
+          className="absolute z-30 bg-white rounded-2xl shadow-xl overflow-hidden"
+          style={{ bottom: '100px', left: '16px', width: '380px' }}
+        >
+          <div className="p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-stone-900 text-base leading-tight">{selectedPlacesResult.name}</h3>
+                <p className="text-sm text-stone-600 mt-1 line-clamp-2">{selectedPlacesResult.address}</p>
+              </div>
+              <button
+                onClick={() => setSelectedPlacesResult(null)}
+                className="text-stone-400 hover:text-stone-600 p-1 rounded-full hover:bg-stone-100 transition-colors shrink-0"
+              >
+                <FiX size={16} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <div className="w-3 h-3 bg-[#EA4335] rounded-full shrink-0" />
+              <span className="text-xs text-stone-500">
+                {selectedPlacesResult.lat.toFixed(5)}, {selectedPlacesResult.lng.toFixed(5)}
+              </span>
             </div>
           </div>
-        )}
-
-        {/* Layers Panel - Bottom Left */}
-        <div className="fixed left-4 bottom-4 bg-white rounded-lg shadow-lg border border-stone-200 px-3 py-2 hidden">
-          <button className="flex items-center gap-2 text-sm font-medium text-stone-700 hover:text-stone-900">
-            🗂️ Layers
-          </button>
         </div>
+      )}
+
+      {/* ─── My Properties toggle button + Fullscreen (top-right) ─── */}
+      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+        <button
+          onClick={() => setIsFullscreen((v) => !v)}
+          title={isFullscreen ? 'Exit fullscreen' : 'Expand map fullscreen'}
+          className="bg-white text-stone-600 shadow-lg p-2.5 rounded-xl hover:shadow-xl transition-all hover:bg-stone-50"
+        >
+          {isFullscreen ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9L4 4m0 0h5m-5 0v5M15 9l5-5m0 0h-5m5 0v5M9 15l-5 5m0 0h5m-5 0v-5M15 15l5 5m0 0h-5m5 0v-5" /></svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" /></svg>
+          )}
+        </button>
+        <button
+          onClick={() => {
+            const next = activePanel !== 'properties' ? true : !showResultsPanel;
+            setActivePanel('properties');
+            setShowResultsPanel(next);
+          }}
+          className="bg-white text-stone-700 shadow-lg px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover:shadow-xl transition-all hover:bg-stone-50"
+        >
+          <FiMapPin size={14} className="text-indigo-600" />
+          My Properties
+          <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold">
+            {filteredProperties.length}
+          </span>
+        </button>
       </div>
 
       {selectedProperty && (
@@ -889,34 +1081,39 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         />
       )}
 
+      {/* ─── Floating Add Property Button (bottom right) ─────────────── */}
+      <button
+        onClick={() => setShowAddPropertyModal(true)}
+        className="absolute bottom-6 right-6 z-30 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl rounded-full h-14 w-14 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+        title="Add New Property"
+      >
+        <FiPlus size={24} />
+      </button>
+
       {showAddPropertyModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-stone-950 flex items-center gap-2">
-                <FiPlus className="text-indigo-600" />
-                Add New Property
-              </h2>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-900">Add New Property</h2>
               <button
                 onClick={() => {
                   setShowAddPropertyModal(false);
                   resetForm();
                 }}
-                className="text-stone-500 hover:text-stone-700"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
               >
-                <FiX size={24} />
+                <FiX size={18} />
               </button>
             </div>
 
-            <div className="space-y-4">
-              {/* Basic Information Section */}
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
-                <h3 className="font-semibold text-stone-900 mb-3">Basic Information</h3>
-                
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+
+              {/* Basic Information */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Basic Information</p>
                 <div>
-                  <label className="block text-sm font-medium text-stone-900 mb-1">
-                    Property Name *
-                  </label>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Property Name <span className="text-red-400">*</span></label>
                   <input
                     type="text"
                     placeholder="e.g., Downtown Office Complex"
@@ -924,14 +1121,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     onChange={(e) =>
                       setNewProperty({ ...newProperty, name: e.target.value })
                     }
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
-
-                <div className="mt-3">
-                  <label className="block text-sm font-medium text-stone-900 mb-1">
-                    Property Address *
-                  </label>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Property Address <span className="text-red-400">*</span></label>
                   <input
                     ref={propertyAddressInputRef}
                     type="text"
@@ -941,25 +1135,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     onChange={(e) =>
                       setNewProperty({ ...newProperty, address: e.target.value })
                     }
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
-                  <p className="mt-1 text-xs text-stone-500">
-                    {isGoogleMapsLoaded
-                      ? "Start typing to search Google Maps addresses."
-                      : "Google Maps address search will appear once the map finishes loading."}
+                  <p className="mt-1 text-xs text-stone-400">
+                    {isGoogleMapsLoaded ? "Start typing to search Google Maps addresses." : "Google Maps address search will appear once the map loads."}
                   </p>
                 </div>
               </div>
 
-              {/* Location Details Section */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                <h3 className="font-semibold text-stone-900 mb-3">Location Details</h3>
-                
+              <div className="border-t border-stone-100" />
+
+              {/* Location */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Location</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Latitude *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Latitude <span className="text-red-400">*</span></label>
                     <input
                       type="number"
                       step="0.0001"
@@ -968,14 +1159,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, latitude: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Longitude *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Longitude <span className="text-red-400">*</span></label>
                     <input
                       type="number"
                       step="0.0001"
@@ -984,29 +1172,28 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, longitude: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Property Details Section */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <h3 className="font-semibold text-stone-900 mb-3">Property Details</h3>
-                
+              <div className="border-t border-stone-100" />
+
+              {/* Property Details */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Property Details</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Property Type *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Type <span className="text-red-400">*</span></label>
                     <select
                       value={newProperty.type}
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, type: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
                     >
-                      <option value="">-- Select --</option>
+                      <option value="">Select</option>
                       <option value="Office">Office</option>
                       <option value="Retail">Retail</option>
                       <option value="Residential">Residential</option>
@@ -1017,11 +1204,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       <option value="Land">Land</option>
                     </select>
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Size (sqm) *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Size (sqm) <span className="text-red-400">*</span></label>
                     <input
                       type="number"
                       placeholder="e.g., 50000"
@@ -1029,14 +1213,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, squareFeet: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      GLA (sqm) *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">GLA (sqm) <span className="text-red-400">*</span></label>
                     <input
                       type="number"
                       placeholder="e.g., 42000"
@@ -1044,14 +1225,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, gla: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Year Built *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Year Built <span className="text-red-400">*</span></label>
                     <input
                       type="number"
                       placeholder="e.g., 2005"
@@ -1059,41 +1237,35 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, yearBuilt: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Condition *
-                    </label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Condition <span className="text-red-400">*</span></label>
                     <select
                       value={newProperty.condition}
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, condition: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
                     >
-                      <option value="">-- Select --</option>
+                      <option value="">Select</option>
                       <option value="Excellent">Excellent</option>
                       <option value="Good">Good</option>
                       <option value="Fair">Fair</option>
                       <option value="Poor">Poor</option>
                     </select>
                   </div>
-
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-stone-900 mb-1">
-                      Ownership Status *
-                    </label>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Ownership Status <span className="text-red-400">*</span></label>
                     <select
                       value={newProperty.ownershipStatus}
                       onChange={(e) =>
                         setNewProperty({ ...newProperty, ownershipStatus: e.target.value })
                       }
-                      className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
                     >
-                      <option value="">-- Select --</option>
+                      <option value="">Select</option>
                       <option value="Owned">Owned</option>
                       <option value="For Lease">For Lease</option>
                       <option value="Mortgaged">Mortgaged</option>
@@ -1103,14 +1275,108 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                 </div>
               </div>
 
-              {/* Linking Section */}
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
-                <h3 className="font-semibold text-stone-900 mb-3">Links & Associations</h3>
-                
+              <div className="border-t border-stone-100" />
+
+              {/* Owner & Registration */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Owner &amp; Registration</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Registration Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., T12345/2005"
+                      value={newProperty.registrationNumber}
+                      onChange={(e) => setNewProperty({ ...newProperty, registrationNumber: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Registration Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., John Smith Trust"
+                      value={newProperty.registrationName}
+                      onChange={(e) => setNewProperty({ ...newProperty, registrationName: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400 pt-1">Owner Details</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Owner Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., John Smith"
+                      value={newProperty.ownerName}
+                      onChange={(e) => setNewProperty({ ...newProperty, ownerName: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Owner Email</label>
+                    <input
+                      type="email"
+                      placeholder="e.g., owner@email.com"
+                      value={newProperty.ownerEmail}
+                      onChange={(e) => setNewProperty({ ...newProperty, ownerEmail: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Owner Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g., +27 82 000 0000"
+                      value={newProperty.ownerContactNumber}
+                      onChange={(e) => setNewProperty({ ...newProperty, ownerContactNumber: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400 pt-1">Tenant Details</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Tenant Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Jane Doe"
+                      value={newProperty.tenantName}
+                      onChange={(e) => setNewProperty({ ...newProperty, tenantName: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Tenant Email</label>
+                    <input
+                      type="email"
+                      placeholder="e.g., tenant@email.com"
+                      value={newProperty.tenantEmail}
+                      onChange={(e) => setNewProperty({ ...newProperty, tenantEmail: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Tenant Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g., +27 83 000 0000"
+                      value={newProperty.tenantContactNumber}
+                      onChange={(e) => setNewProperty({ ...newProperty, tenantContactNumber: e.target.value })}
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-stone-100" />
+
+              {/* Links & Associations */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Links &amp; Associations</p>
                 <div className="relative">
-                  <label className="block text-sm font-medium text-stone-900 mb-1">
-                    Linked Company Name
-                  </label>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Linked Company Name</label>
                   <input
                     type="text"
                     placeholder="Search CRM company..."
@@ -1127,7 +1393,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     onBlur={() => {
                       setTimeout(() => setShowCompanySuggestions(false), 150);
                     }}
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                   {showCompanySuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
@@ -1157,17 +1423,13 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       )}
                     </div>
                   )}
-                  <p className="mt-1 text-xs text-stone-500">
-                    {newProperty.linkedCompanyId
-                      ? "Company linked from CRM."
-                      : "Select an existing CRM company to link this property."}
+                  <p className="mt-1 text-xs text-stone-400">
+                    {newProperty.linkedCompanyId ? "Company linked." : "Select an existing CRM company to link this property."}
                   </p>
                 </div>
 
                 <div className="mt-3 relative">
-                  <label className="block text-sm font-medium text-stone-900 mb-1">
-                    Linked Fund Name
-                  </label>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Linked Fund Name</label>
                   <input
                     type="text"
                     placeholder="Search Property Funds..."
@@ -1184,7 +1446,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     onBlur={() => {
                       setTimeout(() => setShowFundSuggestions(false), 150);
                     }}
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                   {showFundSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
@@ -1214,23 +1476,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       )}
                     </div>
                   )}
-                  <p className="mt-1 text-xs text-stone-500">
-                    {newProperty.linkedFundId
-                      ? "Fund linked from CRM Property Funds."
-                      : "Select an existing CRM fund to link this property."}
+                  <p className="mt-1 text-xs text-stone-400">
+                    {newProperty.linkedFundId ? "Fund linked." : "Select an existing CRM fund to link this property."}
                   </p>
                 </div>
               </div>
 
             </div>
 
-            <div className="flex gap-3 mt-6 pt-4 border-t border-stone-200">
+            {/* Footer */}
+            <div className="flex gap-3 px-6 py-4 border-t border-stone-100">
               <button
                 onClick={() => {
                   setShowAddPropertyModal(false);
                   resetForm();
                 }}
-                className="flex-1 px-4 py-2 border border-stone-300 rounded-lg text-stone-900 hover:bg-stone-50 transition-colors font-medium"
+                className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
               >
                 Cancel
               </button>
@@ -1356,6 +1617,14 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                         gla: parseInt(newProperty.gla),
                         yearBuilt: parseInt(newProperty.yearBuilt),
                         condition: newProperty.condition,
+                        registrationNumber: newProperty.registrationNumber.trim() || undefined,
+                        registrationName: newProperty.registrationName.trim() || undefined,
+                        ownerName: newProperty.ownerName.trim() || undefined,
+                        ownerEmail: newProperty.ownerEmail.trim() || undefined,
+                        ownerContactNumber: newProperty.ownerContactNumber.trim() || undefined,
+                        tenantName: newProperty.tenantName.trim() || undefined,
+                        tenantEmail: newProperty.tenantEmail.trim() || undefined,
+                        tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
                       },
                     });
                   } catch (error) {
@@ -1396,6 +1665,14 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     linkedFundName,
                     brokerName: createdProperty.assignedBrokerName || "Unassigned",
                     brokerId: createdProperty.assignedBrokerId || createdProperty.brokerId,
+                    registrationNumber: newProperty.registrationNumber.trim() || undefined,
+                    registrationName: newProperty.registrationName.trim() || undefined,
+                    ownerName: newProperty.ownerName.trim() || undefined,
+                    ownerEmail: newProperty.ownerEmail.trim() || undefined,
+                    ownerContactNumber: newProperty.ownerContactNumber.trim() || undefined,
+                    tenantName: newProperty.tenantName.trim() || undefined,
+                    tenantEmail: newProperty.tenantEmail.trim() || undefined,
+                    tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
                   };
 
                   const next = [newProp, ...properties];
@@ -1410,9 +1687,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       : `Property "${newProperty.name}" added. It will appear in stock when status is set to a stock status.`
                   );
                 }}
-                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
               >
-                <FiPlus size={18} />
+                <FiPlus size={16} />
                 Add Property
               </button>
             </div>
