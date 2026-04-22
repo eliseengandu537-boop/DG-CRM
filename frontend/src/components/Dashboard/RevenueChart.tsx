@@ -67,8 +67,8 @@ export const RevenueChart = () => {
   });
 
   const width = 600;
-  const height = 280;
-  const padding = { top: 20, right: 20, bottom: 50, left: 60 };
+  const height = 220;
+  const padding = { top: 20, right: 20, bottom: 40, left: 55 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -138,128 +138,99 @@ export const RevenueChart = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col items-center">
-      <div className="w-full overflow-x-auto">
+    <div className="w-full h-full flex flex-col">
+      <div className="flex-1 min-h-0 w-full">
         <svg
-          width={width}
-          height={height}
-          className="mx-auto my-4"
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="w-full h-full"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
+          <defs>
+            <linearGradient id="salesAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0.03" />
+            </linearGradient>
+          </defs>
+
           {Array.from({ length: yGridLines + 1 }).map((_, i) => {
             const value = yMin + i * yStep;
             const y = padding.top + yScale(value);
             return (
               <g key={`grid-${i}`}>
-                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e5e7eb" strokeWidth="1" />
-                <text x={padding.left - 10} y={y + 4} textAnchor="end" fontSize="12" fill="#9ca3af">
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#f1f5f9" strokeWidth="1" />
+                <text x={padding.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#cbd5e1">
                   {formatCurrency(value)}
                 </text>
               </g>
             );
           })}
 
-          <line
-            x1={padding.left}
-            y1={padding.top + chartHeight}
-            x2={width - padding.right}
-            y2={padding.top + chartHeight}
-            stroke="#d1d5db"
-            strokeWidth="2"
-          />
-
-          <line
-            x1={padding.left}
-            y1={padding.top}
-            x2={padding.left}
-            y2={padding.top + chartHeight}
-            stroke="#d1d5db"
-            strokeWidth="2"
-          />
-
+          {/* Sales area fill */}
           <path
-            d={leasingPath}
-            fill="none"
-            stroke="#10b981"
-            strokeWidth="3"
-            strokeDasharray="8,4"
+            d={`${salesPath} L ${xScale(data.length - 1)} ${chartHeight} L 0 ${chartHeight} Z`}
+            fill="url(#salesAreaGrad)"
             style={{ transform: `translate(${padding.left}px, ${padding.top}px)` }}
           />
 
+          {/* Sales line (teal, prominent) */}
           <path
             d={salesPath}
             fill="none"
-            stroke="#3b82f6"
-            strokeWidth="3"
+            stroke="#2dd4bf"
+            strokeWidth="2.5"
             style={{ transform: `translate(${padding.left}px, ${padding.top}px)` }}
           />
 
+          {/* Leasing line (emerald, dashed, thinner) */}
+          <path
+            d={leasingPath}
+            fill="none"
+            stroke="#34d399"
+            strokeWidth="1.5"
+            strokeDasharray="6,3"
+            opacity="0.6"
+            style={{ transform: `translate(${padding.left}px, ${padding.top}px)` }}
+          />
+
+          {/* Auction line (amber, dotted, thinner) */}
           <path
             d={auctionPath}
             fill="none"
-            stroke="#f59e0b"
-            strokeWidth="3"
-            strokeDasharray="2,6"
+            stroke="#fbbf24"
+            strokeWidth="1.5"
+            strokeDasharray="2,5"
+            opacity="0.6"
             style={{ transform: `translate(${padding.left}px, ${padding.top}px)` }}
           />
 
+          {/* Sales dots */}
           {data.map((d, i) => (
             <circle
               key={`sales-point-${i}`}
               cx={padding.left + xScale(i)}
               cy={padding.top + yScale(d.sales)}
-              r="5"
-              fill="#3b82f6"
+              r="3.5"
+              fill="#2dd4bf"
               stroke="#fff"
-              strokeWidth="2"
-              className="hover:brightness-110"
+              strokeWidth="1.5"
             />
           ))}
 
-          {data.map((d, i) => (
-            <circle
-              key={`leasing-point-${i}`}
-              cx={padding.left + xScale(i)}
-              cy={padding.top + yScale(d.leasing)}
-              r="5"
-              fill="#10b981"
-              stroke="#fff"
-              strokeWidth="2"
-              className="hover:brightness-110"
-            />
-          ))}
-
-          {data.map((d, i) => (
-            <circle
-              key={`auction-point-${i}`}
-              cx={padding.left + xScale(i)}
-              cy={padding.top + yScale(d.auction)}
-              r="5"
-              fill="#f59e0b"
-              stroke="#fff"
-              strokeWidth="2"
-              className="hover:brightness-110"
-            />
-          ))}
-
+          {/* Month labels */}
           {data.map((d, i) => (
             <text
               key={`month-${i}`}
               x={padding.left + xScale(i)}
-              y={padding.top + chartHeight + 25}
+              y={padding.top + chartHeight + 22}
               textAnchor="middle"
-              fontSize="12"
-              fill="#6b7280"
-              fontWeight="500"
+              fontSize="11"
+              fill="#94a3b8"
             >
               {d.month}
             </text>
           ))}
-
-          <text x={-height / 2} y={15} textAnchor="middle" fontSize="12" fill="#6b7280" transform="rotate(-90)">
-            Revenue (ZAR)
-          </text>
 
           {tooltip.visible && tooltip.data && (
             <g>
@@ -288,36 +259,6 @@ export const RevenueChart = () => {
             </g>
           )}
         </svg>
-      </div>
-
-      <div className="flex gap-8 justify-center mt-6">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5 bg-blue-500"></div>
-            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-          </div>
-          <span className="text-sm font-medium text-stone-700">Sales</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-6 h-0.5 bg-green-500"
-              style={{ backgroundImage: 'linear-gradient(90deg, #10b981 0%, #10b981 50%, transparent 50%)' }}
-            ></div>
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-          </div>
-          <span className="text-sm font-medium text-stone-700">Leasing</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-6 h-0.5 bg-amber-500"
-              style={{ backgroundImage: 'linear-gradient(90deg, #f59e0b 0%, #f59e0b 20%, transparent 20%)' }}
-            ></div>
-            <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
-          </div>
-          <span className="text-sm font-medium text-stone-700">Auction</span>
-        </div>
       </div>
     </div>
   );
