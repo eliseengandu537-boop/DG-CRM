@@ -7,7 +7,8 @@ import { GiTrophy } from "react-icons/gi";
 import { useDashboard } from "@/context/DashboardContext";
 import { useAuth } from "@/context/AuthContext";
 import { formatCurrency, formatRelativeTime, isTaskActivity } from "@/lib/dashboardService";
-import { activityService } from "@/services/activityService";import { brokerService, Broker } from '@/services/brokerService';import { RevenueChart } from "./RevenueChart";
+import { activityService } from "@/services/activityService";
+import { RevenueChart } from "./RevenueChart";
 import { ActivityDetailsModal } from "./ActivityDetailsModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NotificationCenter } from "@/components/Notifications/NotificationCenter";
@@ -110,8 +111,6 @@ export const Grid = () => {
   const [showAllActivities, setShowAllActivities] = useState(false);
   const [userInput, setUserInput] = useState('');
   const [isExpandedChat, setIsExpandedChat] = useState(false);
-  const [revenueTab, setRevenueTab] = useState<'week' | 'month'>('month');
-  const [topBrokers, setTopBrokers] = useState<Broker[]>([]);
   const [chatMessages, setChatMessages] = useState([
     {
       sender: 'bot',
@@ -123,14 +122,6 @@ export const Grid = () => {
     () => (metrics?.recentActivities || []).filter((activity) => !isTaskActivity(activity)),
     [metrics?.recentActivities]
   );
-
-  useEffect(() => {
-    brokerService.getAllBrokers().then(brokers => {
-      const active = brokers.filter(b => b.status === 'active');
-      const sorted = [...active].sort((a, b) => (b.currentBilling || 0) - (a.currentBilling || 0));
-      setTopBrokers(sorted.slice(0, 5));
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     const scrollToRecentActivity = () => {
@@ -394,45 +385,29 @@ export const Grid = () => {
   const leasingPercent = (monthlyRevenueByType.Leasing / totalMonthlyRevenue) * 100;
   const auctionPercent = (monthlyRevenueByType.Auction / totalMonthlyRevenue) * 100;
 
-  // Ring chart circumference (r=42, c=2πr≈264)
-  const RING_C = 264;
-  const salesArc  = (salesPercent  / 100) * RING_C;
-  const leasingArc = (leasingPercent / 100) * RING_C;
-  const auctionArc = (auctionPercent / 100) * RING_C;
+  // Calculate pie chart stroke-dasharray values
+  const salesDash = (salesPercent / 100) * 280;
+  const leasingDash = (leasingPercent / 100) * 280;
+  const auctionDash = (auctionPercent / 100) * 280;
 
-  // 6-month bar data for Statistics chart
-  const barChartData = useMemo(() => {
-    const entries = metrics?.dailySalesData || [];
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      let sales = 0; let leasing = 0;
-      entries.forEach(e => {
-        if (!e?.date?.startsWith(key)) return;
-        const t = (e.type || '').toLowerCase();
-        if (t === 'sales' || t === 'sale') sales += Number(e.amount || 0);
-        if (t === 'leasing' || t === 'lease') leasing += Number(e.amount || 0);
-      });
-      return { sales, leasing };
-    });
-    const peak = Math.max(...months.flatMap(m => [m.sales, m.leasing]), 1);
-    return months.map(m => ({
-      tealPct: Math.round((m.sales / peak) * 100),
-      rosePct: Math.round((m.leasing / peak) * 100),
-    }));
-  }, [metrics?.dailySalesData]);
+  // Relative bar heights for Statistics chart
+  const dealBarMax = Math.max(
+    metrics?.statistics.openDeals || 0,
+    metrics?.statistics.closedDeals || 0,
+    metrics?.statistics.lostDeals || 0,
+    1
+  );
 
   return (
     <>
       <style>{chartAnimationStyles}</style>
-      <div className="p-3 bg-stone-100 h-full overflow-hidden flex flex-col gap-2">
+      <div className="p-2 bg-stone-100 min-h-0 space-y-2">
       {/* Header with last updated */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-stone-950">Dashboard</h1>
+          <h1 className="text-base font-bold text-stone-950">Dashboard</h1>
           {lastUpdated && (
-            <p className="text-xs text-stone-500 mt-0.5">Last updated: {formatRelativeTime(lastUpdated)}</p>
+            <p className="text-[10px] text-stone-500 mt-0.5">Last updated: {formatRelativeTime(lastUpdated)}</p>
           )}
         </div>
         <NotificationCenter />
@@ -454,307 +429,350 @@ export const Grid = () => {
       )}
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
         {isLoading ? (
           Array(4).fill(0).map((_, i) => <SkeletonLoader key={i} />)
         ) : (
           quickStats.map((stat, idx) => {
             const Icon = stat.icon;
             return (
-              <div key={idx} className={`${stat.color} rounded-lg p-2.5 border border-stone-200 flex items-center justify-between`}>
+              <div key={idx} className={`${stat.color} rounded border border-stone-200 p-2 flex items-start justify-between hover:shadow-md transition-shadow`}>
                 <div>
-                  <p className={`${stat.textColor} text-[10px] font-semibold mb-0.5`}>{stat.label}</p>
-                  <p className={`text-xl font-bold ${stat.textColor}`}>{stat.value}</p>
+                  <p className={`${stat.textColor} text-[11px] font-semibold mb-0.5`}>{stat.label}</p>
+                  <p className={`text-lg font-bold ${stat.textColor}`}>{stat.value}</p>
                 </div>
-                <Icon size={16} className={stat.textColor} />
+                <Icon size={14} className={stat.textColor} />
               </div>
             );
           })
         )}
       </div>
 
-      {/* Charts Section */}
-      <div className={isBroker ? "flex-1 min-h-0 grid grid-cols-1 gap-3" : "flex-1 min-h-0 grid gap-3"} style={!isBroker ? { gridTemplateColumns: '1fr 180px 180px' } : undefined}>
-
-        {/* ── Total Revenue ── */}
-        {!isBroker && (
-          <div className="bg-white rounded-xl p-4 border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-stone-800">Total Revenue</h3>
-              <div className="flex items-center gap-3 text-xs font-medium text-stone-400">
-                <button onClick={() => setRevenueTab('week')} className={`transition-colors ${revenueTab === 'week' ? 'text-teal-500 font-semibold' : 'hover:text-stone-600'}`}>Week</button>
-                <button onClick={() => setRevenueTab('month')} className={`transition-colors ${revenueTab === 'month' ? 'text-teal-500 font-semibold' : 'hover:text-stone-600'}`}>Month</button>
-              </div>
-            </div>
-            {isLoading ? (
-              <div className="flex-1 bg-stone-50 rounded-lg animate-pulse" />
-            ) : (
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <RevenueChart />
-              </div>
-            )}
-            {/* Legend */}
-            <div className="flex items-center gap-4 mt-2 pt-1.5 border-t border-stone-100">
-              <span className="flex items-center gap-1.5 text-[11px] text-stone-500"><span className="w-5 h-0.5 bg-blue-500 inline-block rounded" />Sales</span>
-              <span className="flex items-center gap-1.5 text-[11px] text-stone-500"><span className="w-5 h-0.5 bg-emerald-500 inline-block rounded" />Leasing</span>
-              <span className="flex items-center gap-1.5 text-[11px] text-stone-500"><span className="w-5 h-0.5 bg-amber-500 inline-block rounded" />Auction</span>
-            </div>
+      {/* Charts and Analytics Section - 3 Column Layout */}
+      <div className={isBroker ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"}>
+        {/* Monthly Sales - Donut Chart */}
+        <div className="bg-white rounded p-1 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
+          <div className="mb-2">
+            <CardHeader title="Monthly Sales" subtitle="Live Revenue by Deal Type (This Month)" />
           </div>
-        )}
-
-        {/* ── Statistics ── */}
-        <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-          <h3 className="text-base font-bold text-stone-900 mb-0.5">Statistics</h3>
           {isLoading ? (
-            <div className="flex-1 bg-stone-50 rounded-lg animate-pulse" />
+            <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded animate-pulse"></div>
           ) : (
             <>
-              {/* Minimal bar chart at bottom */}
-              <div className="flex-1 flex items-end justify-center pb-2">
-                <div className="flex items-end gap-2 w-full px-2" style={{height:'32px'}}>
-                  {barChartData.map((bar, i) => (
-                    <React.Fragment key={i}>
-                      <div className="w-2 rounded bg-blue-400" style={{height:`${Math.max(bar.tealPct,4)}%`}} />
-                      <div className="w-2 rounded bg-rose-300" style={{height:`${Math.max(bar.rosePct,4)}%`}} />
-                      <div className="w-2 rounded bg-teal-400" style={{height:`${Math.max(bar.tealPct,4)}%`}} />
-                    </React.Fragment>
-                  ))}
-                </div>
+              <div className="flex items-center justify-center flex-1 min-h-20 mb-1">
+                <svg viewBox="0 0 120 120" width="120" height="120" className="donut-chart">
+                  <circle cx="60" cy="60" r="45" fill="none" stroke="#ef4444" strokeWidth="12" strokeDasharray={`${salesDash} ${280 - salesDash}`} strokeDashoffset="0" strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                  <circle cx="60" cy="60" r="45" fill="none" stroke="#06b6d4" strokeWidth="12" strokeDasharray={`${leasingDash} ${280 - leasingDash}`} strokeDashoffset={`-${salesDash}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                  <circle cx="60" cy="60" r="45" fill="none" stroke="#10b981" strokeWidth="12" strokeDasharray={`${auctionDash} ${280 - auctionDash}`} strokeDashoffset={`-${salesDash + leasingDash}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                </svg>
               </div>
-              {/* Legend at bottom */}
-              <div className="flex justify-center gap-2 mt-2 pt-2 border-t border-stone-100">
-                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />Open</span>
-                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-rose-300 inline-block" />Lost</span>
-                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-teal-400 inline-block" />Closed</span>
+              <div className="bg-stone-50 rounded p-1 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-red-400 shadow-sm animate-pulse"></div>
+                    <span className="text-xs font-medium text-stone-700">Sales</span>
+                  </div>
+                  <span className="stat-value text-xs font-bold text-stone-900">
+                    {salesPercent.toFixed(1)}% • {formatCurrency(monthlyRevenueByType.Sales)}
+                  </span>
+                </div>
+                <div className="w-full bg-stone-200 rounded-full h-1 overflow-hidden">
+                  <div className="progress-bar bg-red-400 h-1 rounded-full" style={{ width: `${salesPercent}%` }}></div>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                    <span className="text-xs font-medium text-stone-700">Leasing</span>
+                  </div>
+                  <span className="stat-value text-xs font-bold text-stone-900">
+                    {leasingPercent.toFixed(1)}% • {formatCurrency(monthlyRevenueByType.Leasing)}
+                  </span>
+                </div>
+                <div className="w-full bg-stone-200 rounded-full h-1 overflow-hidden">
+                  <div className="progress-bar bg-cyan-400 h-1 rounded-full" style={{ width: `${leasingPercent}%`, animationDelay: '0.2s' }}></div>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                    <span className="text-xs font-medium text-stone-700">Auction</span>
+                  </div>
+                  <span className="stat-value text-xs font-bold text-stone-900">
+                    {auctionPercent.toFixed(1)}% • {formatCurrency(monthlyRevenueByType.Auction)}
+                  </span>
+                </div>
+                <div className="w-full bg-stone-200 rounded-full h-1 overflow-hidden">
+                  <div className="progress-bar bg-emerald-400 h-1 rounded-full" style={{ width: `${auctionPercent}%`, animationDelay: '0.4s' }}></div>
+                </div>
               </div>
             </>
           )}
         </div>
 
-        {/* ── Monthly Sales ── */}
-        <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-          <h3 className="text-base font-bold text-stone-900 mb-0.5">Monthly Sales</h3>
+        {/* Statistics - Bar Chart */}
+        <div className="bg-white rounded-xl p-2 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
+          <div className="mb-4">
+            <CardHeader title="Statistics" subtitle="Live Deal Status Overview" />
+          </div>
           {isLoading ? (
-            <div className="flex-1 bg-stone-50 rounded-lg animate-pulse" />
+            <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded-xl animate-pulse"></div>
           ) : (
             <>
-              {/* Donut chart */}
-              <div className="flex items-center justify-center flex-1 min-h-0 pt-2">
-                <div className="relative">
-                  <svg viewBox="0 0 120 120" width="100" height="100" style={{ transform: 'rotate(-90deg)' }}>
-                    <circle cx="60" cy="60" r="42" fill="none" stroke="#f1f5f9" strokeWidth="13" />
-                    <circle cx="60" cy="60" r="42" fill="none" stroke="#fb923c" strokeWidth="13"
-                      strokeDasharray={`${salesArc} ${RING_C - salesArc}`}
-                      strokeDashoffset="0" strokeLinecap="butt"
-                      style={{ transition: 'stroke-dasharray 0.8s ease' }}
-                    />
-                    <circle cx="60" cy="60" r="42" fill="none" stroke="#f87171" strokeWidth="13"
-                      strokeDasharray={`${leasingArc} ${RING_C - leasingArc}`}
-                      strokeDashoffset={`-${salesArc}`} strokeLinecap="butt"
-                      style={{ transition: 'stroke-dasharray 0.8s ease' }}
-                    />
-                    <circle cx="60" cy="60" r="42" fill="none" stroke="#2dd4bf" strokeWidth="13"
-                      strokeDasharray={`${auctionArc} ${RING_C - auctionArc}`}
-                      strokeDashoffset={`-${salesArc + leasingArc}`} strokeLinecap="butt"
-                      style={{ transition: 'stroke-dasharray 0.8s ease' }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-base font-bold text-stone-900 leading-none">{formatCurrency(totalMonthlyRevenue === 1 ? 0 : totalMonthlyRevenue)}</p>
+              <div className="flex items-end justify-around flex-1 min-h-32 mb-2 px-2 bg-gradient-to-br from-stone-50 to-stone-100 rounded py-2">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="chart-bar w-6 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.openDeals || 0) / dealBarMax) * 160)}px` }}></div>
+                  <span className="text-xs font-semibold text-stone-600 mt-2">Open</span>
+                  <span className="stat-value text-lg font-bold text-blue-600">{metrics?.statistics.openDeals || 0}</span>
+                </div>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="chart-bar w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.closedDeals || 0) / dealBarMax) * 160)}px` }}></div>
+                  <span className="text-xs font-semibold text-stone-600 mt-2">Closed</span>
+                  <span className="stat-value text-lg font-bold text-emerald-600">{metrics?.statistics.closedDeals || 0}</span>
+                </div>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="chart-bar w-6 bg-gradient-to-t from-red-600 to-red-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.lostDeals || 0) / dealBarMax) * 160)}px` }}></div>
+                  <span className="text-xs font-semibold text-stone-600 mt-2">Lost</span>
+                  <span className="stat-value text-lg font-bold text-red-600">{metrics?.statistics.lostDeals || 0}</span>
+                </div>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="chart-bar w-6 bg-gradient-to-t from-yellow-500 to-yellow-300 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.conversionRate || 0) / 100) * 160)}px` }}></div>
+                  <span className="text-xs font-semibold text-stone-600 mt-2">Conv%</span>
+                  <span className="stat-value text-lg font-bold text-yellow-600">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 bg-stone-50 rounded p-2">
+                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-medium text-stone-700">Open</span>
+                  </div>
+                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.openDeals || 0}</span>
+                </div>
+                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" style={{ animationDelay: '0.15s' }}></div>
+                    <span className="text-sm font-medium text-stone-700">Closed</span>
+                  </div>
+                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.closedDeals || 0}</span>
+                </div>
+                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '0.3s' }}></div>
+                    <span className="text-sm font-medium text-stone-700">Lost</span>
+                  </div>
+                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.lostDeals || 0}</span>
+                </div>
+                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse" style={{ animationDelay: '0.45s' }}></div>
+                    <span className="text-sm font-medium text-stone-700">Conv Rate</span>
+                  </div>
+                  <span className="stat-value text-sm font-bold text-stone-900">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Total Revenue - Line Chart */}
+        {!isBroker && (
+          <div className="bg-white rounded-xl p-2 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
+            <div className="mb-4">
+              <CardHeader title="Total Revenue" subtitle="Monthly Sales, Leasing, and Auction" />
+            </div>
+            {isLoading ? (
+              <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded-xl animate-pulse"></div>
+            ) : (
+              <div className="flex-1 min-h-32 flex flex-col">
+                <div className="flex-1 overflow-x-auto mb-2">
+                  <RevenueChart />
+                </div>
+                <div className="bg-stone-50 rounded p-2 flex items-center justify-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-0.5 bg-blue-500 rounded-full shadow-sm"></div>
+                    <span className="text-xs font-medium text-stone-700">Sales</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-0.5 bg-emerald-500 rounded-full shadow-sm" style={{ strokeDasharray: '4,4' }}></div>
+                    <span className="text-xs font-medium text-stone-700">Leasing</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-0.5 bg-amber-500 rounded-full shadow-sm" style={{ strokeDasharray: '2,6' }}></div>
+                    <span className="text-xs font-medium text-stone-700">Auction</span>
                   </div>
                 </div>
               </div>
-              {/* Percentage legend */}
-              <div className="flex items-center justify-center gap-6 mt-2 mb-1">
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-orange-400 inline-block" />{salesPercent.toFixed(0)}%</span>
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-rose-400 inline-block" />{leasingPercent.toFixed(0)}%</span>
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-teal-400 inline-block" />{auctionPercent.toFixed(0)}%</span>
-              </div>
-              {/* Bottom legend grid */}
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                <div className="flex flex-col items-center justify-center rounded bg-orange-50 py-1">
-                  <span className="w-3 h-3 rounded-full bg-orange-400 inline-block mb-1" />
-                  <span className="text-[11px] font-semibold text-orange-500">Sales</span>
-                </div>
-                <div className="flex flex-col items-center justify-center rounded bg-rose-50 py-1">
-                  <span className="w-3 h-3 rounded-full bg-rose-400 inline-block mb-1" />
-                  <span className="text-[11px] font-semibold text-rose-500">Auction</span>
-                </div>
-                <div className="flex flex-col items-center justify-center rounded bg-teal-50 py-1">
-                  <span className="w-3 h-3 rounded-full bg-teal-400 inline-block mb-1" />
-                  <span className="text-[11px] font-semibold text-teal-500">Leasing</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Section - Chat, Deals & Activities */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-3 overflow-hidden">
-        <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden">
-          <div className="mb-2 flex items-start justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-stone-900">Mr Leo Chat</h3>
-              <p className="text-[10px] text-stone-500">AI Assistant - Full System Knowledge</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+        <div className="rounded-xl border border-stone-200 bg-white p-2 shadow-sm transition-shadow hover:shadow-md flex flex-row min-h-0 h-[180px]">
+          <div className="flex flex-col w-full">
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h3 className="text-base font-semibold text-stone-900">Mr Leo Chat</h3>
+                <p className="text-xs text-stone-500">AI Assistant - Full System Knowledge</p>
+              </div>
+              <button
+                onClick={() => setIsExpandedChat(!isExpandedChat)}
+                className="rounded border border-stone-200 p-1 text-stone-500 hover:bg-stone-50"
+                title="Expand chat"
+                type="button"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6v10a2 2 0 002 2h10v-4m-4-6l6-6m0 0l4 4m-4-4v10" />
+                </svg>
+              </button>
             </div>
-            <button
-              onClick={() => setIsExpandedChat(!isExpandedChat)}
-              className="rounded-lg border border-stone-200 p-2 text-stone-500 hover:bg-stone-50"
-              title="Expand chat"
-              type="button"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6v10a2 2 0 002 2h10v-4m-4-6l6-6m0 0l4 4m-4-4v10" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex gap-2 sm:flex-row sm:items-start flex-1 min-h-0 overflow-hidden">
-            <div className="relative flex shrink-0 justify-center sm:block">
-              <img src="/dogchat.png" alt="DG-CRM Assistant" className="h-16 w-16 object-contain" />
-            </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div className="max-h-24 space-y-2 overflow-y-auto pr-1">
-                {chatMessages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`w-full max-w-[360px] text-sm ${
-                      msg.sender === 'user'
-                        ? 'ml-auto rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-md'
-                        : 'mr-auto rounded-2xl border border-stone-200 bg-white p-4 text-stone-700 shadow-md'
-                    }`}
-                  >
-                    <p className="leading-relaxed">{msg.text}</p>
-                    <p
-                      className={`mt-2 text-[11px] ${
-                        msg.sender === 'user' ? 'text-blue-100' : 'text-stone-400'
+            <div className="flex flex-row gap-2 flex-1 min-h-0">
+              <div className="flex items-center justify-center shrink-0">
+                <img src="/dogchat.png" alt="DG-CRM Assistant" className="h-20 w-20 object-contain" />
+              </div>
+              <div className="flex-1 flex flex-col">
+                <div className="flex-1 min-h-0 max-h-[110px] space-y-2 overflow-y-auto pr-1">
+                  {chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-full max-w-[220px] text-xs ${
+                        msg.sender === 'user'
+                          ? 'ml-auto rounded-xl bg-blue-600 px-2 py-1.5 text-white shadow'
+                          : 'mr-auto rounded-xl border border-stone-200 bg-white p-2 text-stone-700 shadow'
                       }`}
                     >
-                      {msg.time}
-                    </p>
-                  </div>
-                ))}
+                      <p className="leading-relaxed">{msg.text}</p>
+                      <p
+                        className={`mt-1 text-[10px] ${
+                          msg.sender === 'user' ? 'text-blue-100' : 'text-stone-400'
+                        }`}
+                      >
+                        {msg.time}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-auto flex flex-wrap items-center justify-end gap-1 pt-1">
+                  <input
+                    type="text"
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                    placeholder="Ask anything about your CRM system..."
+                    className="w-full max-w-[180px] rounded-xl border border-stone-200 bg-white px-2 py-1 text-xs text-stone-600 shadow outline-none focus:border-blue-300"
+                  />
+                  <button
+                    onClick={() => (isVoiceListening ? stopVoice() : startVoice())}
+                    className={`flex h-7 w-7 items-center justify-center rounded border border-stone-200 text-stone-500 shadow transition hover:bg-stone-50 ${
+                      !isVoiceSupported ? 'cursor-not-allowed opacity-50' : ''
+                    }`}
+                    title={isVoiceSupported ? 'Voice input' : 'Voice input not supported'}
+                    type="button"
+                    disabled={!isVoiceSupported}
+                  >
+                    {isVoiceListening ? <FiMicOff size={14} /> : <FiMic size={14} />}
+                  </button>
+                  <button
+                    onClick={handleSendMessage}
+                    className="flex h-7 w-7 items-center justify-center rounded bg-blue-600 text-white shadow transition hover:bg-blue-700"
+                    type="button"
+                  >
+                    <FiArrowUpRight size={14} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-
-          <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Ask anything about your CRM system..."
-              className="w-full max-w-[360px] rounded-2xl border border-stone-200 bg-white px-4 py-2 text-xs text-stone-600 shadow-md outline-none focus:border-blue-300"
-            />
-            <button
-              onClick={() => (isVoiceListening ? stopVoice() : startVoice())}
-              className={`flex h-10 w-10 items-center justify-center rounded-xl border border-stone-200 text-stone-500 shadow-md transition hover:bg-stone-50 ${
-                !isVoiceSupported ? 'cursor-not-allowed opacity-50' : ''
-              }`}
-              title={isVoiceSupported ? 'Voice input' : 'Voice input not supported'}
-              type="button"
-              disabled={!isVoiceSupported}
-            >
-              {isVoiceListening ? <FiMicOff size={18} /> : <FiMic size={18} />}
-            </button>
-            <button
-              onClick={handleSendMessage}
-              className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition hover:bg-blue-700"
-              type="button"
-            >
-              <FiArrowUpRight size={18} />
-            </button>
           </div>
         </div>
 
-        {/* Top Brokers Leaderboard */}
-        <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm overflow-hidden flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <GiTrophy className="text-amber-400" size={15} />
-              <h3 className="text-sm font-bold text-stone-800">Top Brokers</h3>
-            </div>
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('navigation:page-change', { detail: { page: 'Broker Profiles' } }))}
-              className="flex items-center gap-0.5 text-[11px] text-teal-500 font-medium hover:text-teal-600 transition-colors"
-            >
-              View All <FiChevronRight size={11} />
-            </button>
-          </div>
-
-          {/* Broker rows */}
-          <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden">
-            {isLoading ? (
-              Array(4).fill(0).map((_, i) => (
-                <div key={i} className="h-10 bg-stone-100 rounded-lg animate-pulse" />
-              ))
-            ) : topBrokers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 text-stone-400 py-4">
-                <FiUsers size={22} className="mb-1 opacity-40" />
-                <p className="text-xs">No brokers found</p>
-              </div>
-            ) : topBrokers.map((broker, index) => {
-              const rankMeta = [
-                { emoji: '🥇', bar: 'bg-amber-400',   ring: 'bg-amber-500',   bg: 'bg-amber-50',  border: 'border-amber-100' },
-                { emoji: '🥈', bar: 'bg-stone-400',   ring: 'bg-stone-500',   bg: 'bg-stone-50',  border: 'border-stone-100' },
-                { emoji: '🥉', bar: 'bg-orange-400',  ring: 'bg-orange-500',  bg: 'bg-orange-50', border: 'border-orange-100' },
-                { emoji: null, bar: 'bg-teal-400',    ring: 'bg-teal-500',    bg: 'bg-stone-50',  border: 'border-stone-100' },
-                { emoji: null, bar: 'bg-teal-400',    ring: 'bg-teal-500',    bg: 'bg-stone-50',  border: 'border-stone-100' },
-              ];
-              const meta = rankMeta[index] ?? rankMeta[3];
-              const progress = broker.progressPercentage ??
-                (broker.billingTarget ? Math.min(100, ((broker.currentBilling || 0) / broker.billingTarget) * 100) : 0);
-              return (
-                <div key={broker.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border ${meta.border} ${meta.bg}`}>
-                  {/* Rank */}
-                  <span className="text-sm w-5 text-center shrink-0 leading-none">
-                    {meta.emoji ?? <span className="text-[11px] font-bold text-stone-400">{index + 1}</span>}
-                  </span>
-                  {/* Avatar */}
-                  <div className={`w-6 h-6 rounded-full ${meta.ring} flex items-center justify-center text-white font-bold text-[10px] shrink-0`}>
-                    {broker.name.charAt(0).toUpperCase()}
-                  </div>
-                  {/* Name + bar */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-semibold text-stone-800 truncate leading-tight">{broker.name}</p>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <div className="flex-1 h-1 bg-stone-200 rounded-full overflow-hidden">
-                        <div className={`h-full ${meta.bar} rounded-full transition-all duration-700`} style={{ width: `${progress}%` }} />
-                      </div>
-                      <span className="text-[9px] text-stone-400 shrink-0">{Math.round(progress)}%</span>
-                    </div>
-                  </div>
-                  {/* Billing */}
-                  <p className="text-[11px] font-bold text-stone-700 shrink-0">{formatCurrency(broker.currentBilling || 0)}</p>
+        {/* Deals & Performance */}
+        <div className="bg-gradient-to-br from-white via-blue-50 to-indigo-50 rounded p-1 border border-indigo-200 shadow-sm min-h-0 h-[180px] flex flex-col justify-between">
+          <h3 className="text-xs font-bold text-indigo-950 mb-1">Performance Metrics</h3>
+          <div className="space-y-1">
+            {/* Conversion Rate Card */}
+            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded p-1.5 shadow group cursor-pointer hover:shadow-md transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-200 text-[10px] font-semibold uppercase">Conversion Rate</p>
+                  <p className="text-base font-bold text-white mt-0.5">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</p>
                 </div>
-              );
-            })}
-          </div>
+                <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
 
-          {/* Footer stats */}
-          <div className="grid grid-cols-3 mt-2.5 pt-2 border-t border-stone-100 text-center">
-            <div>
-              <p className="text-[9px] uppercase text-stone-400 font-semibold tracking-wide">Rate</p>
-              <p className="text-sm font-bold text-stone-800">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</p>
+            {/* Average Deal Value Card */}
+            {!isBroker && (
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded p-1.5 shadow group cursor-pointer hover:shadow-md transition-all">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-200 text-[10px] font-semibold uppercase">Avg Deal Value</p>
+                    <p className="text-base font-bold text-white mt-0.5">
+                      {metrics?.dealCount && metrics?.dealCount > 0 
+                        ? formatCurrency((metrics?.totalRevenue || 0) / metrics?.dealCount)
+                        : 'R 0'
+                      }
+                    </p>
+                  </div>
+                  <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center">
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Top Broker Card */}
+            <div
+              className="bg-gradient-to-br from-amber-500 to-orange-600 rounded p-1.5 shadow cursor-pointer hover:shadow-md transition-all"
+              onClick={() => window.dispatchEvent(new CustomEvent('navigation:page-change', { detail: { page: 'Broker Profiles' } }))}
+              title="View Broker Profiles"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 flex-1">
+                  {topBroker && (
+                    <div className="w-5 h-5 rounded bg-white/20 flex items-center justify-center text-white font-bold text-[10px]">
+                      {topBroker.avatar}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-amber-200 font-semibold uppercase">Top Performer</p>
+                    <p className="text-[11px] font-bold text-white truncate">{topBroker?.name || "N/A"}</p>
+                    <p className="text-[10px] text-amber-100">{topBroker?.closedDeals || 0} Closings</p>
+                    <p className="text-[10px] text-amber-100">{formatCurrency(topBroker?.commission || 0)} Commission</p>
+                  </div>
+                </div>
+                <GiTrophy className="text-white text-xs ml-1" />
+              </div>
             </div>
-            <div className="border-x border-stone-100">
-              <p className="text-[9px] uppercase text-stone-400 font-semibold tracking-wide">Open</p>
-              <p className="text-sm font-bold text-stone-800">{metrics?.statistics.openDeals || 0}</p>
+          </div>
+          {/* Quick Stats Bar */}
+          <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-indigo-200">
+            <div className="text-center p-1 bg-blue-50 rounded">
+              <p className="text-[11px] text-blue-600 font-semibold">OPEN</p>
+              <p className="text-xl font-bold text-blue-900">{metrics?.statistics.openDeals || 0}</p>
             </div>
-            <div>
-              <p className="text-[9px] uppercase text-stone-400 font-semibold tracking-wide">Leads</p>
-              <p className="text-sm font-bold text-stone-800">{metrics?.leadCount || 0}</p>
+            <div className="text-center p-2 bg-purple-50 rounded-md">
+              <p className="text-xs text-purple-600 font-semibold">CLOSED</p>
+              <p className="text-xl font-bold text-purple-900">{metrics?.statistics.closedDeals || 0}</p>
+            </div>
+            <div className="text-center p-2 bg-amber-50 rounded-md">
+              <p className="text-xs text-amber-600 font-semibold">LEADS</p>
+              <p className="text-xl font-bold text-amber-900">{metrics?.leadCount || 0}</p>
             </div>
           </div>
         </div>
 
         {/* Activities */}
-        <div id="recent-activities" className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm overflow-hidden flex flex-col">
-          <h3 className="text-sm font-bold text-stone-950">Recent Activities</h3>
-          <p className="text-[10px] text-stone-500 mb-2">Live Activity Feed</p>
+        <div id="recent-activities" className="bg-white rounded-xl p-6 border border-stone-200 shadow-sm">
+          <h3 className="text-lg font-bold text-stone-950 mb-1">Recent Activities</h3>
+          <p className="text-xs text-stone-500 mb-6">Live Activity Feed</p>
           
           {isLoading ? (
             <div className="space-y-3">
@@ -772,7 +790,7 @@ export const Grid = () => {
                     setSelectedActivity(activity);
                     setShowActivityModal(true);
                   }}
-                  className="group p-2 rounded-lg border border-stone-200 bg-stone-50 hover:bg-white hover:border-stone-300 hover:shadow-md transition-all cursor-pointer"
+                  className="group p-4 rounded-lg border border-stone-200 bg-stone-50 hover:bg-white hover:border-stone-300 hover:shadow-md transition-all cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -816,8 +834,8 @@ export const Grid = () => {
             )}
             </>
           ) : (
-            <div className="text-center py-4 text-stone-400">
-              <p className="text-xs">No activities yet</p>
+            <div className="text-center py-12 text-stone-400">
+              <p className="text-sm">No activities yet</p>
             </div>
           )}
         </div>
