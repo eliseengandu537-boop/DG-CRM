@@ -31,7 +31,7 @@ function resolveChangeTone(change?: string): 'positive' | 'negative' | 'neutral'
 export const UnifiedStatsCards: React.FC<UnifiedStatsCardsProps> = ({
   items,
   isLoading = false,
-  columnsClassName = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5',
+  columnsClassName = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3',
 }) => {
   if (isLoading) {
     return (
@@ -39,10 +39,10 @@ export const UnifiedStatsCards: React.FC<UnifiedStatsCardsProps> = ({
         {Array.from({ length: SKELETON_CARD_COUNT }).map((_, index) => (
           <div
             key={`stat-card-skeleton-${index}`}
-            className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm"
+            className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm"
           >
-            <div className="mb-4 h-4 animate-pulse rounded bg-stone-200" />
-            <div className="h-8 animate-pulse rounded bg-stone-200" />
+            <div className="mb-3 h-3 animate-pulse rounded bg-stone-200" />
+            <div className="h-6 animate-pulse rounded bg-stone-200" />
           </div>
         ))}
       </div>
@@ -69,22 +69,22 @@ export const UnifiedStatsCards: React.FC<UnifiedStatsCardsProps> = ({
             type="button"
             onClick={interactive ? item.onClick : undefined}
             disabled={disabled}
-            className={`rounded-xl border border-stone-200 bg-white p-6 text-left shadow-sm transition-shadow ${
+            className={`rounded-lg border border-stone-200 bg-white p-2 text-left shadow-sm transition-shadow ${
               interactive ? 'hover:shadow-md' : 'cursor-default'
             } ${item.disabled ? 'opacity-70' : ''}`}
           >
-            <div className="mb-6 flex items-start justify-between">
+            <div className="mb-2 flex items-start justify-between">
               <div>
-                <p className="mb-2 text-sm font-medium text-stone-600">{item.label}</p>
-                <p className="text-2xl font-bold text-stone-950">{item.value}</p>
+                <p className="mb-0.5 text-[11px] font-medium text-stone-600">{item.label}</p>
+                <p className="text-lg font-bold text-stone-950">{item.value}</p>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-stone-100 text-stone-400">
-                <Icon size={22} />
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-100 text-stone-400">
+                <Icon size={14} />
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <span className={`text-xs font-semibold ${toneClass}`}>{item.change || 'Live'}</span>
-              <span className="text-xs text-stone-500">{item.subtext || 'Current snapshot'}</span>
+              <span className={`text-[11px] font-semibold ${toneClass}`}>{item.change || 'Live'}</span>
+              <span className="text-[11px] text-stone-500">{item.subtext || 'Current snapshot'}</span>
             </div>
           </button>
         );

@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function Home() {
   const [currentPage, setCurrentPage] = useState("Dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const handleNavigation = (event: Event) => {
@@ -26,8 +27,8 @@ export default function Home() {
   return (
     <ErrorBoundary level="page">
       <ProtectedRoute>
-        <main className="grid gap-4 p-4 grid-cols-[220px,_1fr]">
-          <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
+        <main className={`grid gap-0 transition-all duration-200 h-screen overflow-hidden ${sidebarCollapsed ? 'grid-cols-[56px,_1fr]' : 'grid-cols-[220px,_1fr]'}`}>
+          <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(v => !v)} />
           <Dashboard currentPage={currentPage} onPageChange={setCurrentPage} />
         </main>
       </ProtectedRoute>

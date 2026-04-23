@@ -504,38 +504,28 @@ export const Grid = () => {
 
         {/* ── Statistics ── */}
         <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-          <h3 className="text-sm font-semibold text-stone-800 mb-2">Statistics</h3>
+          <h3 className="text-base font-bold text-stone-900 mb-0.5">Statistics</h3>
           {isLoading ? (
             <div className="flex-1 bg-stone-50 rounded-lg animate-pulse" />
           ) : (
             <>
-              {/* Headline */}
-              <div className="mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-stone-900">{metrics?.dealCount || 0}</span>
-                  <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">↑ {formatTrend(trends.totalRevenue)}</span>
+              {/* Minimal bar chart at bottom */}
+              <div className="flex-1 flex items-end justify-center pb-2">
+                <div className="flex items-end gap-2 w-full px-2" style={{height:'32px'}}>
+                  {barChartData.map((bar, i) => (
+                    <React.Fragment key={i}>
+                      <div className="w-2 rounded bg-blue-400" style={{height:`${Math.max(bar.tealPct,4)}%`}} />
+                      <div className="w-2 rounded bg-rose-300" style={{height:`${Math.max(bar.rosePct,4)}%`}} />
+                      <div className="w-2 rounded bg-teal-400" style={{height:`${Math.max(bar.tealPct,4)}%`}} />
+                    </React.Fragment>
+                  ))}
                 </div>
-                <p className="text-[11px] text-stone-400 mt-0.5">Deals</p>
               </div>
-              {/* Paired bar chart */}
-              <div className="flex items-end gap-1.5 flex-1 min-h-0 pb-1">
-                {barChartData.map((bar, i) => (
-                  <div key={i} className="flex-1 flex items-end justify-center gap-0.5" style={{ height: '80px' }}>
-                    <div
-                      className="w-2 rounded-t-sm bg-teal-400 transition-all duration-500"
-                      style={{ height: `${Math.max(bar.tealPct, 4)}%` }}
-                    />
-                    <div
-                      className="w-2 rounded-t-sm bg-rose-300 transition-all duration-500"
-                      style={{ height: `${Math.max(bar.rosePct, 4)}%` }}
-                    />
-                  </div>
-                ))}
-              </div>
-              {/* Legend */}
-              <div className="flex items-center gap-4 mt-2 pt-2 border-t border-stone-100">
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-2 h-2 rounded-sm bg-teal-400 inline-block" />Sales</span>
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-2 h-2 rounded-sm bg-rose-300 inline-block" />Leasing</span>
+              {/* Legend at bottom */}
+              <div className="flex justify-center gap-2 mt-2 pt-2 border-t border-stone-100">
+                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />Open</span>
+                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-rose-300 inline-block" />Lost</span>
+                <span className="flex items-center gap-1 px-2 py-1 rounded bg-stone-50 border border-stone-100 text-[10px] text-stone-500"><span className="w-2 h-2 rounded-full bg-teal-400 inline-block" />Closed</span>
               </div>
             </>
           )}
@@ -543,15 +533,15 @@ export const Grid = () => {
 
         {/* ── Monthly Sales ── */}
         <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-          <h3 className="text-sm font-semibold text-stone-800 mb-2">Monthly Sales</h3>
+          <h3 className="text-base font-bold text-stone-900 mb-0.5">Monthly Sales</h3>
           {isLoading ? (
             <div className="flex-1 bg-stone-50 rounded-lg animate-pulse" />
           ) : (
             <>
-              {/* Ring chart */}
-              <div className="flex items-center justify-center flex-1 min-h-0">
+              {/* Donut chart */}
+              <div className="flex items-center justify-center flex-1 min-h-0 pt-2">
                 <div className="relative">
-                  <svg viewBox="0 0 120 120" width="120" height="120" style={{ transform: 'rotate(-90deg)' }}>
+                  <svg viewBox="0 0 120 120" width="100" height="100" style={{ transform: 'rotate(-90deg)' }}>
                     <circle cx="60" cy="60" r="42" fill="none" stroke="#f1f5f9" strokeWidth="13" />
                     <circle cx="60" cy="60" r="42" fill="none" stroke="#fb923c" strokeWidth="13"
                       strokeDasharray={`${salesArc} ${RING_C - salesArc}`}
@@ -570,30 +560,29 @@ export const Grid = () => {
                     />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-sm font-bold text-stone-900 leading-none">{formatCurrency(totalMonthlyRevenue === 1 ? 0 : totalMonthlyRevenue)}</p>
-                    <p className="text-[10px] text-teal-500 font-medium mt-0.5">Total</p>
+                    <p className="text-base font-bold text-stone-900 leading-none">{formatCurrency(totalMonthlyRevenue === 1 ? 0 : totalMonthlyRevenue)}</p>
                   </div>
                 </div>
               </div>
               {/* Percentage legend */}
-              <div className="flex items-center justify-center gap-4 my-1.5">
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />{salesPercent.toFixed(0)}%</span>
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />{leasingPercent.toFixed(0)}%</span>
-                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-2 h-2 rounded-full bg-teal-400 inline-block" />{auctionPercent.toFixed(0)}%</span>
+              <div className="flex items-center justify-center gap-6 mt-2 mb-1">
+                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-orange-400 inline-block" />{salesPercent.toFixed(0)}%</span>
+                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-rose-400 inline-block" />{leasingPercent.toFixed(0)}%</span>
+                <span className="flex items-center gap-1 text-[11px] text-stone-500"><span className="w-3 h-3 rounded-full bg-teal-400 inline-block" />{auctionPercent.toFixed(0)}%</span>
               </div>
-              {/* Bottom stats */}
-              <div className="grid grid-cols-3 border-t border-stone-100 pt-2 mt-1">
-                <div className="text-center">
-                  <p className="text-sm font-bold text-stone-900">{formatCurrency(totalMonthlyRevenue === 1 ? 0 : totalMonthlyRevenue)}</p>
-                  <p className="text-[10px] text-stone-400">Revenue</p>
+              {/* Bottom legend grid */}
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                <div className="flex flex-col items-center justify-center rounded bg-orange-50 py-1">
+                  <span className="w-3 h-3 rounded-full bg-orange-400 inline-block mb-1" />
+                  <span className="text-[11px] font-semibold text-orange-500">Sales</span>
                 </div>
-                <div className="text-center border-x border-stone-100">
-                  <p className="text-sm font-bold text-stone-900">{metrics?.dealCount || 0}</p>
-                  <p className="text-[10px] text-stone-400">Deals</p>
+                <div className="flex flex-col items-center justify-center rounded bg-rose-50 py-1">
+                  <span className="w-3 h-3 rounded-full bg-rose-400 inline-block mb-1" />
+                  <span className="text-[11px] font-semibold text-rose-500">Auction</span>
                 </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-stone-900">{metrics?.leadCount || 0}</p>
-                  <p className="text-[10px] text-stone-400">Leads</p>
+                <div className="flex flex-col items-center justify-center rounded bg-teal-50 py-1">
+                  <span className="w-3 h-3 rounded-full bg-teal-400 inline-block mb-1" />
+                  <span className="text-[11px] font-semibold text-teal-500">Leasing</span>
                 </div>
               </div>
             </>
