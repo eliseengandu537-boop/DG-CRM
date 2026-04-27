@@ -305,35 +305,79 @@ export class CustomRecordController {
             throw new Error('Address is required and must be at least 3 characters');
           }
 
-          const fund = await prisma.customRecord.create({
-            data: {
+          // Upsert logic: match by name or registrationNumber
+          const existing = await prisma.customRecord.findFirst({
+            where: {
               entityType: 'fund',
-              name,
-              status: 'Active',
-              category: fundType,
-              referenceId: fundCode || registrationNumber || undefined,
-              payload: {
-                fundCode: fundCode || registrationNumber || '',
-                fundType,
-                registrationNumber,
-                headOfficeLocation: address,
-                overview,
-                fundManager: fundManager || '',
-                totalAssets: 0,
-                currency: 'ZAR',
-                linkedCompanyId: '',
-                linkedCompanyName: '',
-                primaryContactId: '',
-                primaryContactName: contactName || '',
-                secondaryContactId: '',
-                secondaryContactName: '',
-                linkedProperties: [],
-                linkedDeals: [],
-                linkedCompanies: [],
-                importEmail: email || '',
-              },
+              OR: [
+                { name: name },
+                { referenceId: fundCode || registrationNumber || undefined },
+              ],
             },
           });
+
+          let fund;
+          if (existing) {
+            fund = await prisma.customRecord.update({
+              where: { id: existing.id },
+              data: {
+                name,
+                status: 'Active',
+                category: fundType,
+                referenceId: fundCode || registrationNumber || undefined,
+                payload: {
+                  fundCode: fundCode || registrationNumber || '',
+                  fundType,
+                  registrationNumber,
+                  headOfficeLocation: address,
+                  overview,
+                  fundManager: fundManager || '',
+                  totalAssets: 0,
+                  currency: 'ZAR',
+                  linkedCompanyId: '',
+                  linkedCompanyName: '',
+                  primaryContactId: '',
+                  primaryContactName: contactName || '',
+                  secondaryContactId: '',
+                  secondaryContactName: '',
+                  linkedProperties: [],
+                  linkedDeals: [],
+                  linkedCompanies: [],
+                  importEmail: email || '',
+                },
+              },
+            });
+          } else {
+            fund = await prisma.customRecord.create({
+              data: {
+                entityType: 'fund',
+                name,
+                status: 'Active',
+                category: fundType,
+                referenceId: fundCode || registrationNumber || undefined,
+                payload: {
+                  fundCode: fundCode || registrationNumber || '',
+                  fundType,
+                  registrationNumber,
+                  headOfficeLocation: address,
+                  overview,
+                  fundManager: fundManager || '',
+                  totalAssets: 0,
+                  currency: 'ZAR',
+                  linkedCompanyId: '',
+                  linkedCompanyName: '',
+                  primaryContactId: '',
+                  primaryContactName: contactName || '',
+                  secondaryContactId: '',
+                  secondaryContactName: '',
+                  linkedProperties: [],
+                  linkedDeals: [],
+                  linkedCompanies: [],
+                  importEmail: email || '',
+                },
+              },
+            });
+          }
 
           results.success++;
           results.imported.push(fund);
