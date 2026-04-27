@@ -111,10 +111,15 @@ export function emitScopedEvent(args: EmitScopedEventArgs) {
   emitToUserRooms(args.event, args.payload, args.userIds);
 }
 
-export function emitDashboardRefresh(params: { type: string; id?: string; brokerId?: string | null }) {
+export function emitDashboardRefresh(params: {
+  type: string;
+  id?: string;
+  count?: number;
+  brokerId?: string | null;
+}) {
   emitScopedEvent({
     event: 'dashboard:refresh',
-    payload: { type: params.type, id: params.id },
+    payload: { type: params.type, id: params.id, count: params.count },
     brokerId: params.brokerId,
     includePrivileged: true,
   });

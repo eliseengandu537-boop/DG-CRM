@@ -69,6 +69,12 @@ export interface PaginatedProperties {
   };
 }
 
+export interface ImportResult {
+  success: number;
+  failed: number;
+  errors: string[];
+}
+
 class PropertyService {
   async getAllProperties(filters?: PropertyFilters): Promise<PaginatedProperties> {
     try {
@@ -139,6 +145,31 @@ class PropertyService {
     } catch (error) {
       const axiosError = error as AxiosError<any>;
       throw new Error(axiosError.response?.data?.message || 'Failed to delete property');
+    }
+  }
+
+  async importProperties(file: File, moduleType = 'sales'): Promise<ImportResult> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('moduleType', moduleType);
+
+      const response = await apiClient.post<{
+        success: boolean;
+        data: ImportResult;
+      }>('/properties/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      return response.data.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<any>;
+      if (!axiosError.response) {
+        throw new Error('Unable to connect to server. Please check that the backend is running.');
+      }
+      throw new Error(axiosError.response?.data?.message || 'Failed to import properties');
     }
   }
 }

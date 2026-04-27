@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import dynamic from 'next/dynamic';
 import { Property } from "../../data/properties";
 import { PropertyPin } from "./PropertyPin";
-import { FiMapPin, FiX, FiPlus, FiTrash2 } from "react-icons/fi";
+import { FiMapPin, FiX, FiPlus, FiTrash2, FiUpload, FiDownload } from "react-icons/fi";
 import { Asset } from "../../data/crm-types";
 import { customRecordService, type CustomRecord } from "@/services/customRecordService";
 import { propertyService } from "@/services/propertyService";
@@ -35,6 +35,9 @@ const isAuctionStatus = (status?: string): boolean =>
 
 const shouldAppearInStock = (status?: string): boolean =>
   isForSaleStatus(status) || isForLeaseStatus(status) || isAuctionStatus(status);
+
+const hasPropertyCoordinates = (property?: { latitude?: number; longitude?: number } | null): boolean =>
+  Number.isFinite(property?.latitude) && Number.isFinite(property?.longitude);
 
 const normalizeMapPropertyType = (typeValue: unknown): string => {
   const rawType = String(typeValue || '').trim();
@@ -120,7 +123,8 @@ const normalizeProperty = (raw: any): Property | null => {
 
   const latitude = Number(raw.latitude);
   const longitude = Number(raw.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const normalizedLatitude = Number.isFinite(latitude) ? latitude : undefined;
+  const normalizedLongitude = Number.isFinite(longitude) ? longitude : undefined;
   const metadata = raw.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)
     ? raw.metadata
     : {};
@@ -135,8 +139,8 @@ const normalizeProperty = (raw: any): Property | null => {
       assetId: String(raw.assetId || `AST-${Date.now()}`),
     name: String(raw.name || raw.title || (metadata as Record<string, unknown>).displayName || 'Untitled Property'),
     address: String(raw.address || ''),
-    latitude,
-    longitude,
+    latitude: normalizedLatitude,
+    longitude: normalizedLongitude,
     markerColor: String(raw.markerColor || '#16a34a'),
     details: {
       type: normalizeMapPropertyType(
@@ -169,7 +173,6 @@ const mapBackendPropertyToMapProperty = (
 ): Property | null => {
   const latitude = Number(raw?.latitude);
   const longitude = Number(raw?.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   const metadata = raw?.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)
     ? (raw.metadata as Record<string, unknown>)
     : {};
@@ -201,7 +204,10 @@ const mapBackendPropertyToMapProperty = (
     linkedFundName: metadata.linkedFundName ? String(metadata.linkedFundName) : undefined,
     registrationNumber: metadata.registrationNumber ? String(metadata.registrationNumber) : undefined,
     registrationName: metadata.registrationName ? String(metadata.registrationName) : undefined,
+    ownerName: metadata.ownerName ? String(metadata.ownerName) : undefined,
+    ownerEmail: metadata.ownerEmail ? String(metadata.ownerEmail) : undefined,
     ownerContactNumber: metadata.ownerContactNumber ? String(metadata.ownerContactNumber) : undefined,
+    tenantName: metadata.tenantName ? String(metadata.tenantName) : undefined,
     tenantContactNumber: metadata.tenantContactNumber ? String(metadata.tenantContactNumber) : undefined,
     brokerName: raw.assignedBrokerName || metadata.assignedBrokerName || 'Unassigned',
     brokerId: raw.assignedBrokerId || raw.brokerId,
@@ -219,6 +225,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const zoom = 12;
   const [showAddPropertyModal, setShowAddPropertyModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [expandedPropertyId, setExpandedPropertyId] = useState<string | null>(null);
   const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
@@ -484,10 +493,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
   const mapProperties = useMemo(() => {
     return filteredProperties
-      .filter((property) => Number.isFinite(property.latitude) && Number.isFinite(property.longitude))
+      .filter((property) => hasPropertyCoordinates(property))
       .map((property) => ({
-      id: property.id,
-      assetId: property.assetId,
+        id: property.id,
+        assetId: property.assetId,
       name: property.name,
       address: property.address,
       lat: property.latitude,
@@ -549,6 +558,54 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
     return { formattedAddress, lat, lng };
   };
+
+  const focusPropertyOnMap = React.useCallback(
+    async (property: Property) => {
+      setSelectedProperty(property);
+      setShowSearchDropdown(false);
+      setMapSearch(property.name);
+
+      if (hasPropertyCoordinates(property)) {
+        setFocusLocation({ lat: property.latitude, lng: property.longitude, zoom: 16 });
+        return;
+      }
+
+      try {
+        const geo = await fetchAddressGeocode(property.address);
+        if (!geo) {
+          alert(`Could not find map coordinates for "${property.name}".`);
+          return;
+        }
+
+        const updatedProperty: Property = {
+          ...property,
+          address: geo.formattedAddress || property.address,
+          latitude: geo.lat,
+          longitude: geo.lng,
+        };
+
+        setProperties((prev) =>
+          prev.map((item) => (item.id === property.id ? updatedProperty : item))
+        );
+        setSelectedProperty(updatedProperty);
+        setFocusLocation({ lat: geo.lat, lng: geo.lng, zoom: 16 });
+
+        await propertyService.updateProperty(property.id, {
+          address: updatedProperty.address,
+          latitude: geo.lat,
+          longitude: geo.lng,
+        });
+      } catch (error) {
+        console.warn('Failed to geocode property for map focus.', error);
+        alert(
+          `Could not show "${property.name}" on the map: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
+      }
+    },
+    [fetchAddressGeocode]
+  );
 
   const resetForm = () => {
     setNewAsset({
@@ -735,11 +792,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   }, [activePanel]);
 
   const selectCrmProperty = React.useCallback((property: Property) => {
-    setSelectedProperty(property);
-    setFocusLocation({ lat: property.latitude, lng: property.longitude, zoom: 16 });
-    setShowSearchDropdown(false);
-    setMapSearch(property.name);
-  }, []);
+    void focusPropertyOnMap(property);
+  }, [focusPropertyOnMap]);
   // ────────────────────────────────────────────────────────────────────────
 
   return (
@@ -929,8 +983,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     >
                       <button
                         onClick={() => {
-                          setSelectedProperty(property);
-                          setFocusLocation({ lat: property.latitude, lng: property.longitude, zoom: 16 });
+                          void focusPropertyOnMap(property);
                           setExpandedPropertyId(expandedPropertyId === property.id ? null : property.id);
                         }}
                         className="w-full text-left px-4 py-3.5 flex items-start justify-between gap-3"
@@ -941,6 +994,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                             📍 {property.address}
                           </p>
                           <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                            {!hasPropertyCoordinates(property) && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                                No map coordinates
+                              </span>
+                            )}
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
                               {property.details.type}
                             </span>
@@ -1082,13 +1140,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       )}
 
       {/* ─── Floating Add Property Button (bottom right) ─────────────── */}
-      <button
-        onClick={() => setShowAddPropertyModal(true)}
-        className="absolute bottom-6 right-6 z-30 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl rounded-full h-14 w-14 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-        title="Add New Property"
-      >
-        <FiPlus size={24} />
-      </button>
+      <div className="absolute bottom-6 right-6 z-30 flex gap-3">
+        <button
+          onClick={() => setShowImportModal(true)}
+          className="bg-white hover:bg-stone-50 text-indigo-600 shadow-xl rounded-full h-14 w-14 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          title="Import Properties from CSV"
+        >
+          <FiUpload size={24} />
+        </button>
+        <button
+          onClick={() => setShowAddPropertyModal(true)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl rounded-full h-14 w-14 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          title="Add New Property"
+        >
+          <FiPlus size={24} />
+        </button>
+      </div>
 
       {showAddPropertyModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -1691,6 +1758,127 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
               >
                 <FiPlus size={16} />
                 Add Property
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Import Properties Modal ─────────────────────────────────────── */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-900">Import Properties from CSV</h2>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+              >
+                <FiX size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+              {/* Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800 font-medium mb-2">CSV Format Requirements</p>
+                <p className="text-xs text-blue-700">
+                  Required columns: <code className="bg-blue-100 px-1 rounded">address</code>, <code className="bg-blue-100 px-1 rounded">type</code><br />
+                  Optional columns: title, description, city, province, postalCode, price, area, latitude, longitude, bedrooms, bathrooms, status
+                </p>
+              </div>
+
+              {/* Download Template */}
+              <button
+                onClick={() => {
+                  const csv = 'title,address,city,province,postalCode,type,status,price,area,latitude,longitude,bedrooms,bathrooms\n"Sample Property","123 Main St","Johannesburg","Gauteng","2001","commercial","active",5000000,500,26.2041,28.0473,,';
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'property_import_template.csv';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700"
+              >
+                <FiDownload size={16} />
+                Download CSV Template
+              </button>
+
+              {/* File Input */}
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-2">Select CSV File</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setIsImporting(true);
+                      try {
+                        const result = await propertyService.importProperties(file, 'sales');
+                        setImportResult({
+                          success: result.success,
+                          failed: result.failed,
+                          errors: result.errors || [],
+                        });
+                        await loadData();
+                      } catch (err) {
+                        alert('Import failed: ' + (err as Error).message);
+                      } finally {
+                        setIsImporting(false);
+                        e.target.value = '';
+                      }
+                    }
+                  }}
+                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Import Progress/Result */}
+              {isImporting && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="ml-3 text-sm text-stone-600">Importing properties...</span>
+                </div>
+              )}
+
+              {/* Import Result */}
+              {importResult && (
+                <div className={`border rounded-lg p-4 ${importResult.failed === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className={`text-sm font-medium ${importResult.failed === 0 ? 'text-green-800' : 'text-amber-800'}`}>
+                    Import Complete: {importResult.success} succeeded, {importResult.failed} failed
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-2 max-h-32 overflow-y-auto">
+                      <p className="text-xs text-amber-700 font-medium">Errors:</p>
+                      {importResult.errors.slice(0, 5).map((err, i) => (
+                        <p key={i} className="text-xs text-amber-600">{err}</p>
+                      ))}
+                      {importResult.errors.length > 5 && (
+                        <p className="text-xs text-amber-600">...and {importResult.errors.length - 5} more</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 px-6 py-4 border-t border-stone-100">
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                }}
+                className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

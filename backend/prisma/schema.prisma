@@ -597,3 +597,18 @@ model CustomRecord {
   @@index([moduleType])
   @@index([visibilityScope])
 }
+  model PropertyFund {
+    id         String   @id @default(cuid())
+    name       String
+    address    String
+    email      String?
+    regNumber  String?
+    listed     Boolean
+    overview   String?
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+
+    @@index([listed])
+    @@index([name])
+  }
+

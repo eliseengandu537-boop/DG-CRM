@@ -546,10 +546,12 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                 <Row label="Year Built" value={property.details.yearBuilt} />
                 <Row label="Condition" value={property.details.condition} />
                 <Row label="Status" value={property.details.ownershipStatus} />
-                {property.registrationNumber && <Row label="Reg Number" value={property.registrationNumber} />}
-                {property.registrationName && <Row label="Reg Name" value={property.registrationName} />}
-                {property.ownerContactNumber && <Row label="Owner Contact" value={property.ownerContactNumber} />}
-                {property.tenantContactNumber && <Row label="Tenant Contact" value={property.tenantContactNumber} />}
+                {property.linkedCompanyName && <Row label="Company Name" value={property.linkedCompanyName} />}
+                {property.registrationNumber && <Row label="Registration No." value={property.registrationNumber} />}
+                {property.ownerName && <Row label="Owner Name & Surname" value={property.ownerName} />}
+                {property.ownerContactNumber && <Row label="Owner Number" value={property.ownerContactNumber} />}
+                {property.tenantContactNumber && <Row label="Tenants No." value={property.tenantContactNumber} />}
+                {property.ownerEmail && <Row label="Email" value={property.ownerEmail} />}
               </div>
             </div>
           )}
@@ -562,8 +564,22 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
             <div className="px-5 pb-4 bg-gray-50">
               <div className="divide-y divide-gray-100">
                 <Row label="Address" value={property.address} />
-                <Row label="Latitude" value={property.latitude.toFixed(6)} />
-                <Row label="Longitude" value={property.longitude.toFixed(6)} />
+                <Row
+                  label="Latitude"
+                  value={
+                    typeof property.latitude === 'number' && Number.isFinite(property.latitude)
+                      ? property.latitude.toFixed(6)
+                      : 'Not available'
+                  }
+                />
+                <Row
+                  label="Longitude"
+                  value={
+                    typeof property.longitude === 'number' && Number.isFinite(property.longitude)
+                      ? property.longitude.toFixed(6)
+                      : 'Not available'
+                  }
+                />
               </div>
             </div>
           )}

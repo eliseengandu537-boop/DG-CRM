@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Fund } from '../../data/crm-types';
-import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiChevronDown, FiChevronUp, FiHome } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiChevronDown, FiChevronUp, FiHome, FiUpload, FiDownload } from 'react-icons/fi';
 import { brokerService } from '@/services/brokerService';
 import { contactService } from '@/services/contactService';
 import {
@@ -22,6 +22,7 @@ type FundPayload = {
   registrationNumber: string;
   headOfficeLocation: string;
   overview: string;
+  importEmail?: string;
   fundManager: string;
   totalAssets: number;
   currency: string;
@@ -74,6 +75,7 @@ const toFund = (record: CustomRecord<Record<string, unknown>>): Fund => {
     registrationNumber: String(payload.registrationNumber || ''),
     headOfficeLocation: String(payload.headOfficeLocation || ''),
     overview: String(payload.overview || ''),
+    email: String(payload.importEmail || ''),
     fundManager: String(payload.fundManager || ''),
     totalAssets: Number(payload.totalAssets || 0),
     currency: String(payload.currency || 'ZAR'),
@@ -151,12 +153,16 @@ export const PropertyFundsManager: React.FC = () => {
   const [brokers, setBrokers] = useState<Array<{ id: string; company?: string; name?: string }>>([]);
   const [contacts, setContacts] = useState<Array<{ id: string; company?: string; name?: string }>>([]);
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [selectedFund, setSelectedFund] = useState<Fund | null>(null);
   const [activeTab, setActiveTab] = useState<'Listed' | 'Non-Listed'>('Listed');
   const [showCompanySearch, setShowCompanySearch] = useState(false);
   const [companySearchInput, setCompanySearchInput] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<CompanySuggestion | null>(null);
   const [showCreateCompanyPrompt, setShowCreateCompanyPrompt] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({ ...emptyFormData });
   const [expandedFundId, setExpandedFundId] = useState<string | null>(null);
   const [fundProperties, setFundProperties] = useState<Record<string, PropertyRecord[]>>({});
@@ -342,7 +348,25 @@ export const PropertyFundsManager: React.FC = () => {
     }
   };
 
-  const filteredFunds = funds.filter((fund) => fund.fundType === activeTab);
+  const filteredFunds = useMemo(() => {
+    const scopedFunds = funds.filter((fund) => fund.fundType === activeTab);
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return scopedFunds;
+
+    return scopedFunds.filter((fund) =>
+      [
+        fund.name,
+        fund.fundCode,
+        fund.registrationNumber,
+        fund.email,
+        fund.primaryContactName,
+        fund.overview,
+        fund.linkedCompanyName,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query))
+    );
+  }, [activeTab, funds, searchQuery]);
 
   const getFundTypeColor = (type: string) =>
     type === 'Listed' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
@@ -369,17 +393,26 @@ export const PropertyFundsManager: React.FC = () => {
             Manage Listed and Non-Listed investment funds
           </p>
         </div>
-        <button
-          onClick={() => {
-            resetForm();
-            setActiveTab('Listed');
-            setShowModal(true);
-          }}
-          className="bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-        >
-          <FiPlus size={18} />
-          + Fund
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="bg-white hover:bg-stone-50 text-violet-600 border border-violet-200 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <FiUpload size={18} />
+            Import
+          </button>
+          <button
+            onClick={() => {
+              resetForm();
+              setActiveTab('Listed');
+              setShowModal(true);
+            }}
+            className="bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <FiPlus size={18} />
+            + Fund
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-3 border-b border-stone-200">
@@ -396,6 +429,30 @@ export const PropertyFundsManager: React.FC = () => {
             {tab} Funds ({funds.filter((fund) => fund.fundType === tab).length})
           </button>
         ))}
+      </div>
+
+      <div className="relative max-w-md">
+        <FiSearch
+          size={16}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
+        />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={`Search ${activeTab.toLowerCase()} funds`}
+          className="w-full rounded-lg border border-stone-200 bg-white py-2.5 pl-10 pr-10 text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+            aria-label="Clear fund search"
+          >
+            <FiX size={16} />
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
@@ -430,13 +487,13 @@ export const PropertyFundsManager: React.FC = () => {
                     Reg. Number
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
-                    Company Name
+                    Email
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
-                    Primary Contact
+                    Contact
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
-                    Secondary Contact
+                    Overview
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Status
@@ -487,13 +544,15 @@ export const PropertyFundsManager: React.FC = () => {
                       {fund.registrationNumber}
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-700">
-                      {fund.linkedCompanyName || '—'}
+                      {fund.email || '—'}
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-700">
                       {fund.primaryContactName || '—'}
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-700">
-                      {fund.secondaryContactName || '—'}
+                      <span className="block max-w-[280px] truncate" title={fund.overview || ''}>
+                        {fund.overview || '—'}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span
@@ -856,6 +915,127 @@ export const PropertyFundsManager: React.FC = () => {
                   {selectedFund ? 'Update Fund' : 'Create Fund'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Import Funds Modal ───────────────────────────────────────────── */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-900">Import Property Funds from CSV</h2>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+              >
+                <FiX size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+              {/* Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800 font-medium mb-2">CSV Format Requirements</p>
+                <p className="text-xs text-blue-700">
+                  Required columns: <code className="bg-blue-100 px-1 rounded">name</code>, <code className="bg-blue-100 px-1 rounded">address</code><br />
+                  Optional columns: email, regNumber, listed (true/false), overview
+                </p>
+              </div>
+
+              {/* Download Template */}
+              <button
+                onClick={() => {
+                  const csv = 'name,address,email,regNumber,listed,overview\n"Sample Fund","123 Fund St, Johannesburg","fund@example.com","2023/001234",true,"Investment fund overview"\n"Non-Listed Fund","456 Asset Ave","info@fund.co.za","2023/005678",false,"Private fund"';
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'fund_import_template.csv';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-2 text-sm text-violet-600 hover:text-violet-700"
+              >
+                <FiDownload size={16} />
+                Download CSV Template
+              </button>
+
+              {/* File Input */}
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-2">Select CSV File</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setIsImporting(true);
+                      try {
+                        const result = await customRecordService.importFunds(file);
+                        setImportResult({
+                          success: result.success,
+                          failed: result.failed,
+                          errors: result.errors || [],
+                        });
+                        await refreshFunds();
+                      } catch (err) {
+                        alert('Import failed: ' + (err as Error).message);
+                      } finally {
+                        setIsImporting(false);
+                        e.target.value = '';
+                      }
+                    }
+                  }}
+                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Import Progress/Result */}
+              {isImporting && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-3 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="ml-3 text-sm text-stone-600">Importing funds...</span>
+                </div>
+              )}
+
+              {/* Import Result */}
+              {importResult && (
+                <div className={`border rounded-lg p-4 ${importResult.failed === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className={`text-sm font-medium ${importResult.failed === 0 ? 'text-green-800' : 'text-amber-800'}`}>
+                    Import Complete: {importResult.success} succeeded, {importResult.failed} failed
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-2 max-h-32 overflow-y-auto">
+                      <p className="text-xs text-amber-700 font-medium">Errors:</p>
+                      {importResult.errors.slice(0, 5).map((err, i) => (
+                        <p key={i} className="text-xs text-amber-600">{err}</p>
+                      ))}
+                      {importResult.errors.length > 5 && (
+                        <p className="text-xs text-amber-600">...and {importResult.errors.length - 5} more</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 px-6 py-4 border-t border-stone-100">
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                }}
+                className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

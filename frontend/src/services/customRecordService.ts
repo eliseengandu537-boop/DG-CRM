@@ -1,5 +1,6 @@
 import apiClient from '@/lib/api';
 import { AxiosError } from 'axios';
+import type { ImportResult } from '@/services/propertyService';
 
 export interface CustomRecord<T = Record<string, unknown>> {
   id: string;
@@ -118,6 +119,30 @@ class CustomRecordService {
     } catch (error) {
       const axiosError = error as AxiosError<any>;
       throw new Error(axiosError.response?.data?.message || 'Failed to delete record');
+    }
+  }
+
+  async importFunds(file: File): Promise<ImportResult> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await apiClient.post<{
+        success: boolean;
+        data: ImportResult;
+      }>('/custom-records/import-funds', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      return response.data.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<any>;
+      if (!axiosError.response) {
+        throw new Error('Unable to connect to server. Please check that the backend is running.');
+      }
+      throw new Error(axiosError.response?.data?.message || 'Failed to import funds');
     }
   }
 }

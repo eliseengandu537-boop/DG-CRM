@@ -64,7 +64,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const safePage = canAccessPage(user?.role, currentPage) ? currentPage : defaultPage;
 
   return (
-    <div className="bg-white h-full overflow-y-auto">
+    <div className="bg-white min-h-screen">
       {safePage === "Dashboard" ? (
         <>
           {user?.role === "broker" ? <BrokerDashboard onPageChange={onPageChange} /> : <Grid />}

@@ -3,8 +3,8 @@ export interface Property {
   assetId: string;
   name: string;
   address: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   markerShape?: "circle" | "square";
   markerColor?: string;
   details: {
@@ -58,7 +58,10 @@ export interface Property {
   linkedFundName?: string;
   registrationNumber?: string;
   registrationName?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   ownerContactNumber?: string;
+  tenantName?: string;
   tenantContactNumber?: string;
   brokerName: string;
   brokerId?: string;

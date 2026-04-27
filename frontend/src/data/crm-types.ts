@@ -11,6 +11,7 @@ export interface Fund {
   registrationNumber: string;
   headOfficeLocation: string;
   overview: string; // industrial, retail, mixed-use, etc.
+  email?: string;
   fundManager?: string;
   totalAssets: number;
   currency: string;

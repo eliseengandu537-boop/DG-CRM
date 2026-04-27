@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { FiMapPin, FiHome, FiTag, FiEdit2, FiX } from 'react-icons/fi';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FiMapPin, FiHome, FiTag, FiEdit2, FiX, FiSearch } from 'react-icons/fi';
 import { propertyService, type PropertyRecord } from '@/services/propertyService';
 import { customRecordService } from '@/services/customRecordService';
 
@@ -29,6 +29,7 @@ export const AssetsManager: React.FC = () => {
   const [editingProp, setEditingProp] = useState<PropertyRecord | null>(null);
   const [selectedFundId, setSelectedFundId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadData = async () => {
     setLoading(true);
@@ -70,6 +71,32 @@ export const AssetsManager: React.FC = () => {
     void run();
     return () => { mounted = false; };
   }, []);
+
+  const filteredProperties = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return properties;
+
+    return properties.filter((prop) => {
+      const meta =
+        prop.metadata && typeof prop.metadata === 'object'
+          ? (prop.metadata as Record<string, unknown>)
+          : {};
+      const displayName = String(meta.displayName || prop.title || prop.address || '');
+      const linkedFundName = String(meta.linkedFundName || '');
+      const ownershipStatus = String(meta.ownershipStatus || prop.status || '');
+      const propertyType = String(meta.propertyType || prop.type || '');
+
+      return [
+        displayName,
+        prop.address,
+        linkedFundName,
+        ownershipStatus,
+        propertyType,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [properties, searchQuery]);
 
   const openEdit = (prop: PropertyRecord) => {
     const meta = prop.metadata && typeof prop.metadata === 'object' ? prop.metadata as Record<string, unknown> : {};
@@ -117,19 +144,45 @@ export const AssetsManager: React.FC = () => {
         </div>
       </div>
 
+      <div className="relative max-w-md">
+        <FiSearch
+          size={16}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
+        />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search assets, funds, addresses…"
+          className="w-full rounded-lg border border-stone-200 bg-white py-2.5 pl-10 pr-10 text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+            aria-label="Clear asset search"
+          >
+            <FiX size={16} />
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-16 text-stone-400 text-sm">Loading assets…</div>
-      ) : properties.length === 0 ? (
+      ) : filteredProperties.length === 0 ? (
         <div className="text-center py-16 bg-stone-50 rounded-xl border border-dashed border-stone-300">
           <FiMapPin className="mx-auto text-stone-300 mb-3" size={40} />
           <p className="text-stone-500 font-medium">No assets found</p>
           <p className="text-stone-400 text-sm mt-1">
-            Properties you add in the Maps module will appear here automatically.
+            {searchQuery
+              ? 'Try a different search term.'
+              : 'Properties you add in the Maps module will appear here automatically.'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {properties.map((prop) => {
+          {filteredProperties.map((prop) => {
             const meta = prop.metadata && typeof prop.metadata === 'object' ? prop.metadata as Record<string, unknown> : {};
             const displayName = String(meta.displayName || prop.title || prop.address || '');
             const linkedFundName = String(meta.linkedFundName || '');

@@ -19,17 +19,17 @@ export const CardHeader: React.FC<CardHeaderProps> = ({
   subtitle,
   onMenuClick,
 }) => (
-  <div className="flex items-start justify-between mb-4">
+  <div className="flex items-start justify-between mb-2">
     <div>
-      <h3 className="text-lg font-bold text-stone-950">{title}</h3>
-      <p className="text-xs text-stone-500 mt-1">{subtitle}</p>
+      <h3 className="text-sm font-bold text-stone-950">{title}</h3>
+      <p className="text-[10px] text-stone-500 mt-0.5">{subtitle}</p>
     </div>
     {onMenuClick && (
       <button
         onClick={onMenuClick}
-        className="p-1 hover:bg-stone-100 rounded-lg transition-colors"
+        className="p-0.5 hover:bg-stone-100 rounded transition-colors"
       >
-        <FiMoreVertical size={18} className="text-stone-400" />
+        <FiMoreVertical size={14} className="text-stone-400" />
       </button>
     )}
   </div>

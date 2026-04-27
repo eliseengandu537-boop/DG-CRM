@@ -33,17 +33,17 @@ export const TopMetricsGrid: React.FC<TopMetricsGridProps> = ({
   isLoading = false,
 }) => {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
       {isLoading
         ? Array(4)
             .fill(0)
             .map((_, i) => (
               <div
                 key={i}
-                className="bg-white rounded-lg p-4 border border-stone-200 shadow-sm animate-pulse"
+                className="bg-white rounded p-2 border border-stone-200 shadow-sm animate-pulse"
               >
-                <div className="h-6 bg-stone-200 rounded mb-3"></div>
-                <div className="h-8 bg-stone-200 rounded"></div>
+                <div className="h-4 bg-stone-200 rounded mb-2"></div>
+                <div className="h-6 bg-stone-200 rounded"></div>
               </div>
             ))
         : metrics.map((metric, idx) => {
@@ -53,24 +53,24 @@ export const TopMetricsGrid: React.FC<TopMetricsGridProps> = ({
             return (
               <div
                 key={idx}
-                className="bg-white rounded-lg p-3.5 border border-stone-200 shadow-sm hover:shadow-md transition-shadow"
+                className="bg-white rounded p-2 border border-stone-200 shadow-sm hover:shadow-md transition-shadow"
               >
-                <div className="flex items-start justify-between mb-3">
+                <div className="flex items-start justify-between mb-1">
                   <div>
-                    <h4 className="text-xs font-semibold text-stone-500 uppercase mb-1">
+                    <h4 className="text-[11px] font-semibold text-stone-500 uppercase mb-0.5">
                       {metric.label}
                     </h4>
-                    <p className="text-xl font-bold text-stone-950 stat-value">
+                    <p className="text-base font-bold text-stone-950 stat-value">
                       {metric.value}
                     </p>
                   </div>
                   <div
-                    className={`p-2 rounded-lg ${
+                    className={`p-1 rounded ${
                       isPositive ? 'bg-green-50' : 'bg-red-50'
                     }`}
                   >
                     <Icon
-                      size={16}
+                      size={12}
                       className={isPositive ? 'text-green-600' : 'text-red-600'}
                     />
                   </div>
