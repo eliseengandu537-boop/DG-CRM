@@ -944,14 +944,14 @@ export const PropertyFundsManager: React.FC = () => {
                 <p className="text-sm text-blue-800 font-medium mb-2">CSV Format Requirements</p>
                 <p className="text-xs text-blue-700">
                   Required columns: <code className="bg-blue-100 px-1 rounded">name</code>, <code className="bg-blue-100 px-1 rounded">address</code><br />
-                  Optional columns: email, regNumber, listed (true/false), overview
+                  Optional columns: email, regNumber, listed (`true`/`false`) or fund type (`Listed`/`Not Listed`), overview
                 </p>
               </div>
 
               {/* Download Template */}
               <button
                 onClick={() => {
-                  const csv = 'name,address,email,regNumber,listed,overview\n"Sample Fund","123 Fund St, Johannesburg","fund@example.com","2023/001234",true,"Investment fund overview"\n"Non-Listed Fund","456 Asset Ave","info@fund.co.za","2023/005678",false,"Private fund"';
+                  const csv = 'name,address,email,regNumber,fundType,overview\n"Sample Fund","123 Fund St, Johannesburg","fund@example.com","2023/001234","Listed","Investment fund overview"\n"Non-Listed Fund","456 Asset Ave","info@fund.co.za","2023/005678","Not Listed","Private fund"';
                   const blob = new Blob([csv], { type: 'text/csv' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');

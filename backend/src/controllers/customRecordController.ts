@@ -27,6 +27,10 @@ function normalizeFundType(value: unknown): 'Listed' | 'Non-Listed' {
     normalized === '0' ||
     normalized === 'no' ||
     normalized === 'n' ||
+    normalized === 'not listed' ||
+    normalized === 'not-listed' ||
+    normalized === 'notlisted' ||
+    normalized === 'nonlisted' ||
     normalized === 'non-listed' ||
     normalized === 'non listed' ||
     normalized === 'unlisted' ||
