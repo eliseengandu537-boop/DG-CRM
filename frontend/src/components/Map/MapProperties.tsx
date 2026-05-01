@@ -705,6 +705,60 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     setShowFundSuggestions(false);
   };
 
+  // Auto-geocode any properties that have an address but no coordinates.
+  // Runs quietly in the background after load so all imported properties
+  // appear on the map without the user having to click each one first.
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey || properties.length === 0) return;
+
+    const missing = properties.filter(
+      (p) => !hasPropertyCoordinates(p) && p.address && p.address.trim().length > 3
+    );
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+
+    const geocodeAll = async () => {
+      for (const property of missing) {
+        if (cancelled) break;
+        try {
+          const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(property.address)}&key=${apiKey}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (cancelled) break;
+          if (!data?.results?.length) continue;
+          const loc = data.results[0]?.geometry?.location;
+          const formattedAddress = data.results[0]?.formatted_address || property.address;
+          if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') continue;
+
+          setProperties((prev) =>
+            prev.map((p) =>
+              p.id === property.id
+                ? { ...p, address: formattedAddress, latitude: loc.lat, longitude: loc.lng }
+                : p
+            )
+          );
+
+          // Persist coordinates so they don't need geocoding on next load
+          propertyService.updateProperty(property.id, {
+            address: formattedAddress,
+            latitude: loc.lat,
+            longitude: loc.lng,
+          }).catch(() => {/* non-critical */});
+
+          // Respect Google's rate limit (50ms between requests ~ 20 req/s)
+          await new Promise((r) => setTimeout(r, 50));
+        } catch {
+          // Skip properties that fail to geocode
+        }
+      }
+    };
+
+    void geocodeAll();
+    return () => { cancelled = true; };
+  }, [properties.length]);
+
   useEffect(() => {
     if (!showAddPropertyModal) {
       propertyAddressAutocompleteListenerRef.current?.remove();
