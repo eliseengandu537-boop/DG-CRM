@@ -383,7 +383,12 @@ export class PropertyController {
         imported: [] as any[],
       };
 
-      for (const record of records) {
+      // ── First pass: validate + build all property objects ─────────────────
+      const validProperties: any[] = [];
+
+      for (let rowIdx = 0; rowIdx < records.length; rowIdx++) {
+        const record = records[rowIdx];
+
         // Skip completely blank rows (common in Excel files)
         if (isEmptyRow(record)) continue;
 
@@ -411,6 +416,15 @@ export class PropertyController {
             record['adress'],
             record['street_address'],
           );
+
+          // Skip rows that have no property name AND no address — these are
+          // partial rows (e.g. rows with only Type/Area set) with no useful data
+          if (!propertyName && !address) {
+            results.errors.push(`Row ${rowIdx + 2}: Skipped — no property name or address`);
+            results.failed++;
+            continue;
+          }
+
           const city = firstNonEmptyString(
             record['city'],
             record['suburb'],
@@ -438,7 +452,6 @@ export class PropertyController {
             record['registers company name'],
             record['registered company name'],
             record['registered company'],
-            record['registers company name'],
             record['company name'],
             record['company'],
             record['entity name'],
@@ -538,13 +551,15 @@ export class PropertyController {
             record['note'],
             record['remarks'],
             record['remark'],
+            record['brokers comments & date'],
+            record['broker comments'],
           );
           const rawSize = firstNonEmptyString(
             record['size (sqm)'],
-            record['size (m²)'],
+            record['size (m\u00b2)'],
             record['size (m2)'],
             record['size'],
-            record['gla (m²)'],
+            record['gla (m\u00b2)'],
             record['gla (m2)'],
             record['gla (sqm)'],
             record['gla sqm'],
@@ -556,11 +571,10 @@ export class PropertyController {
             record['erf size'],
             record['stand size'],
             record['plot size'],
-            record['extent (m²)'],
+            record['extent (m\u00b2)'],
             record['extent'],
-            record['area'],
             record['sqm'],
-            record['m²'],
+            record['m\u00b2'],
             record['square meters'],
             record['square footage'],
             record['sqft'],
@@ -590,18 +604,19 @@ export class PropertyController {
           );
           const googleCoordinates = parseGoogleMapsCoordinates(googleLink);
 
-          // Map CSV fields to property schema
-          const propertyData = {
-            title: propertyName || address || 'Imported Property',
-            description:
-              firstNonEmptyString(record['description'], importComment) || '',
-            address: address || '',
+          const title = propertyName || address!;
+          const resolvedAddress = address || title;
+
+          validProperties.push({
+            title,
+            description: firstNonEmptyString(record['description'], importComment) || '',
+            address: resolvedAddress,
             city: city || '',
             province: province || '',
             postalCode: postalCode || '',
             type: rawType || 'commercial',
             status: rawStatus || 'active',
-            moduleType: moduleType,
+            moduleType,
             price: parseOptionalNumber(record['price'] || record['amount'] || record['value']) || 0,
             area: parseOptionalNumber(rawSize) || 0,
             latitude:
@@ -630,42 +645,45 @@ export class PropertyController {
               linkedFundName: linkedFundName || undefined,
               propertyType: rawType || 'commercial',
               squareFeet: parseOptionalNumber(rawSize) || undefined,
-              gla: parseOptionalNumber(record['gla (m²)'] || record['gla (m2)'] || record['gla (sqm)'] || record['gla sqm'] || record['gla']) || undefined,
+              gla: parseOptionalNumber(record['gla (m\u00b2)'] || record['gla (m2)'] || record['gla (sqm)'] || record['gla sqm'] || record['gla']) || undefined,
               ownershipStatus: rawStatus || undefined,
             },
-          };
-
-          // Ensure address is never blank (required by Prisma)
-          if (!propertyData.address) {
-            propertyData.address = propertyData.title;
-          }
-
-          // Create the property
-          const property = await prisma.property.create({
-            data: propertyData as any,
           });
-
-          results.success++;
-          results.imported.push(property);
         } catch (err: any) {
           results.failed++;
-          results.errors.push(`Row ${results.success + results.failed}: ${err.message}`);
+          results.errors.push(`Row ${rowIdx + 2}: ${err.message}`);
         }
       }
 
-      // Emit realtime events for successful imports
-      if (results.imported.length > 0) {
+      // ── Second pass: bulk insert all valid properties in ONE DB call ───────
+      // This avoids the nginx 120s proxy_read_timeout that kills sequential inserts
+      if (validProperties.length > 0) {
         try {
-          for (const property of results.imported) {
-            emitScopedEvent({
-              event: 'property:created',
-              payload: property,
-              brokerId: property.brokerId || null,
-            });
+          const createResult = await prisma.property.createMany({
+            data: validProperties as any,
+          });
+          results.success = createResult.count;
+        } catch (bulkErr: any) {
+          // Bulk failed — fall back to individual inserts to identify which rows fail
+          for (let i = 0; i < validProperties.length; i++) {
+            try {
+              const property = await prisma.property.create({ data: validProperties[i] as any });
+              results.imported.push(property);
+              results.success++;
+            } catch (rowErr: any) {
+              results.failed++;
+              results.errors.push(`Row ${i + 2}: ${rowErr.message}`);
+            }
           }
+        }
+      }
+
+      // Emit realtime events
+      if (results.success > 0) {
+        try {
           emitDashboardRefresh({
             type: 'properties:imported',
-            count: results.imported.length,
+            count: results.success,
             brokerId: effectiveBrokerId || null,
           });
         } catch {
