@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { FiCommand, FiSearch } from "react-icons/fi";
+import { FiSearch } from "react-icons/fi";
 import { CommandMenu } from "./CommandMenu";
 
-export const Search = () => {
+interface SearchProps {
+  onPageChange?: (page: string) => void;
+}
+
+export const Search: React.FC<SearchProps> = ({ onPageChange }) => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -23,12 +27,13 @@ export const Search = () => {
             }}
             type="text"
             placeholder="Search"
-            className="w-full bg-transparent placeholder:text-stone-400 focus:outline-none"
+            readOnly
+            className="w-full bg-transparent placeholder:text-stone-400 focus:outline-none cursor-pointer"
           />
         </div>
       </div>
 
-      <CommandMenu open={open} setOpen={setOpen} />
+      <CommandMenu open={open} setOpen={setOpen} onPageChange={onPageChange} />
     </>
   );
 };

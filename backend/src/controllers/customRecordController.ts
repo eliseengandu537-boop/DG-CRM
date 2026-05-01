@@ -5,6 +5,7 @@ import { createCustomRecordSchema, updateCustomRecordSchema } from '@/validators
 import { emitDashboardRefresh, emitScopedEvent } from '@/realtime';
 import { emitActivityNotification } from '@/lib/realtimeNotifications';
 import { parse } from 'csv-parse/sync';
+import * as XLSX from 'xlsx';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 
@@ -40,6 +41,56 @@ function normalizeFundType(value: unknown): 'Listed' | 'Non-Listed' {
   }
 
   return 'Listed';
+}
+
+/** Normalize all keys to lowercase+trimmed and values to trimmed strings */
+function normalizeRow(row: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(row)) {
+    out[key.trim().toLowerCase()] = String(value ?? '').trim();
+  }
+  return out;
+}
+
+function parseFileToRecords(file: Express.Multer.File): Record<string, string>[] {
+  const originalName = (file.originalname || '').toLowerCase();
+
+  if (originalName.endsWith('.csv')) {
+    const rawRows = parse(file.buffer.toString('utf8'), {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    }) as Record<string, unknown>[];
+    return rawRows.map(normalizeRow);
+  }
+
+  // Excel (.xlsx / .xls) — pick the sheet with the most data rows
+  const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: false, raw: false });
+  if (!workbook.SheetNames.length) return [];
+
+  let bestSheetName = workbook.SheetNames[0];
+  let bestRowCount = 0;
+  for (const sheetName of workbook.SheetNames) {
+    const ws = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false });
+    if (rows.length > bestRowCount) {
+      bestRowCount = rows.length;
+      bestSheetName = sheetName;
+    }
+  }
+
+  const worksheet = workbook.Sheets[bestSheetName];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+    defval: '',
+    raw: false,
+  });
+  return rows.map(normalizeRow);
+}
+
+/** Skip completely blank rows that are common in Excel files */
+function isEmptyRow(record: Record<string, string>): boolean {
+  return Object.values(record).every((v) => !v || !v.trim());
 }
 
 export class CustomRecordController {
@@ -242,17 +293,22 @@ export class CustomRecordController {
         });
       }
 
-      // Parse CSV
-      const records = parse(file.buffer.toString(), {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-      });
+      // Parse CSV or Excel
+      let records: Record<string, string>[];
+      try {
+        records = parseFileToRecords(file);
+      } catch (parseErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: `Failed to parse file: ${parseErr.message}`,
+          timestamp: new Date(),
+        });
+      }
 
       if (!records || records.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'CSV file is empty or invalid',
+          message: 'File is empty or has no data rows',
           timestamp: new Date(),
         });
       }
@@ -265,62 +321,119 @@ export class CustomRecordController {
       };
 
       for (const record of records) {
+        // Skip completely blank rows (common in Excel files)
+        if (isEmptyRow(record)) continue;
+
         try {
+          // All keys are lowercased by parseFileToRecords
           const name =
-            firstNonEmptyString(record.name, record.Name, record.fund_name, record.fundName) || '';
+            firstNonEmptyString(
+              record['fund name'],
+              record['name'],
+              record['fund_name'],
+              record['fundname'],
+            ) || '';
           const address =
-            firstNonEmptyString(record.address, record.Address, record.street_address) || '';
+            firstNonEmptyString(
+              record['head office'],
+              record['head office location'],
+              record['headoffice'],
+              record['address'],
+              record['street address'],
+              record['location'],
+            ) || '';
           const email =
-            firstNonEmptyString(record.email, record.Email, record.contact_email) || '';
+            firstNonEmptyString(
+              record['email'],
+              record['email address'],
+              record['contact email'],
+              record['fund email'],
+            ) || '';
           const registrationNumber =
             firstNonEmptyString(
-              record.regNumber,
-              record.reg_number,
-              record.registration_number,
-              record['Registration Number'],
-              record.registrationNumber
+              record['registration no.'],
+              record['registration no'],
+              record['reg no.'],
+              record['reg no'],
+              record['company reg no.'],
+              record['company reg no'],
+              record['registration number'],
+              record['reg number'],
+              record['ref no.'],
+              record['ref no'],
+              record['registrationnumber'],
+              record['regnumber'],
             ) || '';
           const overview =
-            firstNonEmptyString(record.overview, record.Overview, record.description) || '';
+            firstNonEmptyString(
+              record['overview'],
+              record['description'],
+              record['summary'],
+            ) || '';
           const fundType = normalizeFundType(
-            firstNonEmptyString(record.listed, record.Listed, record['Fund Type'], record.fundType)
+            firstNonEmptyString(
+              record['fund type'],
+              record['fundtype'],
+              record['type'],
+              record['listed'],
+            )
           );
           const contactName = firstNonEmptyString(
-            record.contactName,
-            record.contact_name,
-            record['Contact Name']
+            record['contact name'],
+            record['primary contact'],
+            record['contactname'],
           );
           const fundManager = firstNonEmptyString(
-            record.fundManager,
-            record.fund_manager,
-            record['Fund Manager']
+            record['fund manager'],
+            record['manager'],
+            record['fundmanager'],
           );
-          const fundCode = firstNonEmptyString(
-            record.fundCode,
-            record.fund_code,
-            record['Fund Code']
+          const linkedCompanyName = firstNonEmptyString(
+            record['company name'],
+            record['linked company'],
+            record['registered company name'],
+            record['companyname'],
+            record['entity name'],
           );
 
-          // Validate required fields
+          // Validate required fields – only name is truly required
           if (!name || name.length < 1) {
             throw new Error('Fund name is required');
           }
-          if (!address || address.length < 3) {
-            throw new Error('Address is required and must be at least 3 characters');
-          }
+          const resolvedAddress = address || name;
 
           // Upsert logic: match by name or registrationNumber
           const existing = await prisma.customRecord.findFirst({
             where: {
               entityType: 'fund',
               OR: [
-                { name: name },
-                { referenceId: fundCode || registrationNumber || undefined },
+                { name },
+                ...(registrationNumber ? [{ referenceId: registrationNumber }] : []),
               ],
             },
           });
 
           let fund;
+          const fundPayload = {
+            fundType,
+            registrationNumber,
+            headOfficeLocation: resolvedAddress,
+            overview,
+            fundManager: fundManager || '',
+            totalAssets: 0,
+            currency: 'ZAR',
+            linkedCompanyId: '',
+            linkedCompanyName: linkedCompanyName || '',
+            primaryContactId: '',
+            primaryContactName: contactName || '',
+            secondaryContactId: '',
+            secondaryContactName: '',
+            linkedProperties: [],
+            linkedDeals: [],
+            linkedCompanies: linkedCompanyName ? [linkedCompanyName] : [],
+            importEmail: email || '',
+          };
+
           if (existing) {
             fund = await prisma.customRecord.update({
               where: { id: existing.id },
@@ -328,26 +441,10 @@ export class CustomRecordController {
                 name,
                 status: 'Active',
                 category: fundType,
-                referenceId: fundCode || registrationNumber || undefined,
+                referenceId: registrationNumber || undefined,
                 payload: {
-                  fundCode: fundCode || registrationNumber || '',
-                  fundType,
-                  registrationNumber,
-                  headOfficeLocation: address,
-                  overview,
-                  fundManager: fundManager || '',
-                  totalAssets: 0,
-                  currency: 'ZAR',
-                  linkedCompanyId: '',
-                  linkedCompanyName: '',
-                  primaryContactId: '',
-                  primaryContactName: contactName || '',
-                  secondaryContactId: '',
-                  secondaryContactName: '',
-                  linkedProperties: [],
-                  linkedDeals: [],
-                  linkedCompanies: [],
-                  importEmail: email || '',
+                  ...(existing.payload as object),
+                  ...fundPayload,
                 },
               },
             });
@@ -358,27 +455,8 @@ export class CustomRecordController {
                 name,
                 status: 'Active',
                 category: fundType,
-                referenceId: fundCode || registrationNumber || undefined,
-                payload: {
-                  fundCode: fundCode || registrationNumber || '',
-                  fundType,
-                  registrationNumber,
-                  headOfficeLocation: address,
-                  overview,
-                  fundManager: fundManager || '',
-                  totalAssets: 0,
-                  currency: 'ZAR',
-                  linkedCompanyId: '',
-                  linkedCompanyName: '',
-                  primaryContactId: '',
-                  primaryContactName: contactName || '',
-                  secondaryContactId: '',
-                  secondaryContactName: '',
-                  linkedProperties: [],
-                  linkedDeals: [],
-                  linkedCompanies: [],
-                  importEmail: email || '',
-                },
+                referenceId: registrationNumber || undefined,
+                payload: fundPayload,
               },
             });
           }

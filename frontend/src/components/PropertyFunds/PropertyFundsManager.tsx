@@ -302,8 +302,8 @@ export const PropertyFundsManager: React.FC = () => {
   };
 
   const handleSaveFund = async () => {
-    if (!formData.name.trim() || !formData.fundCode.trim() || !formData.registrationNumber.trim()) {
-      alert('Please fill all required fields: Fund Name, Fund Code, and Registration Number');
+    if (!formData.name.trim() || !formData.registrationNumber.trim()) {
+      alert('Please fill all required fields: Fund Name and Registration Number');
       return;
     }
 
@@ -326,7 +326,7 @@ export const PropertyFundsManager: React.FC = () => {
           name: formData.name.trim(),
           status: formData.status,
           category: formData.fundType,
-          referenceId: formData.fundCode.trim(),
+          referenceId: formData.registrationNumber.trim() || undefined,
           payload,
         });
       } else {
@@ -335,7 +335,7 @@ export const PropertyFundsManager: React.FC = () => {
           name: formData.name.trim(),
           status: formData.status,
           category: formData.fundType,
-          referenceId: formData.fundCode.trim(),
+          referenceId: formData.registrationNumber.trim() || undefined,
           payload,
         });
       }
@@ -478,9 +478,6 @@ export const PropertyFundsManager: React.FC = () => {
                     Fund Name
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
-                    Fund Code
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Linked Company
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
@@ -521,15 +518,6 @@ export const PropertyFundsManager: React.FC = () => {
                         )}
                         {fund.name}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-stone-700">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-semibold ${getFundTypeColor(
-                          fund.fundType
-                        )}`}
-                      >
-                        {fund.fundCode}
-                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-700">
                       {fund.linkedCompanyId ? (
@@ -761,18 +749,6 @@ export const PropertyFundsManager: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">
-                    Fund Code *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.fundCode}
-                    onChange={(e) => setFormData({ ...formData, fundCode: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="e.g., P3, P4"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">
                     Fund Type *
                   </label>
                   <select
@@ -926,7 +902,7 @@ export const PropertyFundsManager: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
-              <h2 className="text-lg font-semibold text-stone-900">Import Property Funds from CSV</h2>
+              <h2 className="text-lg font-semibold text-stone-900">Import Property Funds from Excel / CSV</h2>
               <button
                 onClick={() => {
                   setShowImportModal(false);
@@ -941,17 +917,17 @@ export const PropertyFundsManager: React.FC = () => {
             <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
               {/* Instructions */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800 font-medium mb-2">CSV Format Requirements</p>
+                <p className="text-sm text-blue-800 font-medium mb-2">Supported Formats: Excel (.xlsx, .xls) or CSV</p>
                 <p className="text-xs text-blue-700">
-                  Required columns: <code className="bg-blue-100 px-1 rounded">name</code>, <code className="bg-blue-100 px-1 rounded">address</code><br />
-                  Optional columns: email, regNumber, listed (`true`/`false`) or fund type (`Listed`/`Not Listed`), overview
+                  Supported columns: <strong>Fund Name</strong>, <strong>Fund Type</strong> (<code className="bg-blue-100 px-1 rounded">Listed</code> or <code className="bg-blue-100 px-1 rounded">Non-Listed</code>), <strong>Registration No.</strong>, Email, Address, Overview, Fund Manager, Company Name.
+                  <br />Funds are automatically placed in the correct Listed or Non-Listed tab.
                 </p>
               </div>
 
               {/* Download Template */}
               <button
                 onClick={() => {
-                  const csv = 'name,address,email,regNumber,fundType,overview\n"Sample Fund","123 Fund St, Johannesburg","fund@example.com","2023/001234","Listed","Investment fund overview"\n"Non-Listed Fund","456 Asset Ave","info@fund.co.za","2023/005678","Not Listed","Private fund"';
+                  const csv = 'Fund Name,Fund Type,Registration No.,Email,Address,Overview,Fund Manager,Company Name\n"Sample Listed Fund","Listed","2023/001234","fund@example.com","123 Fund St, Johannesburg","Overview here","John Manager","Sample Company"\n"Sample Non-Listed Fund","Non-Listed","2023/005678","info@fund.co.za","456 Asset Ave","Private fund","","';
                   const blob = new Blob([csv], { type: 'text/csv' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -968,10 +944,10 @@ export const PropertyFundsManager: React.FC = () => {
 
               {/* File Input */}
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-2">Select CSV File</label>
+                <label className="block text-sm font-medium text-stone-700 mb-2">Select Excel or CSV File</label>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".xlsx,.xls,.csv"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (file) {

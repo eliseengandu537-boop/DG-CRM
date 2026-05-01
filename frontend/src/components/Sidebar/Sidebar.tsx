@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Search */}
       {!collapsed && (
         <div className="px-2 pt-2 shrink-0">
-          <Search />
+          <Search onPageChange={onPageChange} />
         </div>
       )}
 

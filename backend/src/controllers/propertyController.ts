@@ -6,6 +6,7 @@ import { canBrokerAccessRecord } from '@/lib/departmentAccess';
 import { emitDashboardRefresh, emitScopedEvent } from '@/realtime';
 import { emitActivityNotification } from '@/lib/realtimeNotifications';
 import { parse } from 'csv-parse/sync';
+import * as XLSX from 'xlsx';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 
@@ -51,6 +52,58 @@ function parseGoogleMapsCoordinates(link?: string): { latitude?: number; longitu
   }
 
   return {};
+}
+
+/** Normalize a single row's keys to lowercase+trimmed and values to trimmed strings */
+function normalizeRow(row: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(row)) {
+    const normalizedKey = key.trim().toLowerCase();
+    const normalizedValue = String(value ?? '').trim();
+    out[normalizedKey] = normalizedValue;
+  }
+  return out;
+}
+
+function parseFileToRecords(file: Express.Multer.File): Record<string, string>[] {
+  const originalName = (file.originalname || '').toLowerCase();
+
+  if (originalName.endsWith('.csv')) {
+    const rawRows = parse(file.buffer.toString('utf8'), {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    }) as Record<string, unknown>[];
+    return rawRows.map(normalizeRow);
+  }
+
+  // Excel (.xlsx / .xls) — pick the sheet with the most data rows
+  const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: false, raw: false });
+  if (!workbook.SheetNames.length) return [];
+
+  let bestSheetName = workbook.SheetNames[0];
+  let bestRowCount = 0;
+  for (const sheetName of workbook.SheetNames) {
+    const ws = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false });
+    if (rows.length > bestRowCount) {
+      bestRowCount = rows.length;
+      bestSheetName = sheetName;
+    }
+  }
+
+  const worksheet = workbook.Sheets[bestSheetName];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+    defval: '',
+    raw: false,
+  });
+  return rows.map(normalizeRow);
+}
+
+/** Return true when every value in a row is blank — skip these rows entirely */
+function isEmptyRow(record: Record<string, string>): boolean {
+  return Object.values(record).every((v) => !v || !v.trim());
 }
 
 export class PropertyController {
@@ -303,17 +356,22 @@ export class PropertyController {
       const moduleType = req.body.moduleType as string || 'sales';
       const effectiveBrokerId = this.getEffectiveBrokerId(req);
 
-      // Parse CSV
-      const records = parse(file.buffer.toString(), {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-      });
+      // Parse CSV or Excel
+      let records: Record<string, string>[];
+      try {
+        records = parseFileToRecords(file);
+      } catch (parseErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: `Failed to parse file: ${parseErr.message}`,
+          timestamp: new Date(),
+        });
+      }
 
       if (!records || records.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'CSV file is empty or invalid',
+          message: 'File is empty or has no data rows',
           timestamp: new Date(),
         });
       }
@@ -326,86 +384,209 @@ export class PropertyController {
       };
 
       for (const record of records) {
+        // Skip completely blank rows (common in Excel files)
+        if (isEmptyRow(record)) continue;
+
         try {
+          // ── All keys are lowercased by parseFileToRecords ──────────────────
           const propertyName = firstNonEmptyString(
-            record.name,
-            record.Name,
-            record.title,
-            record.Title,
-            record.property_title
+            record['property name'],
+            record['building name'],
+            record['building'],
+            record['property'],
+            record['site name'],
+            record['complex name'],
+            record['name'],
+            record['title'],
+            record['property_title'],
+            record['erf name'],
+            record['stand name'],
           );
           const address = firstNonEmptyString(
-            record.address,
-            record.Address,
-            record.Adress,
-            record.street_address
+            record['physical address'],
+            record['street address'],
+            record['full address'],
+            record['street'],
+            record['address'],
+            record['adress'],
+            record['street_address'],
+          );
+          const city = firstNonEmptyString(
+            record['city'],
+            record['suburb'],
+            record['suburb/town'],
+            record['town'],
+            record['locality'],
+            record['area'],
+            record['municipal area'],
+          );
+          const province = firstNonEmptyString(
+            record['province'],
+            record['region'],
+            record['state'],
+          );
+          const postalCode = firstNonEmptyString(
+            record['postal code'],
+            record['postcode'],
+            record['post code'],
+            record['postalcode'],
+            record['zip'],
+            record['zip code'],
+            record['postal'],
           );
           const linkedCompanyName = firstNonEmptyString(
-            record.company_name,
-            record.CompanyName,
-            record['Company Name'],
-            record.registers_company_name,
-            record.registered_company_name,
-            record.RegistersCompanyName,
-            record['Registers Company Name'],
-            record['Registers Company name']
+            record['registers company name'],
+            record['registered company name'],
+            record['registered company'],
+            record['registers company name'],
+            record['company name'],
+            record['company'],
+            record['entity name'],
+            record['owner company'],
+            record['company_name'],
           );
           const registrationNumber = firstNonEmptyString(
-            record.registration_number,
-            record['Registration No.'],
-            record['Registration No'],
-            record.registrationNo,
-            record.RegistrationNo,
-            record.reg_number,
-            record.regNumber,
-            record['Registration Number'],
-            record.RegistrationNumber
+            record['registration no.'],
+            record['registration no'],
+            record['reg no.'],
+            record['reg no'],
+            record['company reg no.'],
+            record['company reg no'],
+            record['registration number'],
+            record['reg number'],
+            record['ref no.'],
+            record['ref no'],
+            record['registration_number'],
           );
           const ownerName = firstNonEmptyString(
-            record['Owner Name & Surname'],
-            record['Owner Name and Surname'],
-            record['Owner Name'],
-            record.contact_name,
-            record.ContactName,
-            record['Contact Name'],
-            record.owner_name,
-            record.OwnerName
+            record['owner name & surname'],
+            record['owner name and surname'],
+            record['owner name'],
+            record['owner / landlord'],
+            record['owner/landlord'],
+            record['landlord name'],
+            record['landlord'],
+            record['property owner'],
+            record['owner'],
+            record['contact name'],
+            record['owner_name'],
           );
           const ownerContactNumber = firstNonEmptyString(
-            record['Owner Number'],
-            record.owner_number,
-            record.OwnerNumber,
-            record.contact_number,
-            record.ContactNumber,
-            record['Contact Number'],
-            record.phone,
-            record.Phone,
-            record.owner_contact_number
+            record['owner number'],
+            record['owner no.'],
+            record['owner no'],
+            record['owner cell'],
+            record['owner tel'],
+            record['owner tel no.'],
+            record['owner contact'],
+            record['owner contact no.'],
+            record['landlord tel'],
+            record['landlord tel no.'],
+            record['landlord cell'],
+            record['landlord contact'],
+            record['landlord contact no.'],
+            record['contact number'],
+            record['contact no.'],
+            record['contact no'],
+            record['phone'],
+            record['tel'],
+            record['cell'],
+            record['mobile'],
+            record['owner_number'],
+            record['owner_contact_number'],
+          );
+          const tenantName = firstNonEmptyString(
+            record['tenant name'],
+            record['current tenant'],
+            record['tenant'],
+            record['occupant'],
+            record['lessee'],
+            record['tenant_name'],
           );
           const tenantNumber = firstNonEmptyString(
-            record['Tenants No.'],
-            record['Tenants No'],
-            record.tenant_number,
-            record.TenantNumber,
-            record.tenants_no
+            record['tenants no.'],
+            record['tenants no'],
+            record['tenant no.'],
+            record['tenant no'],
+            record['tenant number'],
+            record['tenant tel'],
+            record['tenant cell'],
+            record['tenant contact'],
+            record['tenant_number'],
           );
           const ownerEmail = firstNonEmptyString(
-            record['Email'],
-            record.email,
-            record.Email,
-            record.owner_email,
-            record.OwnerEmail
+            record['email'],
+            record['owner email'],
+            record['landlord email'],
+            record['contact email'],
+            record['owner_email'],
           );
           const googleLink = firstNonEmptyString(
-            record.google_link,
-            record.GoogleLink,
-            record['Google Link']
+            record['google link'],
+            record['google maps'],
+            record['google maps link'],
+            record['map link'],
+            record['gps link'],
+            record['coordinates link'],
+            record['google'],
+            record['google_link'],
           );
           const importComment = firstNonEmptyString(
-            record.comment,
-            record.Comment,
-            record.comments,
-            record.Comments
+            record['comment'],
+            record['comments'],
+            record['notes'],
+            record['note'],
+            record['remarks'],
+            record['remark'],
+          );
+          const rawSize = firstNonEmptyString(
+            record['size (sqm)'],
+            record['size (m²)'],
+            record['size (m2)'],
+            record['size'],
+            record['gla (m²)'],
+            record['gla (m2)'],
+            record['gla (sqm)'],
+            record['gla sqm'],
+            record['gla'],
+            record['gross lettable area'],
+            record['nla'],
+            record['net lettable area'],
+            record['floor area'],
+            record['erf size'],
+            record['stand size'],
+            record['plot size'],
+            record['extent (m²)'],
+            record['extent'],
+            record['area'],
+            record['sqm'],
+            record['m²'],
+            record['square meters'],
+            record['square footage'],
+            record['sqft'],
+          );
+          const rawType = firstNonEmptyString(
+            record['property type'],
+            record['type'],
+            record['category'],
+            record['land use'],
+            record['usage'],
+            record['class'],
+            record['use'],
+            record['property category'],
+          );
+          const rawStatus = firstNonEmptyString(
+            record['ownership status'],
+            record['occupation status'],
+            record['lease status'],
+            record['status'],
+            record['tenure'],
+            record['ownership'],
+          );
+          const linkedFundName = firstNonEmptyString(
+            record['fund name'],
+            record['fund'],
+            record['linked fund'],
           );
           const googleCoordinates = parseGoogleMapsCoordinates(googleLink);
 
@@ -413,45 +594,28 @@ export class PropertyController {
           const propertyData = {
             title: propertyName || address || 'Imported Property',
             description:
-              firstNonEmptyString(record.description, record.Description, importComment) || '',
+              firstNonEmptyString(record['description'], importComment) || '',
             address: address || '',
-            city: firstNonEmptyString(record.city, record.City) || '',
-            province: firstNonEmptyString(record.province, record.Province, record.state) || '',
-            postalCode:
-              firstNonEmptyString(
-                record.postalCode,
-                record.postal_code,
-                record.PostalCode,
-                record.zip,
-                record.zip_code
-              ) || '',
-            type:
-              firstNonEmptyString(
-                record.type,
-                record.Type,
-                record.property_type,
-                record.propertyType
-              ) || 'commercial',
-            status: firstNonEmptyString(record.status, record.Status) || 'active',
+            city: city || '',
+            province: province || '',
+            postalCode: postalCode || '',
+            type: rawType || 'commercial',
+            status: rawStatus || 'active',
             moduleType: moduleType,
-            price: parseOptionalNumber(record.price || record.Price || record.amount) || 0,
-            area:
-              parseOptionalNumber(
-                record.area || record.Area || record.square_feet || record.sqft
-              ) || 0,
+            price: parseOptionalNumber(record['price'] || record['amount'] || record['value']) || 0,
+            area: parseOptionalNumber(rawSize) || 0,
             latitude:
-              parseOptionalNumber(record.latitude || record.lat) ?? googleCoordinates.latitude,
+              parseOptionalNumber(record['latitude'] || record['lat']) ?? googleCoordinates.latitude,
             longitude:
-              parseOptionalNumber(record.longitude || record.lng) ?? googleCoordinates.longitude,
-            bedrooms: parseOptionalNumber(record.bedrooms || record.beds),
-            bathrooms: parseOptionalNumber(record.bathrooms || record.baths),
+              parseOptionalNumber(record['longitude'] || record['lng'] || record['long']) ?? googleCoordinates.longitude,
+            bedrooms: parseOptionalNumber(record['bedrooms'] || record['beds']),
+            bathrooms: parseOptionalNumber(record['bathrooms'] || record['baths']),
             brokerId:
               effectiveBrokerId ||
-              firstNonEmptyString(record.brokerId, record.broker_id) ||
+              firstNonEmptyString(record['brokerid'], record['broker_id']) ||
               undefined,
             metadata: {
-              ...(record.metadata ? JSON.parse(record.metadata) : {}),
-              importedFrom: 'csv',
+              importedFrom: 'excel',
               importDate: new Date().toISOString(),
               linkedCompanyName: linkedCompanyName || undefined,
               registrationNumber: registrationNumber || undefined,
@@ -459,25 +623,21 @@ export class PropertyController {
               ownerName: ownerName || undefined,
               ownerEmail: ownerEmail || undefined,
               ownerContactNumber: ownerContactNumber || undefined,
+              tenantName: tenantName || undefined,
               tenantContactNumber: tenantNumber || undefined,
               googleLink: googleLink || undefined,
               importComment: importComment || undefined,
-              propertyType:
-                firstNonEmptyString(
-                  record.type,
-                  record.Type,
-                  record.property_type,
-                  record.propertyType
-                ) || 'commercial',
+              linkedFundName: linkedFundName || undefined,
+              propertyType: rawType || 'commercial',
+              squareFeet: parseOptionalNumber(rawSize) || undefined,
+              gla: parseOptionalNumber(record['gla (m²)'] || record['gla (m2)'] || record['gla (sqm)'] || record['gla sqm'] || record['gla']) || undefined,
+              ownershipStatus: rawStatus || undefined,
             },
           };
 
-          // Validate required fields
-          if (!propertyData.address || propertyData.address.length < 3) {
-            throw new Error('Address is required and must be at least 3 characters');
-          }
-          if (!propertyData.type) {
-            throw new Error('Property type is required');
+          // Ensure address is never blank (required by Prisma)
+          if (!propertyData.address) {
+            propertyData.address = propertyData.title;
           }
 
           // Create the property

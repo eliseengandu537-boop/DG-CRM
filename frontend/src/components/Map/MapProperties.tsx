@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import dynamic from 'next/dynamic';
 import { Property } from "../../data/properties";
 import { PropertyPin } from "./PropertyPin";
-import { FiMapPin, FiX, FiPlus, FiTrash2, FiUpload, FiDownload } from "react-icons/fi";
+import { FiMapPin, FiX, FiPlus, FiTrash2, FiUpload, FiDownload, FiEdit2, FiSave } from "react-icons/fi";
 import { Asset } from "../../data/crm-types";
 import { customRecordService, type CustomRecord } from "@/services/customRecordService";
 import { propertyService } from "@/services/propertyService";
@@ -230,6 +230,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [expandedPropertyId, setExpandedPropertyId] = useState<string | null>(null);
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [propertyEditForm, setPropertyEditForm] = useState<Record<string, string>>({});
   const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
@@ -486,6 +488,67 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           error instanceof Error ? error.message : 'Unknown error'
         }`
       );
+    }
+  };
+
+  const startEditProperty = (property: Property) => {
+    setEditingPropertyId(property.id);
+    setPropertyEditForm({
+      squareFeet: String(property.details.squareFeet || ''),
+      gla: String(property.details.gla ?? property.details.squareFeet ?? ''),
+      yearBuilt: String(property.details.yearBuilt || ''),
+      condition: property.details.condition || '',
+      type: property.details.type || '',
+      ownerName: property.ownerName || '',
+      ownerEmail: property.ownerEmail || '',
+      ownerContactNumber: property.ownerContactNumber || '',
+      tenantName: property.tenantName || '',
+      tenantContactNumber: property.tenantContactNumber || '',
+      registrationNumber: property.registrationNumber || '',
+      registrationName: property.registrationName || '',
+      linkedCompanyName: property.linkedCompanyName || '',
+      linkedFundName: property.linkedFundName || '',
+    });
+  };
+
+  const handleSavePropertyEdit = async (property: Property) => {
+    const form = propertyEditForm;
+    const sqm = parseFloat(form.squareFeet) || 0;
+    const gla = parseFloat(form.gla) || sqm;
+
+    const updatedMetadata: Record<string, unknown> = {
+      ...(typeof (property as any).metadata === 'object' ? (property as any).metadata : {}),
+      squareFeet: sqm,
+      gla,
+      yearBuilt: parseInt(form.yearBuilt) || property.details.yearBuilt,
+      condition: form.condition || property.details.condition,
+      propertyType: form.type || property.details.type,
+      ownerName: form.ownerName || undefined,
+      ownerEmail: form.ownerEmail || undefined,
+      ownerContactNumber: form.ownerContactNumber || undefined,
+      tenantName: form.tenantName || undefined,
+      tenantContactNumber: form.tenantContactNumber || undefined,
+      registrationNumber: form.registrationNumber || undefined,
+      registrationName: form.registrationName || form.linkedCompanyName || undefined,
+      linkedCompanyName: form.linkedCompanyName || undefined,
+      linkedFundName: form.linkedFundName || undefined,
+      ownershipStatus: property.details.ownershipStatus,
+    };
+
+    try {
+      const updated = await propertyService.updateProperty(property.id, {
+        area: sqm,
+        type: form.type || property.details.type,
+        metadata: updatedMetadata,
+      });
+      const remapped = mapBackendPropertyToMapProperty(updated);
+      if (remapped) {
+        setProperties((prev) => prev.map((p) => (p.id === property.id ? remapped : p)));
+        if (selectedProperty?.id === property.id) setSelectedProperty(remapped);
+      }
+      setEditingPropertyId(null);
+    } catch (err) {
+      alert('Failed to save: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -1016,24 +1079,142 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       </button>
                       {expandedPropertyId === property.id && (
                         <div className="px-4 pb-4 bg-white border-t border-stone-100">
-                          <div className="grid grid-cols-2 gap-2 mt-3">
-                            <div>
-                              <p className="text-xs font-semibold text-stone-500 uppercase">Size</p>
-                              <p className="text-sm text-stone-900">{property.details.squareFeet.toLocaleString()} sqm</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-stone-500 uppercase">GLA</p>
-                              <p className="text-sm text-stone-900">{(property.details.gla ?? property.details.squareFeet).toLocaleString()} sqm</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-stone-500 uppercase">Year Built</p>
-                              <p className="text-sm text-stone-900">{property.details.yearBuilt}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-stone-500 uppercase">Condition</p>
-                              <p className="text-sm text-stone-900">{property.details.condition}</p>
-                            </div>
+                          {/* Edit / Save header */}
+                          <div className="flex items-center justify-between mt-3 mb-2">
+                            <p className="text-xs font-bold text-stone-600 uppercase tracking-wide">Property Details</p>
+                            {editingPropertyId === property.id ? (
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={() => void handleSavePropertyEdit(property)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white px-2.5 py-1 text-xs font-semibold hover:bg-indigo-700 transition-colors"
+                                >
+                                  <FiSave size={11} /> Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingPropertyId(null)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-stone-200 text-stone-600 px-2.5 py-1 text-xs font-semibold hover:bg-stone-50 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => startEditProperty(property)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 text-indigo-600 px-2.5 py-1 text-xs font-semibold hover:bg-indigo-50 transition-colors"
+                              >
+                                <FiEdit2 size={11} /> Edit
+                              </button>
+                            )}
                           </div>
+
+                          {editingPropertyId === property.id ? (
+                            /* ── Edit mode ── */
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Size (sqm)</label>
+                                  <input type="number" value={propertyEditForm.squareFeet || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, squareFeet: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 500" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">GLA (sqm)</label>
+                                  <input type="number" value={propertyEditForm.gla || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, gla: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 450" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Year Built</label>
+                                  <input type="number" value={propertyEditForm.yearBuilt || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, yearBuilt: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 2010" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Condition</label>
+                                  <input value={propertyEditForm.condition || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, condition: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. Good" />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs text-stone-500 font-semibold uppercase">Owner Name</label>
+                                <input value={propertyEditForm.ownerName || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, ownerName: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="Owner name & surname" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Owner Number</label>
+                                  <input value={propertyEditForm.ownerContactNumber || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, ownerContactNumber: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 0821234567" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Owner Email</label>
+                                  <input value={propertyEditForm.ownerEmail || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, ownerEmail: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="owner@email.com" />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Tenant Name</label>
+                                  <input value={propertyEditForm.tenantName || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, tenantName: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="Tenant name" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Tenant Number</label>
+                                  <input value={propertyEditForm.tenantContactNumber || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, tenantContactNumber: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 0827654321" />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Reg. Company Name</label>
+                                  <input value={propertyEditForm.linkedCompanyName || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, linkedCompanyName: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="Registered company" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-stone-500 font-semibold uppercase">Registration No.</label>
+                                  <input value={propertyEditForm.registrationNumber || ''} onChange={(e) => setPropertyEditForm((f) => ({ ...f, registrationNumber: e.target.value }))} className="w-full border border-stone-200 rounded px-2 py-1 text-sm mt-0.5" placeholder="e.g. 2023/001234" />
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            /* ── View mode ── */
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <p className="text-xs font-semibold text-stone-500 uppercase">Size</p>
+                                  <p className="text-sm text-stone-900">{property.details.squareFeet ? `${property.details.squareFeet.toLocaleString()} sqm` : '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-stone-500 uppercase">GLA</p>
+                                  <p className="text-sm text-stone-900">{(property.details.gla ?? property.details.squareFeet) ? `${(property.details.gla ?? property.details.squareFeet).toLocaleString()} sqm` : '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-stone-500 uppercase">Year Built</p>
+                                  <p className="text-sm text-stone-900">{property.details.yearBuilt || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-stone-500 uppercase">Condition</p>
+                                  <p className="text-sm text-stone-900">{property.details.condition || '—'}</p>
+                                </div>
+                              </div>
+                              {(property.ownerName || property.ownerContactNumber || property.ownerEmail) && (
+                                <div className="border-t border-stone-100 pt-2">
+                                  <p className="text-xs font-bold text-stone-500 uppercase mb-1">Owner</p>
+                                  {property.ownerName && <p className="text-sm text-stone-900">{property.ownerName}</p>}
+                                  {property.ownerContactNumber && <p className="text-xs text-stone-600">📞 {property.ownerContactNumber}</p>}
+                                  {property.ownerEmail && <p className="text-xs text-stone-600">✉️ {property.ownerEmail}</p>}
+                                </div>
+                              )}
+                              {(property.tenantName || property.tenantContactNumber) && (
+                                <div className="border-t border-stone-100 pt-2">
+                                  <p className="text-xs font-bold text-stone-500 uppercase mb-1">Tenant</p>
+                                  {property.tenantName && <p className="text-sm text-stone-900">{property.tenantName}</p>}
+                                  {property.tenantContactNumber && <p className="text-xs text-stone-600">📞 {property.tenantContactNumber}</p>}
+                                </div>
+                              )}
+                              {(property.linkedCompanyName || property.registrationNumber) && (
+                                <div className="border-t border-stone-100 pt-2">
+                                  <p className="text-xs font-bold text-stone-500 uppercase mb-1">Registration</p>
+                                  {property.linkedCompanyName && <p className="text-sm text-stone-900">{property.linkedCompanyName}</p>}
+                                  {property.registrationNumber && <p className="text-xs text-stone-600">Reg No: {property.registrationNumber}</p>}
+                                </div>
+                              )}
+                              {property.linkedFundName && (
+                                <div className="border-t border-stone-100 pt-2">
+                                  <p className="text-xs font-bold text-stone-500 uppercase mb-1">Linked Fund</p>
+                                  <p className="text-sm text-stone-900">{property.linkedFundName}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           <div className="mt-3">
                             <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Ownership Status</p>
                             <select
@@ -1770,7 +1951,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
-              <h2 className="text-lg font-semibold text-stone-900">Import Properties from CSV</h2>
+              <h2 className="text-lg font-semibold text-stone-900">Import Properties from Excel / CSV</h2>
               <button
                 onClick={() => {
                   setShowImportModal(false);
@@ -1785,37 +1966,44 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
             <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
               {/* Instructions */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800 font-medium mb-2">CSV Format Requirements</p>
+                <p className="text-sm text-blue-800 font-medium mb-2">Supported Formats: Excel (.xlsx, .xls) or CSV</p>
+                <p className="text-xs text-blue-700 mb-1">
+                  Column headers are <strong>case-insensitive</strong> — your canvassing sheet will work as-is.
+                </p>
                 <p className="text-xs text-blue-700">
-                  Required columns: <code className="bg-blue-100 px-1 rounded">address</code>, <code className="bg-blue-100 px-1 rounded">type</code><br />
-                  Optional columns: title, description, city, province, postalCode, price, area, latitude, longitude, bedrooms, bathrooms, status
+                  Recognised columns include: <strong>Property Name</strong> / Building Name, <strong>Physical Address</strong> / Address / Street Address,
+                  <strong> Suburb</strong> / City, Province / Region, <strong>Size (sqm)</strong> / GLA / GLA (m²) / Extent,
+                  <strong> Owner Name &amp; Surname</strong> / Landlord / Owner,
+                  <strong> Owner Number</strong> / Landlord Tel / Owner Cell,
+                  Email, <strong>Tenants No.</strong> / Tenant Name, <strong>Registers Company Name</strong> / Company,
+                  <strong> Registration No.</strong> / Reg No., Google Link, Notes / Comments, Status / Ownership Status.
                 </p>
               </div>
 
               {/* Download Template */}
               <button
                 onClick={() => {
-                  const csv = 'title,address,city,province,postalCode,type,status,price,area,latitude,longitude,bedrooms,bathrooms\n"Sample Property","123 Main St","Johannesburg","Gauteng","2001","commercial","active",5000000,500,26.2041,28.0473,,';
+                  const csv = 'Property Name,Physical Address,Suburb,Province,Property Type,Ownership Status,Size (sqm),GLA (m²),Owner Name & Surname,Owner Number,Email,Tenant Name,Tenants No.,Registers Company Name,Registration No.,Google Link,Notes\n"Sample Building","123 Main Street","Sandton","Gauteng","Commercial","Owned",1200,800,"John Smith","0821234567","john@example.com","ABC Tenant","0827654321","Sample Company (Pty) Ltd","2023/001234","https://maps.google.com/?q=-26.1,28.0","Sample note"';
                   const blob = new Blob([csv], { type: 'text/csv' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = 'property_import_template.csv';
+                  a.download = 'canvassing_import_template.csv';
                   a.click();
                   URL.revokeObjectURL(url);
                 }}
                 className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700"
               >
                 <FiDownload size={16} />
-                Download CSV Template
+                Download Canvassing Template
               </button>
 
               {/* File Input */}
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-2">Select CSV File</label>
+                <label className="block text-sm font-medium text-stone-700 mb-2">Select Excel or CSV File</label>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".xlsx,.xls,.csv"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (file) {
