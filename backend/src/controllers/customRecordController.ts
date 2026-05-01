@@ -28,6 +28,7 @@ function normalizeFundType(value: unknown): 'Listed' | 'Non-Listed' {
     normalized === '0' ||
     normalized === 'no' ||
     normalized === 'n' ||
+    normalized === 'non' ||
     normalized === 'not listed' ||
     normalized === 'not-listed' ||
     normalized === 'notlisted' ||
@@ -372,6 +373,8 @@ export class CustomRecordController {
             ) || '';
           const fundType = normalizeFundType(
             firstNonEmptyString(
+              record['listed/nonlisted'],
+              record['listed/non-listed'],
               record['fund type'],
               record['fundtype'],
               record['type'],
