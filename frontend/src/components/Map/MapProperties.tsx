@@ -218,6 +218,12 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const { user } = useAuth();
   const { isLoaded: isGoogleMapsLoaded } = useGoogleMapsLoader();
   const canDeleteProperties = user?.role === 'admin';
+  const isGeocodingRef = useRef(false);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  }, []);
   const propertyAddressInputRef = useRef<HTMLInputElement | null>(null);
   const propertyAddressAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const propertyAddressAutocompleteListenerRef = useRef<google.maps.MapsEventListener | null>(null);
@@ -382,7 +388,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   }, [loadData]);
 
   useRealtimeRefresh(() => {
-    void loadData();
+    if (!isGeocodingRef.current) {
+      void loadData();
+    }
   });
 
   const persistProperties = (next: Property[]) => {
@@ -442,7 +450,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         }
         const addedToStock = syncPropertyToStockIfForSale(remapped);
         if (addedToStock) {
-          alert(`"${remapped.name}" has been synced to stock automatically.`);
+          showNotification(`"${remapped.name}" has been synced to stock.`);
         }
       }
     } catch (error) {
@@ -454,7 +462,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
   const handleDeleteProperty = async (property: Property) => {
     if (!canDeleteProperties) {
-      alert('Only admins can delete properties from the Maps module.');
+      showNotification('Only admins can delete properties.', 'error');
       return;
     }
 
@@ -477,16 +485,14 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
     try {
       await propertyService.deleteProperty(property.id);
-      alert(`"${property.name}" was deleted successfully.`);
     } catch (error) {
       console.warn('Failed to delete property from API.', error);
       persistProperties(previousProperties);
       setSelectedProperty(previousSelectedProperty);
       setExpandedPropertyId(previousExpandedPropertyId);
-      alert(
-        `Failed to delete property: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
+      showNotification(
+        `Failed to delete: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error'
       );
     }
   };
@@ -548,7 +554,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       }
       setEditingPropertyId(null);
     } catch (err) {
-      alert('Failed to save: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      showNotification('Failed to save: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
     }
   };
 
@@ -636,7 +642,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       try {
         const geo = await fetchAddressGeocode(property.address);
         if (!geo) {
-          alert(`Could not find map coordinates for "${property.name}".`);
+          console.warn(`Could not geocode "${property.name}" — address: ${property.address}`);
           return;
         }
 
@@ -660,11 +666,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         });
       } catch (error) {
         console.warn('Failed to geocode property for map focus.', error);
-        alert(
-          `Could not show "${property.name}" on the map: ${
-            error instanceof Error ? error.message : 'Unknown error'
-          }`
-        );
       }
     },
     [fetchAddressGeocode]
@@ -720,6 +721,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     let cancelled = false;
 
     const geocodeAll = async () => {
+      // Suppress realtime loadData() during geocoding to avoid
+      // 63 concurrent reload calls flooding the server
+      isGeocodingRef.current = true;
+      const geocoded: { id: string; address: string; lat: number; lng: number }[] = [];
+
       for (const property of missing) {
         if (cancelled) break;
         try {
@@ -732,6 +738,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           const formattedAddress = data.results[0]?.formatted_address || property.address;
           if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') continue;
 
+          geocoded.push({ id: property.id, address: formattedAddress, lat: loc.lat, lng: loc.lng });
+
+          // Update map state immediately so the pin appears
           setProperties((prev) =>
             prev.map((p) =>
               p.id === property.id
@@ -740,23 +749,38 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
             )
           );
 
-          // Persist coordinates so they don't need geocoding on next load
-          propertyService.updateProperty(property.id, {
-            address: formattedAddress,
-            latitude: loc.lat,
-            longitude: loc.lng,
-          }).catch(() => {/* non-critical */});
-
-          // Respect Google's rate limit (50ms between requests ~ 20 req/s)
-          await new Promise((r) => setTimeout(r, 50));
+          // Respect Google's rate limit (~10 req/s to be safe)
+          await new Promise((r) => setTimeout(r, 100));
         } catch {
           // Skip properties that fail to geocode
         }
       }
+
+      if (cancelled) {
+        isGeocodingRef.current = false;
+        return;
+      }
+
+      // Persist all coordinates in sequence after the loop — one at a time
+      // so we only emit a single final realtime refresh instead of N parallel ones
+      for (const item of geocoded) {
+        if (cancelled) break;
+        try {
+          await propertyService.updateProperty(item.id, {
+            address: item.address,
+            latitude: item.lat,
+            longitude: item.lng,
+          });
+        } catch {
+          // Non-critical — coordinates are already shown in state
+        }
+      }
+
+      isGeocodingRef.current = false;
     };
 
     void geocodeAll();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; isGeocodingRef.current = false; };
   }, [properties.length]);
 
   useEffect(() => {
@@ -806,21 +830,21 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
   const handleCreateAsset = async () => {
     if (!newAsset.propertyName.trim()) {
-      alert("Please enter property name");
+      showNotification('Please enter property name', 'error');
       return;
     }
     if (!newAsset.propertyAddress.trim()) {
-      alert("Please enter property address");
+      showNotification('Please enter property address', 'error');
       return;
     }
     if (!newAsset.linkedFundId) {
-      alert("Please select a fund to link");
+      showNotification('Please select a fund to link', 'error');
       return;
     }
 
     const selectedFund = fundOptions.find((f) => f.id === newAsset.linkedFundId);
     if (!selectedFund) {
-      alert("Invalid fund selected");
+      showNotification('Invalid fund selected', 'error');
       return;
     }
 
@@ -844,11 +868,11 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       });
 
       setAssets((prev) => [toAsset(createdAsset), ...prev]);
-      alert(`Property "${newAsset.propertyName}" added successfully!`);
+      showNotification(`Property "${newAsset.propertyName}" added successfully!`);
       resetForm();
       setShowAddPropertyModal(false);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to save asset");
+      showNotification(error instanceof Error ? error.message : 'Failed to save asset', 'error');
     }
   };
 
@@ -915,6 +939,17 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
   return (
     <div className={isFullscreen ? 'fixed inset-0 z-[60] overflow-hidden' : 'relative w-full h-screen overflow-hidden'}>
+      {/* ─── Inline notification banner (replaces all alert() dialogs) ─── */}
+      {notification && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-3 px-5 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${
+          notification.type === 'error'
+            ? 'bg-red-600 text-white'
+            : 'bg-emerald-600 text-white'
+        }`}>
+          {notification.message}
+          <button onClick={() => setNotification(null)} className="ml-1 opacity-70 hover:opacity-100 text-base leading-none">&times;</button>
+        </div>
+      )}
       {/* ─── Full-screen map ─────────────────────────────────────── */}
       <div className="absolute inset-0">
         <GoogleMapWrapper
@@ -1800,35 +1835,35 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
               <button
                 onClick={async () => {
                   if (!newProperty.name.trim()) {
-                    alert("Please enter property name");
+                    showNotification('Please enter property name', 'error');
                     return;
                   }
                   if (!newProperty.address.trim()) {
-                    alert("Please enter property address");
+                    showNotification('Please enter property address', 'error');
                     return;
                   }
                   if (!newProperty.type) {
-                    alert("Please select property type");
+                    showNotification('Please select property type', 'error');
                     return;
                   }
                   if (!newProperty.squareFeet) {
-                    alert("Please enter property size");
+                    showNotification('Please enter property size', 'error');
                     return;
                   }
                   if (!newProperty.gla) {
-                    alert("Please enter GLA");
+                    showNotification('Please enter GLA', 'error');
                     return;
                   }
                   if (!newProperty.yearBuilt) {
-                    alert("Please enter year built");
+                    showNotification('Please enter year built', 'error');
                     return;
                   }
                   if (!newProperty.condition) {
-                    alert("Please select condition");
+                    showNotification('Please select condition', 'error');
                     return;
                   }
                   if (!newProperty.ownershipStatus) {
-                    alert("Please select ownership status");
+                    showNotification('Please select ownership status', 'error');
                     return;
                   }
 
@@ -1846,12 +1881,12 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       );
 
                   if (linkedCompanyQuery && !selectedCompany) {
-                    alert("Please select a valid linked company from CRM suggestions.");
+                    showNotification('Please select a valid linked company from CRM suggestions.', 'error');
                     return;
                   }
 
                   if (linkedFundQuery && !selectedFund) {
-                    alert("Please select a valid linked fund from CRM Property Funds suggestions.");
+                    showNotification('Please select a valid linked fund from CRM Property Funds suggestions.', 'error');
                     return;
                   }
 
@@ -1877,9 +1912,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
                   if (resolvedLat === null || resolvedLng === null) {
                     if (!newProperty.latitude || !newProperty.longitude) {
-                      alert(
-                        "Could not resolve this address on Google Maps. Please provide valid coordinates."
-                      );
+                      showNotification('Could not resolve address. Please enter valid coordinates.', 'error');
                       return;
                     }
                     resolvedLat = parseFloat(newProperty.latitude);
@@ -1887,7 +1920,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   }
 
                   if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLng)) {
-                    alert("Please enter valid latitude and longitude");
+                    showNotification('Please enter valid latitude and longitude', 'error');
                     return;
                   }
 
@@ -1930,10 +1963,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       },
                     });
                   } catch (error) {
-                    alert(
-                      `Failed to save property to the database: ${
-                        error instanceof Error ? error.message : String(error)
-                      }`
+                    showNotification(
+                      `Failed to save property: ${error instanceof Error ? error.message : String(error)}`,
+                      'error'
                     );
                     return;
                   }
@@ -1980,14 +2012,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   const next = [newProp, ...properties];
                   persistProperties(next);
                   setSelectedProperty(newProp);
-                  const addedToStock = syncPropertyToStockIfForSale(newProp);
+                  syncPropertyToStockIfForSale(newProp);
                   setShowAddPropertyModal(false);
                   resetForm();
-                  alert(
-                    addedToStock
-                      ? `Property "${newProperty.name}" added and synced to stock automatically.`
-                      : `Property "${newProperty.name}" added. It will appear in stock when status is set to a stock status.`
-                  );
+                  showNotification(`Property "${newProperty.name}" added successfully.`);
                 }}
                 className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
               >
