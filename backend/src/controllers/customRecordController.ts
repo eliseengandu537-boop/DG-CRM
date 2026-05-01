@@ -352,6 +352,8 @@ export class CustomRecordController {
             ) || '';
           const registrationNumber =
             firstNonEmptyString(
+              record['reg. number'],
+              record['reg.number'],
               record['registration no.'],
               record['registration no'],
               record['reg no.'],

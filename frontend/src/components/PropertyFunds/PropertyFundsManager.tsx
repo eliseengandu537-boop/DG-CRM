@@ -72,7 +72,7 @@ const toFund = (record: CustomRecord<Record<string, unknown>>): Fund => {
     name: record.name || '',
     fundCode: String(payload.fundCode || record.referenceId || ''),
     fundType: (payload.fundType || (record.category as Fund['fundType']) || 'Listed') as Fund['fundType'],
-    registrationNumber: String(payload.registrationNumber || ''),
+    registrationNumber: String(payload.registrationNumber || record.referenceId || ''),
     headOfficeLocation: String(payload.headOfficeLocation || ''),
     overview: String(payload.overview || ''),
     email: String(payload.importEmail || ''),
