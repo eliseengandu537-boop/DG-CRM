@@ -762,22 +762,6 @@ const GoogleMapWrapper: React.FC<Props> = ({
                   {streetViewError && (
                     <p className="text-xs text-red-600 mb-2">No Street View available here.</p>
                   )}
-
-                  {/* Property details grid */}
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs border-t border-gray-100 pt-2">
-                    <p><span className="font-semibold text-gray-500">Type:</span> <span className="text-gray-800">{location.propertyType ?? '-'}</span></p>
-                    <p><span className="font-semibold text-gray-500">Status:</span> <span className="text-gray-800">{location.ownershipStatus ?? '-'}</span></p>
-                    <p><span className="font-semibold text-gray-500">SQM:</span> <span className="text-gray-800">{location.sqm ?? '-'}</span></p>
-                    <p><span className="font-semibold text-gray-500">GLA:</span> <span className="text-gray-800">{location.gla ?? '-'}</span></p>
-                    <p><span className="font-semibold text-gray-500">Year:</span> <span className="text-gray-800">{location.yearBuilt ?? '-'}</span></p>
-                    <p><span className="font-semibold text-gray-500">Condition:</span> <span className="text-gray-800">{location.condition ?? '-'}</span></p>
-                    {location.brokerName && location.brokerName !== 'Unassigned' && (
-                      <p className="col-span-2"><span className="font-semibold text-gray-500">Broker:</span> <span className="text-gray-800">{location.brokerName}</span></p>
-                    )}
-                    {location.linkedCompanyName && (
-                      <p className="col-span-2"><span className="font-semibold text-gray-500">Company:</span> <span className="text-gray-800">{location.linkedCompanyName}</span></p>
-                    )}
-                  </div>
                 </div>
               </InfoWindow>
             )}

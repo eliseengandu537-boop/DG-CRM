@@ -43,6 +43,7 @@ type Listing = {
 type ListingForm = {
   searchQuery: string;
   itemName: string;
+  unitReference: string;
   address: string;
   formattedAddress: string;
   city: string;
@@ -59,7 +60,7 @@ type ListingForm = {
   longitude?: number;
 };
 
-const CATEGORY_OPTIONS = ['Shopping Center', 'Office', 'Mall', 'Industrial', 'Other'];
+const CATEGORY_OPTIONS = ['Office Unit', 'Retail Unit', 'Industrial Bay', 'Warehouse Bay', 'Parking Space', 'Storage Unit', 'Land', 'Other'];
 const CONDITION_OPTIONS = ['Excellent', 'Good', 'Fair', 'Poor'];
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -67,11 +68,12 @@ const today = () => new Date().toISOString().split('T')[0];
 const emptyForm = (): ListingForm => ({
   searchQuery: '',
   itemName: '',
+  unitReference: '',
   address: '',
   formattedAddress: '',
   city: '',
   areaName: '',
-  category: 'Shopping Center',
+  category: 'Office Unit',
   condition: 'Good',
   purchaseDate: today(),
   purchasePrice: 0,
@@ -91,11 +93,12 @@ const toNumber = (value: unknown): number | undefined => {
 const toForm = (listing: Listing): ListingForm => ({
   searchQuery: listing.address || listing.location || listing.itemName || '',
   itemName: listing.itemName || listing.propertyName || '',
+  unitReference: (listing as any).unitReference || '',
   address: listing.address || listing.location || '',
   formattedAddress: listing.formattedAddress || listing.address || listing.location || '',
   city: listing.city || '',
   areaName: listing.areaName || '',
-  category: listing.category || 'Shopping Center',
+  category: listing.category || 'Office Unit',
   condition: listing.condition || 'Good',
   purchaseDate: listing.purchaseDate || today(),
   purchasePrice: Number(listing.purchasePrice || 0),
@@ -131,6 +134,7 @@ const buildPayload = (form: ListingForm) => ({
     itemName: form.itemName.trim(),
     centreItemName: form.itemName.trim(),
     propertyName: form.itemName.trim(),
+    unitReference: form.unitReference.trim(),
     category: form.category,
     retailCategory: form.category,
     condition: form.condition,
@@ -485,7 +489,20 @@ export const Stock: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">
-                Category
+                Unit / Reference
+              </label>
+              <input
+                type="text"
+                value={form.unitReference}
+                onChange={(event) => setter((current) => ({ ...current, unitReference: event.target.value }))}
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-stone-900"
+                placeholder="e.g. Unit 5A, Bay 12, Suite 301"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Item Type
               </label>
               <select
                 value={form.category}
@@ -658,8 +675,9 @@ export const Stock: React.FC = () => {
               <thead className="bg-stone-50 border-b border-stone-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Property Name</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Unit / Ref</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Location</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Category</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Item Type</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Price</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Coordinates</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Created By</th>
@@ -689,6 +707,7 @@ export const Stock: React.FC = () => {
                         </button>
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).unitReference || '-'}</td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       <button
                         type="button"

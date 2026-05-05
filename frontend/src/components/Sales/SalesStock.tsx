@@ -58,7 +58,8 @@ export const SalesStock: React.FC = () => {
   const [newAsset, setNewAsset] = useState({
     searchQuery: "",
     itemName: "",
-    category: "Marketing Materials" as "Marketing Materials" | "Signage" | "Photography" | "Permits" | "Technical" | "Other",
+    unitReference: "",
+    category: "Office Unit" as string,
     quantity: 1,
     location: "",
     address: "",
@@ -379,7 +380,8 @@ export const SalesStock: React.FC = () => {
       setNewAsset({
         searchQuery: "",
         itemName: "",
-        category: "Marketing Materials",
+        unitReference: "",
+        category: "Office Unit",
         quantity: 1,
         location: "",
         address: "",
@@ -498,7 +500,8 @@ export const SalesStock: React.FC = () => {
     setNewAsset({
       searchQuery: "",
       itemName: "",
-      category: "Marketing Materials",
+      unitReference: "",
+      category: "Office Unit",
       quantity: 1,
       location: "",
       address: "",
@@ -618,6 +621,40 @@ export const SalesStock: React.FC = () => {
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     placeholder="Auto-filled when property selected, or type manually"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Unit / Reference
+                  </label>
+                  <input
+                    type="text"
+                    value={newAsset.unitReference}
+                    onChange={(e) => setNewAsset({ ...newAsset, unitReference: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="e.g. Unit 5A, Plot 12, Suite 301"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Item Type
+                  </label>
+                  <select
+                    value={newAsset.category}
+                    onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option>Office Unit</option>
+                    <option>Residential Unit</option>
+                    <option>Industrial Unit</option>
+                    <option>Warehouse Bay</option>
+                    <option>Retail Unit</option>
+                    <option>Parking Bay</option>
+                    <option>Land</option>
+                    <option>Sectional Title</option>
+                    <option>Other</option>
+                  </select>
                 </div>
 
                 <div>
@@ -896,6 +933,40 @@ export const SalesStock: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Unit / Reference
+                  </label>
+                  <input
+                    type="text"
+                    value={(editingStock as any).unitReference || ''}
+                    onChange={(e) => setEditingStock({ ...editingStock, unitReference: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="e.g. Unit 5A, Plot 12, Suite 301"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Item Type
+                  </label>
+                  <select
+                    value={editingStock.category || 'Office Unit'}
+                    onChange={(e) => setEditingStock({ ...editingStock, category: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option>Office Unit</option>
+                    <option>Residential Unit</option>
+                    <option>Industrial Unit</option>
+                    <option>Warehouse Bay</option>
+                    <option>Retail Unit</option>
+                    <option>Parking Bay</option>
+                    <option>Land</option>
+                    <option>Sectional Title</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
                     Coordinates
                   </label>
                   <div className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-stone-50 text-stone-700 text-sm">
@@ -1152,7 +1223,12 @@ export const SalesStock: React.FC = () => {
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Property Name
                   </th>
-                  {/* Category column removed */}
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Unit / Ref
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Item Type
+                  </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Documents
                   </th>
@@ -1220,7 +1296,8 @@ export const SalesStock: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    {/* Category cell removed */}
+                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).unitReference || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).category || '-'}</td>
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">
                       {resolveContactName(stock.assignedTo) || "-"}
                     </td>

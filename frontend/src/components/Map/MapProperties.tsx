@@ -1566,7 +1566,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Year Built <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Year Built</label>
                     <input
                       type="number"
                       placeholder="e.g., 2005"
@@ -1605,7 +1605,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       <option value="">Select</option>
                       <option value="Owned">Owned</option>
                       <option value="For Lease">For Lease</option>
-                      <option value="Mortgaged">Mortgaged</option>
                       <option value="For Sale">For Sale</option>
                     </select>
                   </div>
@@ -1852,10 +1851,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   }
                   if (!newProperty.gla) {
                     showNotification('Please enter GLA', 'error');
-                    return;
-                  }
-                  if (!newProperty.yearBuilt) {
-                    showNotification('Please enter year built', 'error');
                     return;
                   }
                   if (!newProperty.condition) {
