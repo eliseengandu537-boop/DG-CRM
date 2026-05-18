@@ -98,6 +98,7 @@ export function serializeLeasingStock(stock: any): Record<string, unknown> {
     itemName: String(stock.itemName ?? '').trim(),
     centreItemName: String(stock.centreItemName ?? stock.itemName ?? '').trim(),
     propertyName: String(stock.propertyName ?? stock.itemName ?? '').trim(),
+    unitReference: String(stock.unitReference ?? '').trim(),
     category: String(stock.category ?? 'Shopping Center'),
     retailCategory: String(stock.retailCategory ?? stock.category ?? ''),
     condition: String(stock.condition ?? 'Good'),
@@ -106,7 +107,8 @@ export function serializeLeasingStock(stock: any): Record<string, unknown> {
     formatted_address: String(stock.formattedAddress ?? stock.address ?? stock.location ?? ''),
     address: String(stock.address ?? stock.location ?? ''),
     quantity: Number(stock.quantity ?? 1) || 1,
-    sizeSquareMeter: Number(stock.sizeSquareMeter ?? stock.area ?? 0) || 0,
+    unitSize: Number(stock.unitSize ?? stock.sizeSquareMeter ?? stock.area ?? 0) || 0,
+    sizeSquareMeter: Number(stock.sizeSquareMeter ?? stock.unitSize ?? stock.area ?? 0) || 0,
     value: Number(stock.value ?? stock.purchasePrice ?? 0) || 0,
     purchasePrice: Number(stock.purchasePrice ?? stock.value ?? 0) || 0,
     price: Number(stock.price ?? stock.purchasePrice ?? stock.value ?? 0) || 0,
@@ -137,7 +139,7 @@ export function serializeLeasingStock(stock: any): Record<string, unknown> {
     locality: String(stock.locality ?? stock.areaName ?? ''),
     province: String(stock.province ?? ''),
     postalCode: String(stock.postalCode ?? ''),
-    area: Number(stock.area ?? stock.sizeSquareMeter ?? 0) || 0,
+    area: Number(stock.area ?? stock.unitSize ?? stock.sizeSquareMeter ?? 0) || 0,
   };
 }
 
@@ -156,12 +158,15 @@ export function serializeSalesStock(stock: any): Record<string, unknown> {
   return {
     itemName: String(stock.itemName ?? '').trim(),
     propertyName: String(stock.propertyName ?? stock.itemName ?? '').trim(),
+    unitReference: String(stock.unitReference ?? '').trim(),
     category: String(stock.category ?? 'Other'),
     condition: String(stock.condition ?? 'Good'),
     location: String(stock.location ?? ''),
     formatted_address: String(stock.formattedAddress ?? stock.address ?? stock.location ?? ''),
     address: String(stock.address ?? stock.location ?? ''),
     quantity: Number(stock.quantity ?? 1) || 1,
+    unitSize: Number(stock.unitSize ?? stock.sizeSquareMeter ?? stock.area ?? 0) || 0,
+    sizeSquareMeter: Number(stock.sizeSquareMeter ?? stock.unitSize ?? stock.area ?? 0) || 0,
     purchaseDate: String(stock.purchaseDate ?? ''),
     purchasePrice: Number(stock.purchasePrice ?? stock.value ?? 0) || 0,
     price: Number(stock.price ?? stock.purchasePrice ?? stock.value ?? 0) || 0,
@@ -187,7 +192,7 @@ export function serializeSalesStock(stock: any): Record<string, unknown> {
     locality: String(stock.locality ?? stock.areaName ?? ''),
     province: String(stock.province ?? ''),
     postalCode: String(stock.postalCode ?? ''),
-    area: Number(stock.area ?? 0) || 0,
+    area: Number(stock.area ?? stock.unitSize ?? stock.sizeSquareMeter ?? 0) || 0,
   };
 }
 
@@ -201,11 +206,17 @@ export function mapStockRecordToLeasingStock(record: StockItemRecord): any {
   const address =
     record.address || detailString(details, 'address', detailString(details, 'location', ''));
   const availability = detailString(details, 'availability', 'In Stock');
+  const unitSize = detailNumber(
+    details,
+    'unitSize',
+    detailNumber(details, 'sizeSquareMeter', detailNumber(details, 'area', 0))
+  );
   return {
     id: record.id,
     itemName,
     centreItemName: detailString(details, 'centreItemName', itemName),
     propertyName: detailString(details, 'propertyName', itemName),
+    unitReference: detailString(details, 'unitReference', ''),
     category: detailString(details, 'category', 'Shopping Center'),
     retailCategory: detailString(details, 'retailCategory', detailString(details, 'category', '')),
     condition: detailString(details, 'condition', 'Good'),
@@ -218,7 +229,8 @@ export function mapStockRecordToLeasingStock(record: StockItemRecord): any {
     address,
     formattedAddress: detailString(details, 'formatted_address', address),
     quantity: detailNumber(details, 'quantity', 1),
-    sizeSquareMeter: detailNumber(details, 'sizeSquareMeter', detailNumber(details, 'area', 0)),
+    unitSize,
+    sizeSquareMeter: unitSize,
     value: detailNumber(details, 'value', detailNumber(details, 'purchasePrice', 0)),
     purchasePrice: detailNumber(details, 'purchasePrice', detailNumber(details, 'value', 0)),
     price: detailNumber(
@@ -255,7 +267,7 @@ export function mapStockRecordToLeasingStock(record: StockItemRecord): any {
     areaName: detailString(details, 'areaName', detailString(details, 'locality', '')),
     province: detailString(details, 'province', ''),
     postalCode: detailString(details, 'postalCode', ''),
-    area: detailNumber(details, 'area', detailNumber(details, 'sizeSquareMeter', 0)),
+    area: unitSize,
     createdBy: record.createdBy,
     backendRecordId: record.id,
     module: record.module,
@@ -276,12 +288,20 @@ export function mapStockRecordToSalesStock(record: StockItemRecord): any {
   const parsedLongitude = Number(longitudeValue);
   const latitude = Number.isFinite(parsedLatitude) ? parsedLatitude : undefined;
   const longitude = Number.isFinite(parsedLongitude) ? parsedLongitude : undefined;
+  const unitSize = detailNumber(
+    details,
+    'unitSize',
+    detailNumber(details, 'sizeSquareMeter', detailNumber(details, 'area', 0))
+  );
 
   return {
     id: record.id,
     itemName: detailString(details, 'itemName', detailString(details, 'propertyName', record.name)),
+    unitReference: detailString(details, 'unitReference', ''),
     category: detailString(details, 'category', 'Other'),
     quantity: detailNumber(details, 'quantity', 1),
+    unitSize,
+    sizeSquareMeter: unitSize,
     location: detailString(details, 'location', detailString(details, 'address', record.address)),
     address: detailString(details, 'address', detailString(details, 'location', record.address)),
     formattedAddress: detailString(
@@ -325,7 +345,7 @@ export function mapStockRecordToSalesStock(record: StockItemRecord): any {
     areaName: detailString(details, 'areaName', detailString(details, 'locality', '')),
     province: detailString(details, 'province', ''),
     postalCode: detailString(details, 'postalCode', ''),
-    area: detailNumber(details, 'area', 0),
+    area: unitSize,
     backendRecordId: record.id,
     module: record.module,
   };

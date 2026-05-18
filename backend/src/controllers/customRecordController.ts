@@ -11,6 +11,10 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const upload = multer({ storage: multer.memoryStorage() });
+type UploadedFile = {
+  originalname?: string;
+  buffer: Buffer;
+};
 
 function firstNonEmptyString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -53,7 +57,7 @@ function normalizeRow(row: Record<string, unknown>): Record<string, string> {
   return out;
 }
 
-function parseFileToRecords(file: Express.Multer.File): Record<string, string>[] {
+function parseFileToRecords(file: UploadedFile): Record<string, string>[] {
   const originalName = (file.originalname || '').toLowerCase();
 
   if (originalName.endsWith('.csv')) {

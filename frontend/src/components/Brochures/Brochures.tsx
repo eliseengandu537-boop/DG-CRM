@@ -218,7 +218,6 @@ export const Brochures: React.FC = () => {
 
     const requiredFields = [
       "createdBy",
-      "assignee",
       "brochureName",
       "brokerName",
       "propertyType",
@@ -494,21 +493,6 @@ export const Brochures: React.FC = () => {
                   className="w-full px-4 py-2 border-2 border-stone-200 rounded-lg focus:border-violet-500 focus:outline-none transition"
                   required
                   placeholder="Your name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-stone-800 mb-2">
-                  Assignee *
-                </label>
-                <input
-                  type="text"
-                  name="assignee"
-                  value={formData.assignee}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border-2 border-stone-200 rounded-lg focus:border-violet-500 focus:outline-none transition"
-                  required
-                  placeholder="Team member name"
                 />
               </div>
 

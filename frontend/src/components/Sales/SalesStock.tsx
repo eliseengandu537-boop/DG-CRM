@@ -59,6 +59,7 @@ export const SalesStock: React.FC = () => {
     searchQuery: "",
     itemName: "",
     unitReference: "",
+    unitSize: 0,
     category: "Office Unit" as string,
     quantity: 1,
     location: "",
@@ -381,6 +382,7 @@ export const SalesStock: React.FC = () => {
         searchQuery: "",
         itemName: "",
         unitReference: "",
+        unitSize: 0,
         category: "Office Unit",
         quantity: 1,
         location: "",
@@ -440,6 +442,12 @@ export const SalesStock: React.FC = () => {
       selectedFromMap: Boolean((stock as any).selectedFromMap && (stock as any).placeId),
       latitude: toOptionalNumber((stock as any).latitude),
       longitude: toOptionalNumber((stock as any).longitude),
+      unitSize: Number(
+        (stock as any).unitSize ??
+          (stock as any).sizeSquareMeter ??
+          (stock as any).area ??
+          0
+      ),
     });
     setShowEditModal(true);
   };
@@ -501,6 +509,7 @@ export const SalesStock: React.FC = () => {
       searchQuery: "",
       itemName: "",
       unitReference: "",
+      unitSize: 0,
       category: "Office Unit",
       quantity: 1,
       location: "",
@@ -530,9 +539,9 @@ export const SalesStock: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-stone-900">Sales Assets</h2>
+          <h2 className="text-2xl font-bold text-stone-900">Sales Stock</h2>
           <p className="text-stone-600 text-sm mt-1">
-            Manage marketing materials, signage, permits, and shared assets
+            Manage sales property stock listings and linked opportunities
           </p>
         </div>
         <button 
@@ -540,16 +549,16 @@ export const SalesStock: React.FC = () => {
           className="bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
         >
           <FiPlus size={18} />
-          Add Asset
+          Add Stock
         </button>
       </div>
 
-      {/* Add Asset Modal */}
+      {/* Add Stock Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h3 className="text-xl font-bold text-stone-900 mb-1">Add New Sales Asset</h3>
+              <h3 className="text-xl font-bold text-stone-900 mb-1">Add Sales Stock Listing</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-1">
@@ -679,6 +688,26 @@ export const SalesStock: React.FC = () => {
                     onChange={(e) => setNewAsset({ ...newAsset, location: e.target.value })}
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     placeholder="Auto-filled when property selected, or type manually"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Unit Size
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newAsset.unitSize === 0 ? "" : newAsset.unitSize}
+                    onChange={(e) =>
+                      setNewAsset({
+                        ...newAsset,
+                        unitSize: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Enter unit size in m²"
                   />
                 </div>
 
@@ -843,7 +872,7 @@ export const SalesStock: React.FC = () => {
                   onClick={handleAddAsset}
                   className="px-4 py-2 bg-violet-500 text-white rounded-lg hover:bg-violet-600 transition-colors"
                 >
-                  Add Asset
+                  Add Stock
                 </button>
               </div>
             </div>
@@ -851,12 +880,12 @@ export const SalesStock: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Asset Modal */}
+      {/* Edit Stock Modal */}
       {showEditModal && editingStock && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h3 className="text-xl font-bold text-stone-900 mb-1">Edit Sales Asset</h3>
+              <h3 className="text-xl font-bold text-stone-900 mb-1">Edit Sales Stock Listing</h3>
                
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
@@ -987,6 +1016,26 @@ export const SalesStock: React.FC = () => {
                     onChange={(e) => setEditingStock({ ...editingStock, location: e.target.value })}
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     placeholder="Auto-filled when property selected, or type manually"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Unit Size
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={((editingStock as any).unitSize || 0) === 0 ? "" : (editingStock as any).unitSize}
+                    onChange={(e) =>
+                      setEditingStock({
+                        ...editingStock,
+                        unitSize: parseFloat(e.target.value) || 0,
+                      } as any)
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    placeholder="Enter unit size in m²"
                   />
                 </div>
 
@@ -1166,7 +1215,7 @@ export const SalesStock: React.FC = () => {
       {/* Info Banner */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm text-blue-900">
-          <strong>Note:</strong> Sales assets can be linked to Leasing stock for shared property resources.
+          <strong>Note:</strong> Sales stock can be linked to Leasing stock for shared property resources.
         </p>
       </div>
 
@@ -1225,6 +1274,9 @@ export const SalesStock: React.FC = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Unit / Ref
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Unit Size
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Item Type
@@ -1297,16 +1349,21 @@ export const SalesStock: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).unitReference || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).category || '-'}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-stone-900">
-                      {resolveContactName(stock.assignedTo) || "-"}
+                    <td className="px-6 py-4 text-sm text-stone-600">
+                      {Number((stock as any).unitSize ?? (stock as any).sizeSquareMeter ?? (stock as any).area ?? 0) > 0
+                        ? `${Number((stock as any).unitSize ?? (stock as any).sizeSquareMeter ?? (stock as any).area).toLocaleString()} m²`
+                        : '-'}
                     </td>
+                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).category || '-'}</td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       {stock.documents && stock.documents.length > 0 ? (
                         <button onClick={() => setShowDocsModal(stock)} className="text-violet-600 underline text-sm">View ({stock.documents.length})</button>
                       ) : (
                         <span className="text-stone-400">-</span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-stone-900">
+                      {resolveContactName(stock.assignedTo) || "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       <button
@@ -1398,7 +1455,7 @@ export const SalesStock: React.FC = () => {
           </div>
         ) : (
           <div className="p-8 text-center text-stone-500">
-            <p>No assets found matching your search.</p>
+            <p>No stock listings found matching your search.</p>
           </div>
         )}
       </div>
@@ -1427,7 +1484,7 @@ export const SalesStock: React.FC = () => {
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-stone-600 text-sm">Total Assets</p>
+          <p className="text-stone-600 text-sm">Total Stock Listings</p>
           <p className="text-2xl font-bold text-stone-900 mt-1">
             {stocks.length}
           </p>
@@ -1454,7 +1511,7 @@ export const SalesStock: React.FC = () => {
           </p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-stone-600 text-sm">Linked Assets</p>
+          <p className="text-stone-600 text-sm">Linked Stock</p>
           <p className="text-2xl font-bold text-blue-600 mt-1">
             {stocks.filter((s) => s.linkedToLeasingStock).length}
           </p>

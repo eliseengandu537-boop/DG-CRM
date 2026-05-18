@@ -21,12 +21,16 @@ type Listing = {
   propertyId?: string;
   itemName: string;
   propertyName?: string;
+  unitReference?: string;
   address?: string;
   formattedAddress?: string;
   city?: string;
   areaName?: string;
   location: string;
   category?: string;
+  unitSize?: number;
+  sizeSquareMeter?: number;
+  area?: number;
   condition?: string;
   purchaseDate?: string;
   purchasePrice: number;
@@ -44,6 +48,7 @@ type ListingForm = {
   searchQuery: string;
   itemName: string;
   unitReference: string;
+  unitSize: number;
   address: string;
   formattedAddress: string;
   city: string;
@@ -69,6 +74,7 @@ const emptyForm = (): ListingForm => ({
   searchQuery: '',
   itemName: '',
   unitReference: '',
+  unitSize: 0,
   address: '',
   formattedAddress: '',
   city: '',
@@ -93,7 +99,8 @@ const toNumber = (value: unknown): number | undefined => {
 const toForm = (listing: Listing): ListingForm => ({
   searchQuery: listing.address || listing.location || listing.itemName || '',
   itemName: listing.itemName || listing.propertyName || '',
-  unitReference: (listing as any).unitReference || '',
+  unitReference: listing.unitReference || '',
+  unitSize: Number(listing.unitSize ?? listing.sizeSquareMeter ?? listing.area ?? 0),
   address: listing.address || listing.location || '',
   formattedAddress: listing.formattedAddress || listing.address || listing.location || '',
   city: listing.city || '',
@@ -123,6 +130,11 @@ const validate = (form: ListingForm): string | null => {
   return null;
 };
 
+const formatUnitSize = (value: unknown) => {
+  const parsed = toNumber(value);
+  return parsed && parsed > 0 ? `${parsed} m²` : '-';
+};
+
 const buildPayload = (form: ListingForm) => ({
   module: 'leasing',
   propertyId: form.propertyId || undefined,
@@ -143,6 +155,8 @@ const buildPayload = (form: ListingForm) => ({
     formatted_address: (form.formattedAddress || form.address).trim(),
     address: form.address.trim(),
     quantity: 1,
+    unitSize: Number(form.unitSize || 0),
+    sizeSquareMeter: Number(form.unitSize || 0),
     purchaseDate: form.purchaseDate,
     dateObtained: form.purchaseDate,
     purchasePrice: Number(form.purchasePrice || 0),
@@ -162,7 +176,7 @@ const buildPayload = (form: ListingForm) => ({
     city: form.city.trim(),
     areaName: form.areaName.trim(),
     locality: form.areaName.trim(),
-    area: 0,
+    area: Number(form.unitSize || 0),
   }),
 });
 
@@ -530,6 +544,26 @@ export const Stock: React.FC = () => {
               />
             </div>
 
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Unit Size
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.unitSize === 0 ? '' : form.unitSize}
+                onChange={(event) =>
+                  setter((current) => ({
+                    ...current,
+                    unitSize: parseFloat(event.target.value) || 0,
+                  }))
+                }
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                placeholder="Enter unit size in m²"
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">
                 Price (R) *
@@ -676,6 +710,7 @@ export const Stock: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Property Name</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Unit / Ref</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Unit Size</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Location</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Item Type</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Price</th>
@@ -707,7 +742,10 @@ export const Stock: React.FC = () => {
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-stone-600">{(stock as any).unitReference || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-stone-600">{stock.unitReference || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-stone-600">
+                      {formatUnitSize(stock.unitSize ?? stock.sizeSquareMeter ?? stock.area)}
+                    </td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       <button
                         type="button"

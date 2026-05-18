@@ -37,22 +37,24 @@ const toSalesContact = (contact: any): Contact => ({
   notes: contact.notes || "",
 });
 
+const getInitialContact = () => ({
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  company: "",
+  position: "",
+  type: "Broker",
+  status: "Active",
+});
+
 export const Contacts: React.FC = () => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("All");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
-  const [newContact, setNewContact] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    company: "",
-    position: "",
-    type: "Broker",
-    status: "Active",
-  });
+  const [newContact, setNewContact] = useState(getInitialContact());
 
   useEffect(() => {
     let mounted = true;
@@ -137,16 +139,7 @@ export const Contacts: React.FC = () => {
       const contactWithId = toSalesContact(created);
       setContacts([...contacts, contactWithId]);
       setShowAddModal(false);
-      setNewContact({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        company: "",
-        position: "",
-        type: "Broker",
-        status: "Active",
-      });
+      setNewContact(getInitialContact());
     } catch (error) {
       alert(error instanceof Error ? error.message : "Failed to save contact");
     }
@@ -186,16 +179,7 @@ export const Contacts: React.FC = () => {
       setContacts(contacts.map(c => c.id === editingContact.id ? mapped : c));
       setEditingContact(null);
       setShowAddModal(false);
-      setNewContact({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        company: "",
-        position: "",
-        type: "Broker",
-        status: "Active",
-      });
+      setNewContact(getInitialContact());
     } catch (error) {
       alert(error instanceof Error ? error.message : "Failed to update contact");
     }
@@ -223,7 +207,11 @@ export const Contacts: React.FC = () => {
           </p>
         </div>
         <button 
-          onClick={() => { setEditingContact(null); setShowAddModal(true); }}
+          onClick={() => {
+            setEditingContact(null);
+            setNewContact(getInitialContact());
+            setShowAddModal(true);
+          }}
           className="bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
         >
           <FiPlus size={18} />
@@ -236,7 +224,9 @@ export const Contacts: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-96 overflow-y-auto">
             <div className="p-6">
-              <h3 className="text-xl font-bold text-stone-900 mb-4">Add New Sales Contact</h3>
+              <h3 className="text-xl font-bold text-stone-900 mb-4">
+                {editingContact ? "Edit Sales Contact" : "Add New Sales Contact"}
+              </h3>
               <p className="text-stone-600 text-sm mb-4">These contacts will be available for linking to sales leads</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -361,7 +351,11 @@ export const Contacts: React.FC = () => {
               </div>
               <div className="flex gap-3 mt-6 justify-end">
                 <button
-                  onClick={() => { setShowAddModal(false); setEditingContact(null); }}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingContact(null);
+                    setNewContact(getInitialContact());
+                  }}
                   className="px-4 py-2 border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
                 >
                   Cancel

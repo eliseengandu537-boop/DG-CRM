@@ -49,6 +49,9 @@ export interface SalesStock {
   itemName: string;
   category: "Marketing Materials" | "Signage" | "Photography" | "Permits" | "Technical" | "Other";
   relatedProperty?: string; // Property ID (optional)
+  unitReference?: string;
+  unitSize?: number;
+  sizeSquareMeter?: number;
   quantity: number;
   location: string;
   condition: "Excellent" | "Good" | "Fair" | "Poor";
