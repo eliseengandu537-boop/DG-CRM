@@ -100,7 +100,13 @@ async function hasNonCanonicalValues(
 export async function ensureSchemaCompatibility(): Promise<void> {
   await prisma.$executeRaw`
     ALTER TABLE "Lead"
-      ADD COLUMN IF NOT EXISTS "comment" TEXT
+      ADD COLUMN IF NOT EXISTS "comment" TEXT,
+      ADD COLUMN IF NOT EXISTS "industry" TEXT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE "Contact"
+      ADD COLUMN IF NOT EXISTS "industry" TEXT
   `;
 
   await prisma.$executeRaw`

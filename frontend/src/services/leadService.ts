@@ -20,6 +20,7 @@ export interface Lead {
   closingTimeline?: string;
   notes?: string;
   comment?: string;
+  industry?: string;
   contactId?: string;
   brokerAssigned?: string;
   additionalBroker?: string;
@@ -55,6 +56,7 @@ export interface CreateLeadRequest {
   closingTimeline?: string;
   notes?: string;
   comment?: string;
+  industry?: string;
   contactId?: string;
   brokerAssigned?: string;
   additionalBroker?: string;

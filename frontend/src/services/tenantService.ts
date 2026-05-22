@@ -108,6 +108,7 @@ export function serializeLeasingTenant(tenant: any): Record<string, unknown> {
     ) || 0,
     notes: String(tenant.notes ?? ''),
     status: String(tenant.status ?? 'Prospect'),
+    industry: String(tenant.industry ?? ''),
   };
 }
 
@@ -146,6 +147,7 @@ export function mapTenantRecordToLeasingTenant(record: TenantRecord): any {
     maintenanceRequests:
       record.maintenanceRequests ?? detailNumber(details, 'maintenanceRequests', 0),
     notes: record.notes || detailString(details, 'notes', ''),
+    industry: detailString(details, 'industry', ''),
     backendRecordId: record.id,
   };
 }

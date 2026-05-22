@@ -36,6 +36,9 @@ const Reminders = dynamic(() => import("../Reminders/Reminders"), {
 const Brochures = dynamic(() => import("../Brochures/Brochures").then((m) => m.Brochures), {
   loading: () => <div className="p-6 text-stone-600">Loading Brochures...</div>,
 });
+const Reports = dynamic(() => import("../Reports/Reports").then((m) => m.Reports), {
+  loading: () => <div className="p-6 text-stone-600">Loading Reports...</div>,
+});
 
 interface DashboardProps {
   currentPage?: string;
@@ -99,6 +102,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       ) : safePage === "Brochures" ? (
         <Brochures />
+      ) : safePage === "Reports" ? (
+        <div className="p-6">
+          <Reports />
+        </div>
       ) : safePage === "Settings" ? (
         <div className="p-6">
           <Settings />

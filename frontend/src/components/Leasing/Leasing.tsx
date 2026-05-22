@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { Leads } from "./Leads";
 import { Contacts } from "./Contacts";
 import { Tenants } from "./Tenants";
-import { Industry } from "./Industry";
 import { Landlords } from "./Landlords";
 import { Stock } from "./Stock";
 import { FiChevronDown } from "react-icons/fi";
@@ -16,7 +15,6 @@ export const Leasing: React.FC = () => {
     { id: "Leads", label: "Leads", icon: "📋" },
     { id: "Contacts", label: "Contacts", icon: "👥" },
     { id: "Tenants", label: "Tenants", icon: "👥" },
-    { id: "Industry", label: "Industry", icon: "⚙️" },
     { id: "Landlords", label: "Landlords", icon: "🏛️" },
     { id: "Stock", label: "Stock", icon: "📦" },
   ];
@@ -29,8 +27,6 @@ export const Leasing: React.FC = () => {
         return <Contacts />;
       case "Tenants":
         return <Tenants />;
-      case "Industry":
-        return <Industry />;
       case "Landlords":
         return <Landlords />;
       case "Stock":

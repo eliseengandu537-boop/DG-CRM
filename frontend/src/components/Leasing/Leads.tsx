@@ -16,6 +16,7 @@ import { brokerService } from "@/services/brokerService";
 import { userService } from "@/services/userService";
 import { calculateCommissionSplit } from "@/lib/dealSheetCalculations";
 import { formatRand } from "@/lib/currency";
+import { INDUSTRY_OPTIONS } from "@/lib/industries";
 // Stock is now sourced from the API and no longer seeded from local fallback data.
 const DEFAULT_COMMISSION_RATE = 0.05;
 
@@ -76,6 +77,7 @@ const toLeasingLead = (lead: any): Lead => ({
   email: lead.email || "",
   phone: lead.phone || "",
   company: lead.company || "",
+  industry: lead.industry || "",
   propertyInterest: lead.propertyAddress || lead.propertyId || "",
   leadSource: lead.leadSource || "Direct",
   status: toLeasingStatus(lead.status || "New"),
@@ -109,6 +111,7 @@ export const Leads: React.FC = () => {
   const [isSyncingDeal, setIsSyncingDeal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [filterIndustry, setFilterIndustry] = useState<string>("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showStockLinkModal, setShowStockLinkModal] = useState(false);
@@ -122,6 +125,7 @@ export const Leads: React.FC = () => {
     name: "",
     email: "",
     company: "",
+    industry: "",
     phone: "",
     leadSource: "Direct",
     status: "New",
@@ -466,7 +470,8 @@ export const Leads: React.FC = () => {
       lead.company?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus =
       filterStatus === "All" || lead.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    const matchesIndustry = !filterIndustry || lead.industry === filterIndustry;
+    return matchesSearch && matchesStatus && matchesIndustry;
   });
 
   const filteredContacts = contacts.filter((contact) => {
@@ -562,6 +567,7 @@ export const Leads: React.FC = () => {
         status: newLead.status,
         value: newLead.value,
         company: newLead.company,
+        industry: newLead.industry,
         leadSource: newLead.leadSource,
         notes: newLead.comment,
         comment: newLead.comment,
@@ -577,6 +583,7 @@ export const Leads: React.FC = () => {
         ...created,
         notes: newLead.comment,
         company: newLead.company,
+        industry: newLead.industry,
         propertyAddress: newLead.propertyAddress,
         leadType: newLead.leadType,
         contactId: newLead.contactId,
@@ -587,6 +594,7 @@ export const Leads: React.FC = () => {
         name: "",
         email: "",
         company: "",
+        industry: "",
         phone: "",
         leadSource: "Direct",
         status: "New",
@@ -755,6 +763,7 @@ export const Leads: React.FC = () => {
         status: editingLead.status,
         value: editingLead.value,
         company: editingLead.company,
+        industry: editingLead.industry,
         leadSource: editingLead.leadSource,
         notes: editingLead.comment || editingLead.notes,
         comment: editingLead.comment || editingLead.notes,
@@ -770,6 +779,8 @@ export const Leads: React.FC = () => {
       const mapped = toLeasingLead({
         ...updated,
         comment: editingLead.comment,
+        company: editingLead.company,
+        industry: editingLead.industry,
         propertyAddress: editingLead.propertyAddress || editingLead.propertyInterest,
         leadType: editingLead.leadType || "Leasing",
       });
@@ -921,6 +932,27 @@ export const Leads: React.FC = () => {
                     <option>New</option>
                     <option>Qualified</option>
                     <option>Lost</option>
+                  </select>
+                </div>
+
+                {/* Industry */}
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Industry
+                  </label>
+                  <select
+                    value={newLead.industry}
+                    onChange={(e) =>
+                      setNewLead({ ...newLead, industry: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">— Select industry —</option>
+                    {INDUSTRY_OPTIONS.map((industry) => (
+                      <option key={industry} value={industry}>
+                        {industry}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1207,6 +1239,27 @@ export const Leads: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Industry */}
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Industry
+                  </label>
+                  <select
+                    value={editingLead.industry || ""}
+                    onChange={(e) =>
+                      setEditingLead({ ...editingLead, industry: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">— Select industry —</option>
+                    {INDUSTRY_OPTIONS.map((industry) => (
+                      <option key={industry} value={industry}>
+                        {industry}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Property Address */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-1">
@@ -1389,6 +1442,23 @@ export const Leads: React.FC = () => {
               <option>Lost</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-2">
+              Industry
+            </label>
+            <select
+              value={filterIndustry}
+              onChange={(e) => setFilterIndustry(e.target.value)}
+              className="px-4 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="">All Industries</option>
+              {INDUSTRY_OPTIONS.map((industry) => (
+                <option key={industry} value={industry}>
+                  {industry}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1404,6 +1474,9 @@ export const Leads: React.FC = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Company
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Industry
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Type
@@ -1436,6 +1509,9 @@ export const Leads: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       {lead.company || "-"}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-stone-600">
+                      {lead.industry || "-"}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span

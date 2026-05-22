@@ -15,6 +15,7 @@ import { landlordService } from "@/services/landlordService";
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
 import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
+import { consumeNavFocus } from '@/lib/crmNavigation';
 
 const GoogleMapWrapper = dynamic(() => import('./GoogleMapWrapper'), { ssr: false });
 
@@ -219,6 +220,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const { isLoaded: isGoogleMapsLoaded } = useGoogleMapsLoader();
   const canDeleteProperties = user?.role === 'admin';
   const isGeocodingRef = useRef(false);
+  const navFocusConsumedRef = useRef(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -282,6 +284,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     ownershipStatus: "",
     latitude: "",
     longitude: "",
+    areaName: "",
+    anchor: "",
     linkedCompanyId: "",
     linkedCompanyName: "",
     linkedFundId: "",
@@ -671,6 +675,33 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     [fetchAddressGeocode]
   );
 
+  // ── Deep-link receiver ───────────────────────────────────────────────────
+  // When the Map module is opened with a pending property focus (e.g. from
+  // another module), select and pan to that property once it has loaded.
+  useEffect(() => {
+    if (navFocusConsumedRef.current || properties.length === 0) return;
+
+    const focus = consumeNavFocus('property');
+    if (!focus) {
+      navFocusConsumedRef.current = true;
+      return;
+    }
+
+    navFocusConsumedRef.current = true;
+
+    const focusName = String(focus.name || '').trim().toLowerCase();
+    const match =
+      (focus.id ? properties.find((p) => p.id === focus.id) : undefined) ||
+      (focusName
+        ? properties.find((p) => p.name.trim().toLowerCase() === focusName)
+        : undefined);
+
+    if (match) {
+      void focusPropertyOnMap(match);
+    }
+  }, [properties, focusPropertyOnMap]);
+  // ────────────────────────────────────────────────────────────────────────
+
   const resetForm = () => {
     setNewAsset({
       propertyName: "",
@@ -689,6 +720,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       ownershipStatus: "",
       latitude: "",
       longitude: "",
+      areaName: "",
+      anchor: "",
       linkedCompanyId: "",
       linkedCompanyName: "",
       linkedFundId: "",
@@ -1594,19 +1627,28 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Ownership Status <span className="text-red-400">*</span></label>
-                    <select
-                      value={newProperty.ownershipStatus}
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Area / Suburb</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Sandton"
+                      value={newProperty.areaName}
                       onChange={(e) =>
-                        setNewProperty({ ...newProperty, ownershipStatus: e.target.value })
+                        setNewProperty({ ...newProperty, areaName: e.target.value })
                       }
-                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
-                    >
-                      <option value="">Select</option>
-                      <option value="Owned">Owned</option>
-                      <option value="For Lease">For Lease</option>
-                      <option value="For Sale">For Sale</option>
-                    </select>
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Anchor Tenant</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Shoprite"
+                      value={newProperty.anchor}
+                      onChange={(e) =>
+                        setNewProperty({ ...newProperty, anchor: e.target.value })
+                      }
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
                   </div>
                 </div>
               </div>
@@ -1857,11 +1899,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     showNotification('Please select condition', 'error');
                     return;
                   }
-                  if (!newProperty.ownershipStatus) {
-                    showNotification('Please select ownership status', 'error');
-                    return;
-                  }
-
                   const linkedCompanyQuery = newProperty.linkedCompanyName.trim();
                   const linkedFundQuery = newProperty.linkedFundName.trim();
                   const selectedCompany = newProperty.linkedCompanyId
@@ -1923,7 +1960,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   try {
                     createdProperty = await propertyService.createProperty({
                       title: newProperty.name.trim(),
-                      description: `${newProperty.ownershipStatus} property added from the map screen.`,
+                      description: 'Property added from the map screen.',
                       address: resolvedAddress,
                       city: '',
                       province: '',
@@ -1947,6 +1984,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                         gla: parseInt(newProperty.gla),
                         yearBuilt: parseInt(newProperty.yearBuilt),
                         condition: newProperty.condition,
+                        areaName: newProperty.areaName.trim() || undefined,
+                        anchor: newProperty.anchor.trim() || undefined,
                         registrationNumber: newProperty.registrationNumber.trim() || undefined,
                         registrationName: newProperty.registrationName.trim() || undefined,
                         ownerName: newProperty.ownerName.trim() || undefined,

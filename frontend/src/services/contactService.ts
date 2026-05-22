@@ -19,6 +19,7 @@ export interface Contact {
   company?: string;
   position?: string;
   notes?: string;
+  industry?: string;
   moduleType?: string;
   linkedPropertyIds?: string[];
   linkedDealIds?: string[];
@@ -38,6 +39,7 @@ export interface CreateContactRequest {
   company?: string;
   position?: string;
   notes?: string;
+  industry?: string;
   moduleType?: string;
   linkedPropertyIds?: string[];
   linkedDealIds?: string[];

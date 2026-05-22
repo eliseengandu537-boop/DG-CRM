@@ -14,6 +14,7 @@ import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 import GooglePlaceAutocompleteInput, {
   SelectedGooglePlace,
 } from '@/components/Shared/GooglePlaceAutocompleteInput';
+import { INDUSTRY_OPTIONS } from '@/lib/industries';
 
 type Listing = {
   id: string;
@@ -34,6 +35,8 @@ type Listing = {
   condition?: string;
   purchaseDate?: string;
   purchasePrice: number;
+  opsCosts?: number;
+  industries?: string[];
   comments?: string;
   notes?: string;
   createdBy?: string;
@@ -57,6 +60,8 @@ type ListingForm = {
   condition: string;
   purchaseDate: string;
   purchasePrice: number;
+  opsCosts: number;
+  industries: string[];
   comments: string;
   placeId: string;
   selectedFromMap: boolean;
@@ -83,6 +88,8 @@ const emptyForm = (): ListingForm => ({
   condition: 'Good',
   purchaseDate: today(),
   purchasePrice: 0,
+  opsCosts: 0,
+  industries: [],
   comments: '',
   placeId: '',
   selectedFromMap: false,
@@ -109,6 +116,8 @@ const toForm = (listing: Listing): ListingForm => ({
   condition: listing.condition || 'Good',
   purchaseDate: listing.purchaseDate || today(),
   purchasePrice: Number(listing.purchasePrice || 0),
+  opsCosts: Number(listing.opsCosts || 0),
+  industries: Array.isArray(listing.industries) ? listing.industries : [],
   comments: listing.comments || listing.notes || '',
   placeId: String(listing.placeId || ''),
   selectedFromMap: Boolean(listing.selectedFromMap && listing.placeId),
@@ -125,7 +134,7 @@ const validate = (form: ListingForm): string | null => {
     return 'Please enter a location/address';
   }
   if (Number(form.purchasePrice || 0) <= 0) {
-    return 'Price is required and must be greater than 0';
+    return 'Rental is required and must be greater than 0';
   }
   return null;
 };
@@ -162,6 +171,9 @@ const buildPayload = (form: ListingForm) => ({
     purchasePrice: Number(form.purchasePrice || 0),
     price: Number(form.purchasePrice || 0),
     value: Number(form.purchasePrice || 0),
+    rental: Number(form.purchasePrice || 0),
+    opsCosts: Number(form.opsCosts || 0),
+    industries: form.industries,
     comments: form.comments.trim(),
     notes: form.comments.trim(),
     availability: 'In Stock',
@@ -566,7 +578,7 @@ export const Stock: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">
-                Price (R) *
+                Rental (R) *
               </label>
               <input
                 type="number"
@@ -580,7 +592,27 @@ export const Stock: React.FC = () => {
                   }))
                 }
                 className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="Enter price"
+                placeholder="Enter monthly rental"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Ops Costs (R)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.opsCosts === 0 ? "" : form.opsCosts}
+                onChange={(event) =>
+                  setter((current) => ({
+                    ...current,
+                    opsCosts: parseFloat(event.target.value) || 0,
+                  }))
+                }
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                placeholder="Enter operating costs"
               />
             </div>
 
@@ -618,6 +650,35 @@ export const Stock: React.FC = () => {
                 {toNumber(form.latitude) !== undefined && toNumber(form.longitude) !== undefined
                   ? `${Number(form.latitude).toFixed(6)}, ${Number(form.longitude).toFixed(6)}`
                   : 'Coordinates will be saved automatically'}
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Suitable Industries
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg border border-stone-200 p-3">
+                {INDUSTRY_OPTIONS.map((option) => {
+                  const checked = form.industries.includes(option);
+                  return (
+                    <label key={option} className="flex items-center gap-2 text-sm text-stone-700">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) =>
+                          setter((current) => ({
+                            ...current,
+                            industries: event.target.checked
+                              ? [...current.industries, option]
+                              : current.industries.filter((item) => item !== option),
+                          }))
+                        }
+                        className="rounded border-stone-300 text-violet-500 focus:ring-violet-500"
+                      />
+                      {option}
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
@@ -713,7 +774,8 @@ export const Stock: React.FC = () => {
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Unit Size</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Location</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Item Type</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Price</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Rental</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Ops Costs</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Coordinates</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Created By</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">Actions</th>
@@ -765,6 +827,7 @@ export const Stock: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-stone-600">{stock.category || '-'}</td>
                     <td className="px-6 py-4 text-sm font-medium text-stone-900">{formatRand(stock.purchasePrice)}</td>
+                    <td className="px-6 py-4 text-sm text-stone-600">{stock.opsCosts ? formatRand(stock.opsCosts) : '-'}</td>
                     <td className="px-6 py-4 text-sm text-stone-600">
                       {toNumber(stock.latitude) !== undefined && toNumber(stock.longitude) !== undefined
                         ? `${Number(stock.latitude).toFixed(4)}, ${Number(stock.longitude).toFixed(4)}`

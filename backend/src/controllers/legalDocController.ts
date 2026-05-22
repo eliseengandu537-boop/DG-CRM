@@ -1,10 +1,94 @@
 import { Response } from 'express';
 import { AuthRequest } from '@/types';
 import { prisma } from '@/lib/prisma';
+import { config } from '@/config';
 import { resolveDealStatus, statusRequiresWorkflowDocument } from '@/lib/dealWorkflow';
 import { upsertDealStatusDocumentWithClient } from '@/lib/dealWorkflowPersistence';
 import { emitDashboardRefresh, emitScopedEvent } from '@/realtime';
 import { emitActivityNotification } from '@/lib/realtimeNotifications';
+import { emailService } from '@/services/emailService';
+
+// Legal-doc statuses that count as completed/approved (case-insensitive).
+const LEGAL_DOC_TERMINAL_STATUSES = ['completed', 'approved', 'final'];
+
+function isTerminalLegalDocStatus(status: unknown): boolean {
+  return LEGAL_DOC_TERMINAL_STATUSES.includes(String(status || '').trim().toLowerCase());
+}
+
+// Resolves recipient admin email addresses: ADMIN_EMAIL plus any users with role 'admin'.
+async function resolveAdminRecipients(): Promise<string[]> {
+  const recipients = new Set<string>();
+  const adminEmail = String(config.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (adminEmail) recipients.add(adminEmail);
+
+  try {
+    const adminUsers = await prisma.user.findMany({
+      where: { role: 'admin' },
+      select: { email: true },
+    });
+    for (const user of adminUsers) {
+      const email = String(user.email || '').trim().toLowerCase();
+      if (email) recipients.add(email);
+    }
+  } catch {
+    // Best-effort - fall back to ADMIN_EMAIL only.
+  }
+
+  return [...recipients];
+}
+
+// Resolves the email/name of a legal-doc creator. `createdBy` may be a user id,
+// broker id, an email, or a display name. Returns null when it can't be resolved.
+async function resolveCreatorContact(
+  createdBy: string
+): Promise<{ email: string; name: string } | null> {
+  const value = String(createdBy || '').trim();
+  if (!value) return null;
+
+  try {
+    // Try as user id.
+    const userById = await prisma.user.findUnique({
+      where: { id: value },
+      select: { email: true, name: true },
+    });
+    if (userById?.email) return { email: userById.email, name: userById.name };
+
+    // Try as broker id.
+    const brokerById = await prisma.broker.findUnique({
+      where: { id: value },
+      select: { email: true, name: true },
+    });
+    if (brokerById?.email) return { email: brokerById.email, name: brokerById.name };
+
+    // Try as an email address.
+    if (value.includes('@')) {
+      const normalized = value.toLowerCase();
+      const userByEmail = await prisma.user.findUnique({
+        where: { email: normalized },
+        select: { email: true, name: true },
+      });
+      if (userByEmail?.email) return { email: userByEmail.email, name: userByEmail.name };
+      return { email: normalized, name: value };
+    }
+
+    // Try as a display name.
+    const userByName = await prisma.user.findFirst({
+      where: { name: value },
+      select: { email: true, name: true },
+    });
+    if (userByName?.email) return { email: userByName.email, name: userByName.name };
+
+    const brokerByName = await prisma.broker.findFirst({
+      where: { name: value },
+      select: { email: true, name: true },
+    });
+    if (brokerByName?.email) return { email: brokerByName.email, name: brokerByName.name };
+  } catch {
+    // Best-effort - resolution failed.
+  }
+
+  return null;
+}
 
 const ensureArray = (value: unknown) => (Array.isArray(value) ? value : []);
 const ensureString = (value: unknown, fallback: string = '') =>
@@ -223,6 +307,29 @@ export class LegalDocController {
         },
       });
 
+      // Best-effort: notify admins that a new legal document needs review.
+      try {
+        const adminRecipients = await resolveAdminRecipients();
+        await Promise.all(
+          adminRecipients.map(adminEmail =>
+            emailService.sendLegalDocCreatedToAdmin({
+              adminEmail,
+              documentName: created.documentName,
+              documentType: created.documentType,
+              createdBy: created.createdBy,
+              description: created.description || undefined,
+              fileName: created.fileName || undefined,
+              status: created.status || undefined,
+              createdDate: created.createdDate || undefined,
+            })
+          )
+        );
+      } catch (error: any) {
+        console.warn(
+          `Legal document created admin notification failed: ${String(error?.message || error)}`
+        );
+      }
+
       return res.status(201).json({
         success: true,
         message: 'Legal document created successfully',
@@ -281,6 +388,12 @@ export class LegalDocController {
         req.user?.email ||
         'Current User';
 
+      // Capture the previous status to detect a transition into a completed state.
+      const previous = await prisma.legalDocument.findUnique({
+        where: { id: req.params.id },
+        select: { status: true },
+      });
+
       const updated = await prisma.legalDocument.update({
         where: { id: req.params.id },
         data: data as any,
@@ -296,6 +409,29 @@ export class LegalDocController {
           documentType: updated.documentType,
         },
       });
+
+      // Best-effort: when the status changes to completed/approved, notify the creator.
+      try {
+        const statusBecameTerminal =
+          isTerminalLegalDocStatus(updated.status) &&
+          !isTerminalLegalDocStatus(previous?.status);
+        if (statusBecameTerminal) {
+          const creator = await resolveCreatorContact(updated.createdBy);
+          if (creator?.email) {
+            await emailService.sendLegalDocCompletedToBroker({
+              recipientEmail: creator.email,
+              recipientName: creator.name,
+              documentName: updated.documentName,
+              documentType: updated.documentType || undefined,
+              status: updated.status,
+            });
+          }
+        }
+      } catch (error: any) {
+        console.warn(
+          `Legal document completion notification failed: ${String(error?.message || error)}`
+        );
+      }
 
       return res.json({
         success: true,

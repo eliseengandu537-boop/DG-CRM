@@ -39,6 +39,7 @@ export interface Lead {
   closingTimeline?: string;
   notes?: string;
   comment?: string;
+  industry?: string;
   contactId?: string;
   brokerAssigned?: string;
   additionalBroker?: string;
@@ -189,6 +190,7 @@ export interface Contact {
   company?: string;
   position?: string;
   notes?: string;
+  industry?: string;
   moduleType?: ModuleScope;
   brokerId?: string;
   createdByBrokerId?: string;

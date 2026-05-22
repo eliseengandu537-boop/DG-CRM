@@ -10,11 +10,13 @@ import {
   serializeLeasingTenant,
   tenantService,
 } from "@/services/tenantService";
+import { INDUSTRY_OPTIONS } from "@/lib/industries";
 
 export const Tenants: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [filterIndustry, setFilterIndustry] = useState<string>("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [newTenant, setNewTenant] = useState({
@@ -27,6 +29,7 @@ export const Tenants: React.FC = () => {
     leaseStatus: "Pending",
     paymentStatus: "Current",
     maintenanceRequired: false,
+    industry: "",
   });
 
   useEffect(() => {
@@ -54,7 +57,8 @@ export const Tenants: React.FC = () => {
       tenant.companyName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus =
       filterStatus === "All" || tenant.leaseStatus === filterStatus;
-    return matchesSearch && matchesStatus;
+    const matchesIndustry = !filterIndustry || tenant.industry === filterIndustry;
+    return matchesSearch && matchesStatus && matchesIndustry;
   });
 
   const getLeaseStatusColor = (status: string) => {
@@ -135,6 +139,7 @@ export const Tenants: React.FC = () => {
       leaseStatus: tenant.leaseStatus,
       paymentStatus: tenant.paymentStatus,
       maintenanceRequired: !!tenant.maintenanceRequests,
+      industry: tenant.industry || "",
     });
     setShowAddModal(true);
   };
@@ -320,6 +325,25 @@ export const Tenants: React.FC = () => {
                     <option>Partial</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Industry
+                  </label>
+                  <select
+                    value={newTenant.industry}
+                    onChange={(e) =>
+                      setNewTenant({ ...newTenant, industry: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">— Select industry —</option>
+                    {INDUSTRY_OPTIONS.map((industry) => (
+                      <option key={industry} value={industry}>
+                        {industry}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex gap-3 mt-6 justify-end">
                 <button
@@ -375,6 +399,23 @@ export const Tenants: React.FC = () => {
               <option>Cancelled</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-2">
+              Industry
+            </label>
+            <select
+              value={filterIndustry}
+              onChange={(e) => setFilterIndustry(e.target.value)}
+              className="px-4 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="">All Industries</option>
+              {INDUSTRY_OPTIONS.map((industry) => (
+                <option key={industry} value={industry}>
+                  {industry}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -390,6 +431,9 @@ export const Tenants: React.FC = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Unit
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Industry
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Lease Period
@@ -440,6 +484,9 @@ export const Tenants: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-sm text-stone-600">
                         {tenant.unitNumber || "-"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-stone-600">
+                        {tenant.industry || "-"}
                       </td>
                       <td className="px-6 py-4 text-sm text-stone-600">
                         <div className="space-y-1">

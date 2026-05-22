@@ -13,6 +13,7 @@ import { ActivityDetailsModal } from "./ActivityDetailsModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NotificationCenter } from "@/components/Notifications/NotificationCenter";
 import { UnifiedStatsCards } from './UnifiedStatsCards';
+import { brokerService } from '@/services/brokerService';
 
 const chartAnimationStyles = `
   @keyframes slideUp {
@@ -184,17 +185,43 @@ export const Grid = () => {
     }
   }, []);
 
+  // Brokers — used to resolve the top performer's profile photo
+  const [brokers, setBrokers] = useState<any[]>([]);
+  useEffect(() => {
+    let active = true;
+    brokerService
+      .getAllBrokers()
+      .then(list => {
+        if (active) setBrokers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (active) setBrokers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Top performer from live backend ranking (closed deals + commission)
   const topBroker = useMemo(() => {
     const performer = metrics?.topPerformer;
     if (!performer || !performer.name) return null;
+    const matchedBroker =
+      brokers.find(b => b && b.id && b.id === performer.brokerId) ||
+      brokers.find(
+        b => b && b.name && b.name.toLowerCase() === performer.name.toLowerCase()
+      );
+    const photo =
+      (matchedBroker && matchedBroker.avatar) ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(performer.name)}`;
     return {
       name: performer.name,
       closedDeals: performer.closedDeals || 0,
       commission: performer.brokerCommission || 0,
-      avatar: performer.name.charAt(0).toUpperCase(),
+      initials: performer.name.charAt(0).toUpperCase(),
+      photo,
     };
-  }, [metrics?.topPerformer]);
+  }, [metrics?.topPerformer, brokers]);
 
   const aiResponses = useMemo<{ [key: string]: string }>(() => ({
     'deal': isBroker
@@ -385,10 +412,13 @@ export const Grid = () => {
   const leasingPercent = (monthlyRevenueByType.Leasing / totalMonthlyRevenue) * 100;
   const auctionPercent = (monthlyRevenueByType.Auction / totalMonthlyRevenue) * 100;
 
-  // Calculate pie chart stroke-dasharray values
-  const salesDash = (salesPercent / 100) * 280;
-  const leasingDash = (leasingPercent / 100) * 280;
-  const auctionDash = (auctionPercent / 100) * 280;
+  // Donut chart geometry (radius 62)
+  const donutCircumference = 2 * Math.PI * 62;
+  const hasMonthlyRevenue =
+    monthlyRevenueByType.Sales + monthlyRevenueByType.Leasing + monthlyRevenueByType.Auction > 0;
+  const salesArc = (salesPercent / 100) * donutCircumference;
+  const leasingArc = (leasingPercent / 100) * donutCircumference;
+  const auctionArc = (auctionPercent / 100) * donutCircumference;
 
   // Relative bar heights for Statistics chart
   const dealBarMax = Math.max(
@@ -451,7 +481,7 @@ export const Grid = () => {
       {/* Charts and Analytics Section - 3 Column Layout */}
       <div className={isBroker ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"}>
         {/* Monthly Sales - Donut Chart */}
-        <div className="bg-white rounded p-1 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
+        <div className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
           <div className="mb-2">
             <CardHeader title="Monthly Sales" subtitle="Live Revenue by Deal Type (This Month)" />
           </div>
@@ -459,17 +489,46 @@ export const Grid = () => {
             <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded animate-pulse"></div>
           ) : (
             <>
-              <div className="flex items-center justify-center flex-1 min-h-20 mb-1">
-                <svg viewBox="0 0 120 120" width="120" height="120" className="donut-chart">
-                  <circle cx="60" cy="60" r="45" fill="none" stroke="#ef4444" strokeWidth="12" strokeDasharray={`${salesDash} ${280 - salesDash}`} strokeDashoffset="0" strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                  <circle cx="60" cy="60" r="45" fill="none" stroke="#06b6d4" strokeWidth="12" strokeDasharray={`${leasingDash} ${280 - leasingDash}`} strokeDashoffset={`-${salesDash}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                  <circle cx="60" cy="60" r="45" fill="none" stroke="#10b981" strokeWidth="12" strokeDasharray={`${auctionDash} ${280 - auctionDash}`} strokeDashoffset={`-${salesDash + leasingDash}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                </svg>
+              <div className="flex items-center justify-center flex-1 min-h-40 my-2">
+                <div className="relative">
+                  <svg viewBox="0 0 160 160" width="172" height="172">
+                    <circle cx="80" cy="80" r="62" fill="none" stroke="#f1f5f9" strokeWidth="16" />
+                    {hasMonthlyRevenue && (
+                      <g transform="rotate(-90 80 80)">
+                        <circle
+                          cx="80" cy="80" r="62" fill="none" stroke="#ef4444" strokeWidth="16"
+                          strokeDasharray={`${salesArc} ${donutCircumference - salesArc}`}
+                          style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                        />
+                        <circle
+                          cx="80" cy="80" r="62" fill="none" stroke="#06b6d4" strokeWidth="16"
+                          strokeDasharray={`${leasingArc} ${donutCircumference - leasingArc}`}
+                          strokeDashoffset={`-${salesArc}`}
+                          style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                        />
+                        <circle
+                          cx="80" cy="80" r="62" fill="none" stroke="#10b981" strokeWidth="16"
+                          strokeDasharray={`${auctionArc} ${donutCircumference - auctionArc}`}
+                          strokeDashoffset={`-${salesArc + leasingArc}`}
+                          style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                        />
+                      </g>
+                    )}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="stat-value text-xl font-bold text-stone-900">
+                      {formatCurrency(hasMonthlyRevenue ? totalMonthlyRevenue : 0)}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mt-0.5">
+                      {hasMonthlyRevenue ? 'This Month' : 'No revenue yet'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="bg-stone-50 rounded p-1 space-y-0.5">
+              <div className="bg-stone-50 rounded-lg p-2.5 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-red-400 shadow-sm animate-pulse"></div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-400 shadow-sm"></div>
                     <span className="text-xs font-medium text-stone-700">Sales</span>
                   </div>
                   <span className="stat-value text-xs font-bold text-stone-900">
@@ -481,8 +540,8 @@ export const Grid = () => {
                 </div>
                 
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm"></div>
                     <span className="text-xs font-medium text-stone-700">Leasing</span>
                   </div>
                   <span className="stat-value text-xs font-bold text-stone-900">
@@ -494,8 +553,8 @@ export const Grid = () => {
                 </div>
                 
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm"></div>
                     <span className="text-xs font-medium text-stone-700">Auction</span>
                   </div>
                   <span className="stat-value text-xs font-bold text-stone-900">
@@ -510,98 +569,17 @@ export const Grid = () => {
           )}
         </div>
 
-        {/* Statistics - Bar Chart */}
-        <div className="bg-white rounded-xl p-2 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
-          <div className="mb-4">
-            <CardHeader title="Statistics" subtitle="Live Deal Status Overview" />
-          </div>
-          {isLoading ? (
-            <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded-xl animate-pulse"></div>
-          ) : (
-            <>
-              <div className="flex items-end justify-around flex-1 min-h-32 mb-2 px-2 bg-gradient-to-br from-stone-50 to-stone-100 rounded py-2">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.openDeals || 0) / dealBarMax) * 160)}px` }}></div>
-                  <span className="text-xs font-semibold text-stone-600 mt-2">Open</span>
-                  <span className="stat-value text-lg font-bold text-blue-600">{metrics?.statistics.openDeals || 0}</span>
-                </div>
-                <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.closedDeals || 0) / dealBarMax) * 160)}px` }}></div>
-                  <span className="text-xs font-semibold text-stone-600 mt-2">Closed</span>
-                  <span className="stat-value text-lg font-bold text-emerald-600">{metrics?.statistics.closedDeals || 0}</span>
-                </div>
-                <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-red-600 to-red-400 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.lostDeals || 0) / dealBarMax) * 160)}px` }}></div>
-                  <span className="text-xs font-semibold text-stone-600 mt-2">Lost</span>
-                  <span className="stat-value text-lg font-bold text-red-600">{metrics?.statistics.lostDeals || 0}</span>
-                </div>
-                <div className="flex flex-col items-center gap-3">
-                  <div className="chart-bar w-6 bg-gradient-to-t from-yellow-500 to-yellow-300 rounded-t-lg shadow-md transition-all duration-300 hover:shadow-2xl" style={{ height: `${Math.round(((metrics?.statistics.conversionRate || 0) / 100) * 160)}px` }}></div>
-                  <span className="text-xs font-semibold text-stone-600 mt-2">Conv%</span>
-                  <span className="stat-value text-lg font-bold text-yellow-600">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 bg-stone-50 rounded p-2">
-                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-stone-700">Open</span>
-                  </div>
-                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.openDeals || 0}</span>
-                </div>
-                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" style={{ animationDelay: '0.15s' }}></div>
-                    <span className="text-sm font-medium text-stone-700">Closed</span>
-                  </div>
-                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.closedDeals || 0}</span>
-                </div>
-                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '0.3s' }}></div>
-                    <span className="text-sm font-medium text-stone-700">Lost</span>
-                  </div>
-                  <span className="stat-value text-sm font-bold text-stone-900">{metrics?.statistics.lostDeals || 0}</span>
-                </div>
-                <div className="flex items-center justify-between transition-transform hover:translate-x-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse" style={{ animationDelay: '0.45s' }}></div>
-                    <span className="text-sm font-medium text-stone-700">Conv Rate</span>
-                  </div>
-                  <span className="stat-value text-sm font-bold text-stone-900">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
         {/* Total Revenue - Line Chart */}
         {!isBroker && (
-          <div className="bg-white rounded-xl p-2 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
+          <div className="md:col-span-2 lg:col-span-2 bg-white rounded-xl p-4 border border-stone-200 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col h-full min-h-0">
             <div className="mb-4">
-              <CardHeader title="Total Revenue" subtitle="Monthly Sales, Leasing, and Auction" />
+              <CardHeader title="Total Revenue" subtitle="Monthly revenue trend — Sales, Leasing & Auction" />
             </div>
             {isLoading ? (
               <div className="flex-1 bg-gradient-to-br from-stone-50 to-stone-100 rounded-xl animate-pulse"></div>
             ) : (
-              <div className="flex-1 min-h-32 flex flex-col">
-                <div className="flex-1 overflow-x-auto mb-2">
-                  <RevenueChart />
-                </div>
-                <div className="bg-stone-50 rounded p-2 flex items-center justify-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-0.5 bg-blue-500 rounded-full shadow-sm"></div>
-                    <span className="text-xs font-medium text-stone-700">Sales</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-0.5 bg-emerald-500 rounded-full shadow-sm" style={{ strokeDasharray: '4,4' }}></div>
-                    <span className="text-xs font-medium text-stone-700">Leasing</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-0.5 bg-amber-500 rounded-full shadow-sm" style={{ strokeDasharray: '2,6' }}></div>
-                    <span className="text-xs font-medium text-stone-700">Auction</span>
-                  </div>
-                </div>
+              <div className="flex-1 min-h-[280px] flex flex-col">
+                <RevenueChart />
               </div>
             )}
           </div>
@@ -734,21 +712,30 @@ export const Grid = () => {
               onClick={() => window.dispatchEvent(new CustomEvent('navigation:page-change', { detail: { page: 'Broker Profiles' } }))}
               title="View Broker Profiles"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 flex-1">
-                  {topBroker && (
-                    <div className="w-5 h-5 rounded bg-white/20 flex items-center justify-center text-white font-bold text-[10px]">
-                      {topBroker.avatar}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-[10px] text-amber-200 font-semibold uppercase">Top Performer</p>
-                    <p className="text-[11px] font-bold text-white truncate">{topBroker?.name || "N/A"}</p>
-                    <p className="text-[10px] text-amber-100">{topBroker?.closedDeals || 0} Closings</p>
-                    <p className="text-[10px] text-amber-100">{formatCurrency(topBroker?.commission || 0)} Commission</p>
+              <div className="flex items-center gap-2.5">
+                <div className="relative flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-white/25 ring-2 ring-white/70 overflow-hidden flex items-center justify-center">
+                    {topBroker?.photo ? (
+                      <img
+                        src={topBroker.photo}
+                        alt={topBroker.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-white font-bold text-sm">{topBroker?.initials || '—'}</span>
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow">
+                    <GiTrophy className="text-amber-500 text-[11px]" />
                   </div>
                 </div>
-                <GiTrophy className="text-white text-xs ml-1" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] text-amber-200 font-semibold uppercase tracking-wide">Top Performer</p>
+                  <p className="text-sm font-bold text-white truncate leading-tight">{topBroker?.name || "N/A"}</p>
+                  <p className="text-[10px] text-amber-100 leading-tight mt-0.5">
+                    {topBroker?.closedDeals || 0} Closings · {formatCurrency(topBroker?.commission || 0)}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

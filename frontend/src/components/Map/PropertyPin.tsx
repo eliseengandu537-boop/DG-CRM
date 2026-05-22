@@ -9,6 +9,7 @@ import { customRecordService } from '@/services/customRecordService';
 import { dealService } from '@/services/dealService';
 import { leadService } from '@/services/leadService';
 import { useAuth } from '@/context/AuthContext';
+import { navigateToPage } from '@/lib/crmNavigation';
 
 interface PropertyPinProps {
   property: Property;
@@ -463,7 +464,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
     </div>
   );
 
-  const Row = ({ label, value }: { label: string; value?: string | number | null }) =>
+  const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
     value != null && value !== '' ? (
       <div className="flex items-start justify-between py-2 gap-4">
         <span className="text-xs text-gray-400 uppercase tracking-wide font-medium shrink-0 pt-0.5">{label}</span>
@@ -546,7 +547,24 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                 <Row label="Year Built" value={property.details.yearBuilt} />
                 <Row label="Condition" value={property.details.condition} />
                 <Row label="Status" value={property.details.ownershipStatus} />
-                {property.linkedCompanyName && <Row label="Company Name" value={property.linkedCompanyName} />}
+                {property.linkedCompanyName && (
+                  <Row
+                    label="Company Name"
+                    value={
+                      <button
+                        onClick={() =>
+                          navigateToPage('Property Funds', {
+                            kind: 'company',
+                            name: property.linkedCompanyName,
+                          })
+                        }
+                        className="text-violet-600 hover:text-violet-800 hover:underline cursor-pointer font-medium transition-colors"
+                      >
+                        {property.linkedCompanyName}
+                      </button>
+                    }
+                  />
+                )}
                 {property.registrationNumber && <Row label="Registration No." value={property.registrationNumber} />}
                 {property.ownerName && <Row label="Owner Name & Surname" value={property.ownerName} />}
                 {property.ownerContactNumber && <Row label="Owner Number" value={property.ownerContactNumber} />}
@@ -737,7 +755,21 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
             <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-200">
               <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1.5">🏢 Company</p>
               <p className="text-sm font-semibold text-gray-900 leading-snug">
-                {property.linkedCompanyName || liveCompanyName || <span className="text-gray-400 font-normal">None</span>}
+                {property.linkedCompanyName || liveCompanyName ? (
+                  <button
+                    onClick={() =>
+                      navigateToPage('Property Funds', {
+                        kind: 'company',
+                        name: property.linkedCompanyName || liveCompanyName,
+                      })
+                    }
+                    className="text-violet-600 hover:text-violet-800 hover:underline cursor-pointer font-semibold transition-colors text-left"
+                  >
+                    {property.linkedCompanyName || liveCompanyName}
+                  </button>
+                ) : (
+                  <span className="text-gray-400 font-normal">None</span>
+                )}
               </p>
             </div>
             <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-200">

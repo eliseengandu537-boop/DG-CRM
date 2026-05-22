@@ -12,6 +12,7 @@ export type AppPage =
   | 'Legal Docs'
   | 'Reminders'
   | 'Brochures'
+  | 'Reports'
   | 'Settings'
   | 'User Profile';
 
@@ -28,6 +29,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Legal Docs',
     'Reminders',
     'Brochures',
+    'Reports',
     'Settings',
     'User Profile',
   ],
@@ -43,6 +45,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Legal Docs',
     'Reminders',
     'Brochures',
+    'Reports',
     'Settings',
     'User Profile',
   ],

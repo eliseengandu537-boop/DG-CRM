@@ -33,6 +33,7 @@ function mapLead(record: NonNullable<LeadWithRelations>): Lead {
     closingTimeline: record.closingTimeline ?? undefined,
     notes: record.notes ?? undefined,
     comment: resolvedComment ?? undefined,
+    industry: record.industry ?? undefined,
     contactId: record.contactId ?? undefined,
     brokerAssigned: record.brokerAssigned ?? undefined,
     additionalBroker: record.additionalBroker ?? undefined,
@@ -327,6 +328,7 @@ export class LeadService {
           closingTimeline: data.closingTimeline,
           notes: resolvedNotes,
           comment: resolvedComment,
+          industry: data.industry,
           contactId: resolvedContactId,
           brokerAssigned: data.brokerAssigned,
           additionalBroker: data.additionalBroker,
@@ -470,6 +472,7 @@ export class LeadService {
               : normalizedNotesInput !== undefined
               ? normalizedNotesInput
               : undefined,
+          industry: data.industry,
           contactId: data.contactId,
           brokerAssigned: data.brokerAssigned,
           additionalBroker: data.additionalBroker,

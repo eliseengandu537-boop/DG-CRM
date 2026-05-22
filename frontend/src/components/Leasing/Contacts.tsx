@@ -7,6 +7,7 @@ import { FiEdit2, FiTrash2, FiPlus, FiSearch, FiLink2 } from "react-icons/fi";
 import { contactService } from "@/services/contactService";
 import { tenantService } from "@/services/tenantService";
 import { landlordService } from "@/services/landlordService";
+import { INDUSTRY_OPTIONS } from "@/lib/industries";
 
 const normalizeContactType = (type: string) => {
   const value = String(type || "").trim();
@@ -33,6 +34,7 @@ const toLeasingContact = (contact: any): Contact => ({
   linkedProperties: Array.isArray(contact.linkedPropertyIds) ? contact.linkedPropertyIds : [],
   linkedDeals: Array.isArray(contact.linkedDealIds) ? contact.linkedDealIds : [],
   status: normalizeContactStatus(contact.status),
+  industry: contact.industry || "",
   createdDate: contact.createdAt
     ? new Date(contact.createdAt).toISOString().split("T")[0]
     : new Date().toISOString().split("T")[0],
@@ -48,12 +50,14 @@ const getInitialContact = () => ({
   position: "",
   type: "Broker",
   status: "Active",
+  industry: "",
 });
 
 export const Contacts: React.FC = () => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("All");
+  const [filterIndustry, setFilterIndustry] = useState<string>("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [newContact, setNewContact] = useState(getInitialContact());
@@ -85,7 +89,8 @@ export const Contacts: React.FC = () => {
       contact.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       contact.company.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === "All" || contact.type === filterType;
-    return matchesSearch && matchesType;
+    const matchesIndustry = !filterIndustry || contact.industry === filterIndustry;
+    return matchesSearch && matchesType && matchesIndustry;
   });
 
   const getTypeColor = (type: string) => {
@@ -134,6 +139,7 @@ export const Contacts: React.FC = () => {
         position: newContact.position,
         type: newContact.type,
         status: newContact.status,
+        industry: newContact.industry,
         linkedPropertyIds: [],
         linkedDealIds: [],
         moduleType: "leasing",
@@ -225,6 +231,7 @@ export const Contacts: React.FC = () => {
       position: contact.position,
       type: contact.type,
       status: contact.status,
+      industry: contact.industry || "",
     });
     setShowAddModal(true);
   };
@@ -242,6 +249,7 @@ export const Contacts: React.FC = () => {
         position: newContact.position,
         type: newContact.type,
         status: newContact.status,
+        industry: newContact.industry,
         moduleType: "leasing",
       });
       const mapped = toLeasingContact(updated);
@@ -416,6 +424,25 @@ export const Contacts: React.FC = () => {
                     <option>Archived</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Industry
+                  </label>
+                  <select
+                    value={newContact.industry}
+                    onChange={(e) =>
+                      setNewContact({ ...newContact, industry: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">— Select industry —</option>
+                    {INDUSTRY_OPTIONS.map((industry) => (
+                      <option key={industry} value={industry}>
+                        {industry}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex gap-3 mt-6 justify-end">
                 <button
@@ -475,6 +502,23 @@ export const Contacts: React.FC = () => {
                 <option>Multi</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-2">
+              Industry
+            </label>
+            <select
+              value={filterIndustry}
+              onChange={(e) => setFilterIndustry(e.target.value)}
+              className="px-4 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="">All Industries</option>
+              {INDUSTRY_OPTIONS.map((industry) => (
+                <option key={industry} value={industry}>
+                  {industry}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -502,6 +546,9 @@ export const Contacts: React.FC = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
+                    Industry
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-stone-900">
                     Status
@@ -543,6 +590,9 @@ export const Contacts: React.FC = () => {
                       >
                         {contact.type}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-stone-600">
+                      {contact.industry || "-"}
                     </td>
                     <td className={`px-6 py-4 text-sm font-medium ${getStatusColor(contact.status)}`}>
                       {contact.status}

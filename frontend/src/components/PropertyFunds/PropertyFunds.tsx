@@ -1,12 +1,21 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PropertyFundsManager } from './PropertyFundsManager';
 import { AssetsManager } from './AssetsManager';
 import { CompanyManager } from './CompanyManager';
+import { peekNavFocus } from '@/lib/crmNavigation';
 
 export default function PropertyFunds() {
   const [activeTab, setActiveTab] = useState<'funds' | 'assets' | 'company'>('funds');
+
+  // Deep-link: if navigated here with a 'company' focus target, open the Company tab.
+  useEffect(() => {
+    const focus = peekNavFocus();
+    if (focus && focus.kind === 'company') {
+      setActiveTab('company');
+    }
+  }, []);
 
   const tabs = [
     { id: 'funds', label: '💰 Funds' },

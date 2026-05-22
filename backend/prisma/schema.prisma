@@ -65,6 +65,7 @@ model Lead {
   closingTimeline String?   @map("closing_timeline")
   notes           String?
   comment         String?   @map("comment")
+  industry        String?
   contactId       String?   @map("contact_id")
   brokerAssigned  String?   @map("broker_assigned")
   additionalBroker String?  @map("additional_broker")
@@ -252,6 +253,7 @@ model Contact {
   company           String?
   position          String?
   notes             String?
+  industry          String?
   moduleType        String?  @map("module_type")
   brokerId          String?  @map("broker_id")
   createdByBrokerId String?  @map("created_by_broker_id")

@@ -9,15 +9,23 @@ import {
   FiX,
   FiBriefcase,
   FiLink,
+  FiMapPin,
 } from 'react-icons/fi';
 import {
   customRecordService,
   type CustomRecord,
 } from '@/services/customRecordService';
+import { useAuth } from '@/context/AuthContext';
+import { consumeNavFocus, navigateToPage } from '@/lib/crmNavigation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type CompanyType =
+  | 'Private Company'
+  | 'PTY LTD'
+  | 'Personal Liability Company'
+  | 'Public Company/Listed Funds'
+  | 'State Owned Company'
   | 'Asset Manager'
   | 'Property Manager'
   | 'Developer'
@@ -30,10 +38,15 @@ type CompanyStatus = 'Active' | 'Inactive';
 interface CompanyPayload {
   companyType: CompanyType;
   registrationNumber: string;
+  propertyName: string;
   contactPerson: string;
+  contactType: string;
   email: string;
   phone: string;
   address: string;
+  ownerName: string;
+  ownerPhone: string;
+  ownerEmail: string;
   linkedFundIds: string[];
   linkedFundNames: string[];
 }
@@ -43,10 +56,15 @@ interface Company {
   name: string;
   companyType: CompanyType;
   registrationNumber: string;
+  propertyName: string;
   contactPerson: string;
+  contactType: string;
   email: string;
   phone: string;
   address: string;
+  ownerName: string;
+  ownerPhone: string;
+  ownerEmail: string;
   status: CompanyStatus;
   linkedFundIds: string[];
   linkedFundNames: string[];
@@ -58,6 +76,11 @@ type FundOption = { id: string; name: string };
 const ENTITY_TYPE = 'fund_company';
 
 const COMPANY_TYPES: CompanyType[] = [
+  'Private Company',
+  'PTY LTD',
+  'Personal Liability Company',
+  'Public Company/Listed Funds',
+  'State Owned Company',
   'Asset Manager',
   'Property Manager',
   'Developer',
@@ -66,14 +89,27 @@ const COMPANY_TYPES: CompanyType[] = [
   'Other',
 ];
 
+const CONTACT_TYPES: string[] = [
+  'Asset Manager',
+  'Property Developer',
+  'Property Manager',
+  'Investor',
+  'Leasing Manager',
+];
+
 const emptyForm = {
   name: '',
-  companyType: 'Asset Manager' as CompanyType,
+  companyType: 'Private Company' as CompanyType,
   registrationNumber: '',
+  propertyName: '',
   contactPerson: '',
+  contactType: '',
   email: '',
   phone: '',
   address: '',
+  ownerName: '',
+  ownerPhone: '',
+  ownerEmail: '',
   status: 'Active' as CompanyStatus,
   linkedFundIds: [] as string[],
   linkedFundNames: [] as string[],
@@ -91,10 +127,15 @@ const toCompany = (record: CustomRecord<Record<string, unknown>>): Company => {
     name: record.name || '',
     companyType: (p.companyType || 'Other') as CompanyType,
     registrationNumber: String(p.registrationNumber || ''),
+    propertyName: String(p.propertyName || ''),
     contactPerson: String(p.contactPerson || ''),
+    contactType: String(p.contactType || ''),
     email: String(p.email || ''),
     phone: String(p.phone || ''),
     address: String(p.address || ''),
+    ownerName: String(p.ownerName || ''),
+    ownerPhone: String(p.ownerPhone || ''),
+    ownerEmail: String(p.ownerEmail || ''),
     status: (record.status || 'Active') as CompanyStatus,
     linkedFundIds: toStringArray(p.linkedFundIds),
     linkedFundNames: toStringArray(p.linkedFundNames),
@@ -104,6 +145,11 @@ const toCompany = (record: CustomRecord<Record<string, unknown>>): Company => {
 
 const getTypeColor = (type: CompanyType) => {
   switch (type) {
+    case 'Private Company':            return 'bg-sky-100 text-sky-800';
+    case 'PTY LTD':                    return 'bg-indigo-100 text-indigo-800';
+    case 'Personal Liability Company': return 'bg-teal-100 text-teal-800';
+    case 'Public Company/Listed Funds':return 'bg-cyan-100 text-cyan-800';
+    case 'State Owned Company':        return 'bg-orange-100 text-orange-800';
     case 'Asset Manager':   return 'bg-violet-100 text-violet-800';
     case 'Property Manager':return 'bg-blue-100 text-blue-800';
     case 'Developer':       return 'bg-amber-100 text-amber-800';
@@ -116,6 +162,10 @@ const getTypeColor = (type: CompanyType) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const CompanyManager: React.FC = () => {
+  const { user } = useAuth();
+  const canEditStatus =
+    user?.role === 'admin' || user?.role === 'manager';
+
   const [companies, setCompanies] = useState<Company[]>([]);
   const [funds, setFunds] = useState<FundOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,10 +246,15 @@ export const CompanyManager: React.FC = () => {
       name: c.name,
       companyType: c.companyType,
       registrationNumber: c.registrationNumber,
+      propertyName: c.propertyName,
       contactPerson: c.contactPerson,
+      contactType: c.contactType,
       email: c.email,
       phone: c.phone,
       address: c.address,
+      ownerName: c.ownerName,
+      ownerPhone: c.ownerPhone,
+      ownerEmail: c.ownerEmail,
       status: c.status,
       linkedFundIds: [...c.linkedFundIds],
       linkedFundNames: [...c.linkedFundNames],
@@ -215,6 +270,24 @@ export const CompanyManager: React.FC = () => {
     setEditingCompany(null);
     setShowFundPicker(false);
   };
+
+  // Deep-link: once companies are loaded, if navigated here with a 'company'
+  // focus target, automatically open that company's edit modal.
+  const [focusHandled, setFocusHandled] = useState(false);
+  useEffect(() => {
+    if (loading || focusHandled) return;
+    setFocusHandled(true);
+    const focus = consumeNavFocus('company');
+    if (!focus) return;
+    const target =
+      (focus.id && companies.find((c) => c.id === focus.id)) ||
+      (focus.name &&
+        companies.find(
+          (c) => c.name.toLowerCase() === focus.name!.toLowerCase()
+        )) ||
+      null;
+    if (target) openEdit(target);
+  }, [loading, focusHandled, companies]);
 
   const handleField = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -258,18 +331,27 @@ export const CompanyManager: React.FC = () => {
       const payload: CompanyPayload = {
         companyType: formData.companyType,
         registrationNumber: formData.registrationNumber.trim(),
+        propertyName: formData.propertyName.trim(),
         contactPerson: formData.contactPerson.trim(),
+        contactType: formData.contactType,
         email: formData.email.trim(),
         phone: formData.phone.trim(),
         address: formData.address.trim(),
+        ownerName: formData.ownerName.trim(),
+        ownerPhone: formData.ownerPhone.trim(),
+        ownerEmail: formData.ownerEmail.trim(),
         linkedFundIds: [...formData.linkedFundIds],
         linkedFundNames: [...formData.linkedFundNames],
       };
 
       if (editingCompany) {
+        // Only management may change status; otherwise keep the existing value.
+        const nextStatus = canEditStatus
+          ? formData.status
+          : editingCompany.status;
         await customRecordService.updateCustomRecord(editingCompany.id, {
           name: formData.name.trim(),
-          status: formData.status,
+          status: nextStatus,
           payload: payload as unknown as Record<string, unknown>,
         });
       } else {
@@ -380,17 +462,36 @@ export const CompanyManager: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <span className={`mt-2 inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${getTypeColor(company.companyType)}`}>
-                  {company.companyType}
-                </span>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${getTypeColor(company.companyType)}`}>
+                    {company.companyType}
+                  </span>
+                  {company.contactType && (
+                    <span className="inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600">
+                      {company.contactType}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Details */}
               <div className="p-5 space-y-2 text-xs">
+                {company.propertyName && (
+                  <div className="flex justify-between">
+                    <span className="text-stone-400 uppercase tracking-wide font-medium">Property</span>
+                    <span className="text-stone-800 font-semibold truncate max-w-[60%]">{company.propertyName}</span>
+                  </div>
+                )}
                 {company.registrationNumber && (
                   <div className="flex justify-between">
                     <span className="text-stone-400 uppercase tracking-wide font-medium">Reg #</span>
                     <span className="text-stone-800 font-semibold">{company.registrationNumber}</span>
+                  </div>
+                )}
+                {company.address && (
+                  <div className="flex justify-between">
+                    <span className="text-stone-400 uppercase tracking-wide font-medium">Address</span>
+                    <span className="text-stone-800 font-semibold truncate max-w-[60%]">{company.address}</span>
                   </div>
                 )}
                 {company.contactPerson && (
@@ -411,10 +512,28 @@ export const CompanyManager: React.FC = () => {
                     <span className="text-stone-800 font-semibold">{company.phone}</span>
                   </div>
                 )}
+                {company.ownerName && (
+                  <div className="flex justify-between">
+                    <span className="text-stone-400 uppercase tracking-wide font-medium">Owner</span>
+                    <span className="text-stone-800 font-semibold">{company.ownerName}</span>
+                  </div>
+                )}
+                {company.ownerPhone && (
+                  <div className="flex justify-between">
+                    <span className="text-stone-400 uppercase tracking-wide font-medium">Owner Phone</span>
+                    <span className="text-stone-800 font-semibold">{company.ownerPhone}</span>
+                  </div>
+                )}
+                {company.ownerEmail && (
+                  <div className="flex justify-between">
+                    <span className="text-stone-400 uppercase tracking-wide font-medium">Owner Email</span>
+                    <span className="text-stone-800 font-semibold truncate max-w-[60%]">{company.ownerEmail}</span>
+                  </div>
+                )}
               </div>
 
               {/* Linked Funds */}
-              <div className="px-5 pb-5">
+              <div className="px-5 pb-5 space-y-3">
                 {company.linkedFundNames.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {company.linkedFundNames.map((fn, i) => (
@@ -436,6 +555,21 @@ export const CompanyManager: React.FC = () => {
                     + Link to fund
                   </button>
                 )}
+
+                {/* View on Map */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigateToPage('Maps', {
+                      kind: 'property',
+                      name: company.propertyName,
+                    })
+                  }
+                  className="flex items-center gap-1 text-xs text-violet-600 hover:underline font-medium"
+                >
+                  <FiMapPin size={11} />
+                  View on Map
+                </button>
               </div>
             </div>
           ))}
@@ -514,11 +648,17 @@ export const CompanyManager: React.FC = () => {
                     name="status"
                     value={formData.status}
                     onChange={handleField}
-                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
+                    disabled={!!editingCompany && !canEditStatus}
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
                   >
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
+                  {!!editingCompany && !canEditStatus && (
+                    <p className="text-xs text-stone-400 italic mt-1">
+                      Only management can change status
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -535,6 +675,39 @@ export const CompanyManager: React.FC = () => {
                   placeholder="e.g. 1987/004988/06"
                   className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
                 />
+              </div>
+
+              {/* Property Name */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
+                  Property Name
+                </label>
+                <input
+                  type="text"
+                  name="propertyName"
+                  value={formData.propertyName}
+                  onChange={handleField}
+                  placeholder="e.g. Sandton City"
+                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                />
+              </div>
+
+              {/* Contact Type */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
+                  Contact Type
+                </label>
+                <select
+                  name="contactType"
+                  value={formData.contactType}
+                  onChange={handleField}
+                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
+                >
+                  <option value="">— Select contact type —</option>
+                  {CONTACT_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Contact Person + Phone */}
@@ -595,6 +768,51 @@ export const CompanyManager: React.FC = () => {
                   placeholder="Head office address"
                   className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
                 />
+              </div>
+
+              {/* Owner Name */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
+                  Owner&apos;s Name
+                </label>
+                <input
+                  type="text"
+                  name="ownerName"
+                  value={formData.ownerName}
+                  onChange={handleField}
+                  placeholder="Full name"
+                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                />
+              </div>
+
+              {/* Owner Phone + Email */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
+                    Owner&apos;s Contact Number
+                  </label>
+                  <input
+                    type="text"
+                    name="ownerPhone"
+                    value={formData.ownerPhone}
+                    onChange={handleField}
+                    placeholder="+27 11 000 0000"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
+                    Owner&apos;s Email
+                  </label>
+                  <input
+                    type="email"
+                    name="ownerEmail"
+                    value={formData.ownerEmail}
+                    onChange={handleField}
+                    placeholder="owner@company.co.za"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                  />
+                </div>
               </div>
 
               {/* Link Funds */}

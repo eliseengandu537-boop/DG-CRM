@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FiArrowLeft, FiFilter, FiSearch, FiTrash2 } from 'react-icons/fi';
+import {
+  FiArrowLeft,
+  FiCheckCircle,
+  FiClock,
+  FiDownload,
+  FiEye,
+  FiFileText,
+  FiFilter,
+  FiSearch,
+  FiTrash2,
+} from 'react-icons/fi';
 import { useAuth } from '@/context/AuthContext';
 import { Broker } from './BrokerCard';
 import { BrokerWipItem } from '@/services/brokerPerformanceService';
@@ -14,6 +24,7 @@ import { reminderService, ReminderRecord } from '@/services/reminderService';
 import { LegalDocument } from '@/data/legaldocs';
 import { DealDateModal } from './DealDateModal';
 import { CommentModal } from './CommentModal';
+import { CanvassingSheets } from '@/components/Canvassing/CanvassingSheets';
 import { formatRand } from '@/lib/currency';
 import { playNotificationSound } from '@/lib/notificationAudio';
 import { parseDealTitle } from '@/lib/dealTitle';
@@ -282,6 +293,100 @@ function pickPreferredStatusDocument(item: BrokerWipItem): WipStatusDocument | n
   );
 }
 
+/**
+ * De-duplicates the status documents to one entry per workflow status (LOI / OTP / OTL /
+ * Agreement) keeping the most recently completed/modified record. This guarantees that every
+ * status that required a document keeps its own visible row even after the deal advances.
+ */
+function dedupeStatusDocumentsByStatus(item: BrokerWipItem): WipStatusDocument[] {
+  const statusDocuments = Array.isArray(item.statusDocuments) ? item.statusDocuments : [];
+  const byStatus = new Map<string, WipStatusDocument>();
+  for (const document of statusDocuments) {
+    const key = canonicalStatus(String(document.status || ''));
+    if (!key) continue;
+    const existing = byStatus.get(key);
+    if (!existing || statusDocumentSortTime(document) >= statusDocumentSortTime(existing)) {
+      byStatus.set(key, document);
+    }
+  }
+  const stageOrder = ['loi', 'otp', 'otl', 'lease_agreement', 'sale_agreement'];
+  return Array.from(byStatus.values()).sort((left, right) => {
+    const leftIndex = stageOrder.indexOf(canonicalStatus(String(left.status || '')));
+    const rightIndex = stageOrder.indexOf(canonicalStatus(String(right.status || '')));
+    return (leftIndex === -1 ? 99 : leftIndex) - (rightIndex === -1 ? 99 : rightIndex);
+  });
+}
+
+function isStatusDocumentFilled(document: WipStatusDocument): boolean {
+  return Boolean(
+    String(document.filledDocumentRecordId || '').trim() ||
+      String(document.filledDocumentDownloadUrl || '').trim() ||
+      String(document.completedAt || '').trim()
+  );
+}
+
+/** Builds the plain-text body of a filled document for in-app viewing and file download. */
+function buildFilledDocumentText(params: {
+  documentName: string;
+  statusLabel: string;
+  content?: string;
+  filledFields?: Record<string, unknown> | null;
+}): string {
+  const lines: string[] = [];
+  lines.push(params.documentName || 'Filled Document');
+  lines.push(`Workflow step: ${params.statusLabel}`);
+  lines.push(`Generated: ${new Date().toLocaleString('en-ZA')}`);
+  lines.push('');
+  lines.push('========================================');
+  lines.push('');
+
+  const filledFields = params.filledFields || {};
+  const fieldEntries = Object.entries(filledFields).filter(([, value]) =>
+    String(value ?? '').trim()
+  );
+  if (fieldEntries.length > 0) {
+    lines.push('FILLED FIELDS');
+    lines.push('');
+    for (const [key, value] of fieldEntries) {
+      const label = String(key).replace(/[_[\]]+/g, ' ').trim();
+      lines.push(`${label}: ${String(value).trim()}`);
+    }
+    lines.push('');
+    lines.push('========================================');
+    lines.push('');
+  }
+
+  const content = String(params.content || '').trim();
+  if (content) {
+    lines.push('DOCUMENT CONTENT');
+    lines.push('');
+    lines.push(content);
+  } else if (fieldEntries.length === 0) {
+    lines.push('No filled content was captured for this document.');
+  }
+
+  return lines.join('\n');
+}
+
+/** Triggers a browser file download for a text payload. */
+function downloadTextFile(fileName: string, contents: string): void {
+  if (typeof window === 'undefined') return;
+  const safeName = String(fileName || 'filled-document')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const blob = new Blob([contents], { type: 'text/plain;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = safeName.toLowerCase().endsWith('.txt') ? safeName : `${safeName}.txt`;
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipSheets = [] }) => {
   const router = useRouter();
   const { user } = useAuth();
@@ -298,6 +403,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [legalDocumentsError, setLegalDocumentsError] = useState<string | null>(null);
   const [selectedViewDocument, setSelectedViewDocument] = useState<LegalDocument | null>(null);
   const [loadingViewDocumentId, setLoadingViewDocumentId] = useState<string | null>(null);
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
   const [selectedDealForDateModal, setSelectedDealForDateModal] = useState<BrokerWipItem | null>(null);
   const [selectedDealForCommentModal, setSelectedDealForCommentModal] = useState<{
     dealName: string;
@@ -604,14 +710,95 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     router.push(`/legal-docs?${query.toString()}`);
   };
 
-  const handleOpenWipDocument = async (item: BrokerWipItem) => {
-    const preferredStatusDocument = pickPreferredStatusDocument(item);
-    const filledDocumentRecordId = String(
-      preferredStatusDocument?.filledDocumentRecordId || ''
+  /**
+   * Resolves the displayable payload of a filled workflow document. Tries the explicit
+   * filled-document record first, then falls back to searching custom records by the original
+   * legal document id (so a filled document still shows even if the record link was lost).
+   */
+  const resolveFilledDocument = async (params: {
+    filledDocumentRecordId?: string;
+    legalDocumentId?: string;
+    fallbackName?: string;
+  }): Promise<{
+    fileName: string;
+    content: string;
+    filledFields: Record<string, unknown>;
+    fileType: 'pdf' | 'txt';
+    filePath?: string;
+  }> => {
+    const filledDocumentRecordId = String(params.filledDocumentRecordId || '').trim();
+    const legalDocumentId = String(params.legalDocumentId || '').trim();
+
+    let payload: Record<string, any> = {};
+    let recordName = '';
+    let referenceId = '';
+
+    if (filledDocumentRecordId) {
+      const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
+      payload = ((record as any)?.payload as Record<string, any>) || {};
+      recordName = String(record?.name || '');
+      referenceId = String(record?.referenceId || '');
+    } else if (legalDocumentId) {
+      // No explicit record link — search for the most recent filled record for this document.
+      try {
+        const result = await customRecordService.getAllCustomRecords<any>({
+          entityType: 'filled-document',
+          limit: 500,
+        });
+        const latest = result.data
+          .filter(record => String(record.referenceId || '') === legalDocumentId)
+          .sort(
+            (left, right) =>
+              new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+          )[0];
+        if (latest) {
+          payload = (latest.payload as Record<string, any>) || {};
+          recordName = String(latest.name || '');
+          referenceId = String(latest.referenceId || '');
+        }
+      } catch {
+        // ignore — falls through to the original document below
+      }
+    }
+
+    const fileName = String(
+      payload.filledDocumentName || params.fallbackName || recordName || 'filled-document'
     ).trim();
-    const legalDocumentId = String(
-      item.legalDocument || preferredStatusDocument?.legalDocumentId || ''
-    ).trim();
+    const filledFields = (payload.filledContent || {}) as Record<string, unknown>;
+
+    let content = String(payload.content || '').trim();
+    let fileType: 'pdf' | 'txt' = 'txt';
+    let filePath: string | undefined;
+
+    if (!content && Object.keys(filledFields).length === 0) {
+      const originalDocId = String(payload.originalDocId || referenceId || legalDocumentId || '').trim();
+      if (originalDocId) {
+        try {
+          const originalDoc = await legalDocService.getDocumentById(originalDocId);
+          if (
+            originalDoc.fileType === 'pdf' &&
+            originalDoc.filePath &&
+            !String(originalDoc.filePath).startsWith('blob:')
+          ) {
+            fileType = 'pdf';
+            filePath = originalDoc.filePath;
+          } else if (originalDoc.content) {
+            content = originalDoc.content;
+          }
+        } catch {
+          // ignore — viewer will show a fallback message
+        }
+      }
+    }
+
+    return { fileName, content, filledFields, fileType, filePath };
+  };
+
+  /** Opens a filled or template document for a specific workflow status in the in-app viewer. */
+  const handleOpenStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
+    const filledDocumentRecordId = String(statusDoc.filledDocumentRecordId || '').trim();
+    const legalDocumentId = String(statusDoc.legalDocumentId || '').trim();
+    const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
 
     setRowErrors(current => {
       const next = { ...current };
@@ -619,59 +806,31 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       return next;
     });
 
-    if (filledDocumentRecordId) {
-      setLoadingViewDocumentId(filledDocumentRecordId);
+    const isFilled = isStatusDocumentFilled(statusDoc);
+
+    if (isFilled || filledDocumentRecordId) {
+      setLoadingViewDocumentId(filledDocumentRecordId || legalDocumentId || statusDoc.id);
       try {
-        const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
-        const payload = (record as any)?.payload || {};
-        const fileName = String(
-          payload.filledDocumentName ||
-            preferredStatusDocument?.filledDocumentName ||
-            record.name ||
-            'filled-document'
-        ).trim();
+        const resolved = await resolveFilledDocument({
+          filledDocumentRecordId,
+          legalDocumentId,
+          fallbackName: statusDoc.filledDocumentName || `${stepLabel} Document`,
+        });
 
-        // Resolve display content from filled text, field values, or original document
-        let docContent = String(payload.content || '').trim();
-        let docFileType: 'pdf' | 'txt' = 'txt';
-        let docFilePath: string | undefined;
-
-        if (!docContent) {
-          const filledFields = (payload.filledContent || {}) as Record<string, string>;
-          const entries = Object.entries(filledFields).filter(([, v]) => String(v || '').trim());
-          if (entries.length > 0) {
-            docContent = entries
-              .map(([key, val]) => `${key.replace(/[_[\]]+/g, ' ').trim()}: ${val}`)
-              .join('\n\n');
-          }
-        }
-
-        if (!docContent) {
-          const originalDocId = String(payload.originalDocId || record.referenceId || '').trim();
-          if (originalDocId) {
-            try {
-              const originalDoc = await legalDocService.getDocumentById(originalDocId);
-              if (
-                originalDoc.fileType === 'pdf' &&
-                originalDoc.filePath &&
-                !String(originalDoc.filePath).startsWith('blob:')
-              ) {
-                docFileType = 'pdf';
-                docFilePath = originalDoc.filePath;
-              } else if (originalDoc.content) {
-                docContent = originalDoc.content;
-              }
-            } catch {
-              // ignore, will show fallback
-            }
-          }
-        }
+        const displayContent =
+          resolved.fileType === 'pdf' && resolved.filePath
+            ? resolved.content
+            : buildFilledDocumentText({
+                documentName: resolved.fileName,
+                statusLabel: stepLabel,
+                content: resolved.content,
+                filledFields: resolved.filledFields,
+              });
 
         const today = new Date().toISOString().split('T')[0];
-
         setSelectedViewDocument({
-          id: filledDocumentRecordId,
-          documentName: fileName || 'Filled Document',
+          id: filledDocumentRecordId || statusDoc.id,
+          documentName: resolved.fileName || `${stepLabel} Document`,
           documentType: 'Contract',
           createdDate: today,
           lastModifiedDate: today,
@@ -679,22 +838,21 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           lastModifiedBy: 'Current User',
           status: 'Executed',
           fileSize: 0,
-          fileName,
-          description: 'Filled legal document captured from workflow',
+          fileName: resolved.fileName,
+          description: `Filled ${stepLabel} document captured from the deal workflow`,
           linkedAssets: [],
           linkedDeals: [],
           permissions: [],
           tags: [],
           version: 1,
-          content: docContent,
-          fileType: docFileType,
-          filePath: docFilePath,
+          content: displayContent,
+          fileType: resolved.fileType,
+          filePath: resolved.filePath,
         });
       } catch (error) {
         setRowErrors(current => ({
           ...current,
-          [item.id]:
-            error instanceof Error ? error.message : 'Failed to open filled document from workflow',
+          [item.id]: error instanceof Error ? error.message : `Failed to open ${stepLabel} document`,
         }));
       } finally {
         setLoadingViewDocumentId(null);
@@ -705,7 +863,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     if (!legalDocumentId) {
       setRowErrors(current => ({
         ...current,
-        [item.id]: 'No linked legal document found for this workflow item',
+        [item.id]: `No document linked for the ${stepLabel} step`,
       }));
       return;
     }
@@ -713,9 +871,11 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     await handleViewDocument(legalDocumentId);
   };
 
-  const handleOpenStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
+  /** Downloads the filled content of a workflow document as a .txt file. */
+  const handleDownloadStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
     const filledDocumentRecordId = String(statusDoc.filledDocumentRecordId || '').trim();
     const legalDocumentId = String(statusDoc.legalDocumentId || '').trim();
+    const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
 
     setRowErrors(current => {
       const next = { ...current };
@@ -723,97 +883,32 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       return next;
     });
 
-    if (filledDocumentRecordId) {
-      setLoadingViewDocumentId(filledDocumentRecordId);
-      try {
-        const record = await customRecordService.getCustomRecordById<any>(filledDocumentRecordId);
-        const payload = (record as any)?.payload || {};
-        const fileName = String(
-          payload.filledDocumentName ||
-            statusDoc.filledDocumentName ||
-            record.name ||
-            'filled-document'
-        ).trim();
+    setDownloadingDocumentId(statusDoc.id);
+    try {
+      const resolved = await resolveFilledDocument({
+        filledDocumentRecordId,
+        legalDocumentId,
+        fallbackName: statusDoc.filledDocumentName || `${stepLabel} Document`,
+      });
 
-        // Resolve display content from filled text, field values, or original document
-        let docContent = String(payload.content || '').trim();
-        let docFileType: 'pdf' | 'txt' = 'txt';
-        let docFilePath: string | undefined;
+      const text = buildFilledDocumentText({
+        documentName: resolved.fileName,
+        statusLabel: stepLabel,
+        content: resolved.content,
+        filledFields: resolved.filledFields,
+      });
 
-        if (!docContent) {
-          const filledFields = (payload.filledContent || {}) as Record<string, string>;
-          const entries = Object.entries(filledFields).filter(([, v]) => String(v || '').trim());
-          if (entries.length > 0) {
-            docContent = entries
-              .map(([key, val]) => `${key.replace(/[_[\]]+/g, ' ').trim()}: ${val}`)
-              .join('\n\n');
-          }
-        }
-
-        if (!docContent) {
-          const originalDocId = String(payload.originalDocId || record.referenceId || '').trim();
-          if (originalDocId) {
-            try {
-              const originalDoc = await legalDocService.getDocumentById(originalDocId);
-              if (
-                originalDoc.fileType === 'pdf' &&
-                originalDoc.filePath &&
-                !String(originalDoc.filePath).startsWith('blob:')
-              ) {
-                docFileType = 'pdf';
-                docFilePath = originalDoc.filePath;
-              } else if (originalDoc.content) {
-                docContent = originalDoc.content;
-              }
-            } catch {
-              // ignore, will show fallback
-            }
-          }
-        }
-
-        const today = new Date().toISOString().split('T')[0];
-        setSelectedViewDocument({
-          id: filledDocumentRecordId,
-          documentName: fileName || `${getStatusDocStepLabel(String(statusDoc.status))} Document`,
-          documentType: 'Contract',
-          createdDate: today,
-          lastModifiedDate: today,
-          createdBy: 'Current User',
-          lastModifiedBy: 'Current User',
-          status: 'Executed',
-          fileSize: 0,
-          fileName,
-          description: 'Filled legal document captured from workflow',
-          linkedAssets: [],
-          linkedDeals: [],
-          permissions: [],
-          tags: [],
-          version: 1,
-          content: docContent,
-          fileType: docFileType,
-          filePath: docFilePath,
-        });
-      } catch (error) {
-        setRowErrors(current => ({
-          ...current,
-          [item.id]:
-            error instanceof Error ? error.message : 'Failed to open document',
-        }));
-      } finally {
-        setLoadingViewDocumentId(null);
-      }
-      return;
-    }
-
-    if (!legalDocumentId) {
+      const dealName = parseDealTitle(item.dealName).dealName || item.dealName || 'deal';
+      downloadTextFile(`${dealName} - ${stepLabel} - ${resolved.fileName}`, text);
+    } catch (error) {
       setRowErrors(current => ({
         ...current,
-        [item.id]: `No document linked for ${getStatusDocStepLabel(String(statusDoc.status))} step`,
+        [item.id]:
+          error instanceof Error ? error.message : `Failed to download ${stepLabel} document`,
       }));
-      return;
+    } finally {
+      setDownloadingDocumentId(null);
     }
-
-    await handleViewDocument(legalDocumentId);
   };
 
   const handleStatusChange = async (item: BrokerWipItem, nextStatus: string) => {
@@ -1282,66 +1377,83 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           );
         })}
 
-      <div className="bg-white rounded-lg shadow-sm border border-stone-200 overflow-hidden">
-        <div className="p-6 border-b border-stone-200 bg-gradient-to-r from-stone-50 to-white">
-          <h2 className="text-xl font-bold text-stone-950">WIP Sheet ({filteredProperties.length})</h2>
-          <p className="text-sm text-stone-500 mt-1">Manage deals and track their progress</p>
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
+        <div className="px-6 py-5 border-b border-stone-200 bg-gradient-to-r from-violet-50 via-white to-white flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-violet-100 rounded-lg">
+              <FiFileText size={18} className="text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-stone-950">WIP Sheet</h2>
+              <p className="text-sm text-stone-500">Manage deals, documents and progress</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-violet-100 text-violet-700">
+              {filteredProperties.length} deal{filteredProperties.length === 1 ? '' : 's'}
+            </span>
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
+              <FiCheckCircle size={12} />
+              {filteredProperties.reduce(
+                (total, deal) =>
+                  total +
+                  dedupeStatusDocumentsByStatus(deal).filter(isStatusDocumentFilled).length,
+                0
+              )}{' '}
+              filled
+            </span>
+          </div>
         </div>
 
         {filteredProperties.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-stone-600 font-medium">No deals found matching your filters.</p>
-            <p className="text-sm text-stone-500 mt-2">Adjust your filters to see more deals.</p>
+          <div className="p-14 text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center mb-3">
+              <FiSearch size={20} className="text-stone-400" />
+            </div>
+            <p className="text-stone-700 font-semibold">No deals found</p>
+            <p className="text-sm text-stone-500 mt-1">Adjust your filters to see more deals.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gradient-to-r from-stone-100 to-stone-50 border-b border-stone-200">
+              <thead className="bg-stone-100 border-b-2 border-stone-200">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Lead Name</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Address</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Deal Type</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Expected Value</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-stone-700 uppercase tracking-wider">Gross Comm</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Closure Date</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Document</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-stone-700 uppercase tracking-wider">Comment</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Lead Name</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Address</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Deal Type</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3.5 text-right text-[11px] font-bold text-stone-600 uppercase tracking-wider">Expected Value</th>
+                  <th className="px-6 py-3.5 text-right text-[11px] font-bold text-stone-600 uppercase tracking-wider">Gross Comm</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Closure Date</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Documents</th>
+                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Comment</th>
                   {isAdmin && (
-                    <th className="px-6 py-4 text-center text-xs font-semibold text-stone-700 uppercase tracking-wider">Actions</th>
+                    <th className="px-6 py-3.5 text-center text-[11px] font-bold text-stone-600 uppercase tracking-wider">Actions</th>
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-200">
+              <tbody className="divide-y divide-stone-100">
                 {filteredProperties.map((item, index) => {
                   const normalizedLegalDocument = String(item.legalDocument || '').trim();
                   const normalizedComment = String(item.comment || '').trim();
+                  const statusDocuments = dedupeStatusDocumentsByStatus(item);
                   const preferredStatusDocument = pickPreferredStatusDocument(item);
-                  const filledDocumentRecordId = String(
-                    preferredStatusDocument?.filledDocumentRecordId || ''
-                  ).trim();
                   const resolvedLegalDocumentId = String(
                     normalizedLegalDocument || preferredStatusDocument?.legalDocumentId || ''
                   ).trim();
-                  const propertyName = parseDealTitle(item.dealName).dealName;
                   const requiresComment = statusRequiresComment(item.status);
-                  const selectedLegalDocument = legalDocumentById.get(resolvedLegalDocumentId);
-                  const hasSelectedLegalDocument = Boolean(selectedLegalDocument);
-                  const hasFilledDocumentRecord = Boolean(filledDocumentRecordId);
+                  const fallbackLegalDocument = legalDocumentById.get(resolvedLegalDocumentId);
                   const isMissingComment = requiresComment && !normalizedComment;
                   const rowError = rowErrors[item.id];
-                  const isOpeningDocument =
-                    loadingViewDocumentId === filledDocumentRecordId ||
-                    loadingViewDocumentId === resolvedLegalDocumentId;
 
                   return (
                     <tr
                       key={item.id}
-                      className={`transition-colors border-b border-stone-100 ${
-                        index % 2 === 0 ? "bg-white" : "bg-stone-50/50"
-                      } hover:bg-blue-50/40`}
+                      className={`transition-colors ${
+                        index % 2 === 0 ? "bg-white" : "bg-stone-50/40"
+                      } hover:bg-violet-50/50`}
                     >
-                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 whitespace-nowrap">
+                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 whitespace-nowrap align-top">
                         {item.leadId ? (
                           <button
                             type="button"
@@ -1368,7 +1480,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           </button>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-stone-600">
+                      <td className="px-6 py-4 text-sm text-stone-600 align-top">
                         <button
                           type="button"
                           onClick={() => {
@@ -1385,14 +1497,14 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           {item.address || "-"}
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-sm">
+                      <td className="px-6 py-4 text-sm align-top">
                         <span
                           className={`inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold ${getDealTypeColor(item.dealType)}`}
                         >
                           {item.dealType}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm">
+                      <td className="px-6 py-4 text-sm align-top">
                         <select
                           value={toStatusValue(item.status)}
                           onChange={event => {
@@ -1419,10 +1531,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           ))}
                         </select>
                       </td>
-                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right">
+                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right align-top whitespace-nowrap">
                         {formatRand(item.expectedValue)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-right">
+                      <td className="px-6 py-4 text-sm text-right align-top whitespace-nowrap">
                         {editingCommissionId === item.id ? (
                           <div className="flex items-center gap-1 justify-end">
                             <input
@@ -1455,7 +1567,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           </button>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm">
+                      <td className="px-6 py-4 text-sm align-top whitespace-nowrap">
                         {/* Clickable created date — opens timeline modal */}
                         <button
                           type="button"
@@ -1469,77 +1581,186 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           </span>
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-sm text-stone-600">
-                        <div className="min-w-[200px] space-y-1.5">
-                          {(item.statusDocuments || []).length > 0 ? (
-                            <>
-                              {(item.statusDocuments || []).map(statusDoc => {
-                                const docFilledId = String(statusDoc.filledDocumentRecordId || '').trim();
-                                const docLegalId = String(statusDoc.legalDocumentId || '').trim();
-                                const isFilled = Boolean(docFilledId);
-                                const isOpening =
-                                  loadingViewDocumentId === docFilledId ||
-                                  loadingViewDocumentId === docLegalId;
-                                return (
-                                  <button
-                                    key={statusDoc.id}
-                                    type="button"
-                                    onClick={() => void handleOpenStatusDocument(item, statusDoc)}
-                                    disabled={isOpening}
-                                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                      isFilled
-                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                        : 'bg-blue-600 text-white hover:bg-blue-700'
-                                    } ${isOpening ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                  >
-                                    <span>{getStatusDocStepLabel(String(statusDoc.status))}</span>
-                                    <span className="ml-2 opacity-80 text-[10px]">
-                                      {isOpening ? 'Opening…' : isFilled ? '✓ Filled' : 'View'}
+                      <td className="px-6 py-4 align-top">
+                        <div className="min-w-[230px] max-w-[280px] space-y-2">
+                          {statusDocuments.length > 0 ? (
+                            statusDocuments.map(statusDoc => {
+                              const isFilled = isStatusDocumentFilled(statusDoc);
+                              const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
+                              const isOpening =
+                                loadingViewDocumentId === statusDoc.id ||
+                                loadingViewDocumentId ===
+                                  String(statusDoc.filledDocumentRecordId || '').trim() ||
+                                loadingViewDocumentId ===
+                                  String(statusDoc.legalDocumentId || '').trim();
+                              const isDownloading = downloadingDocumentId === statusDoc.id;
+                              return (
+                                <div
+                                  key={statusDoc.id}
+                                  className={`rounded-lg border px-2.5 py-2 ${
+                                    isFilled
+                                      ? 'border-emerald-200 bg-emerald-50'
+                                      : 'border-amber-200 bg-amber-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span
+                                      className={`inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide ${
+                                        isFilled ? 'text-emerald-700' : 'text-amber-700'
+                                      }`}
+                                    >
+                                      {isFilled ? (
+                                        <FiCheckCircle size={12} />
+                                      ) : (
+                                        <FiClock size={12} />
+                                      )}
+                                      {stepLabel}
                                     </span>
-                                  </button>
-                                );
-                              })}
-                            </>
-                          ) : hasFilledDocumentRecord || hasSelectedLegalDocument || resolvedLegalDocumentId ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void handleOpenWipDocument(item);
-                              }}
-                              disabled={isOpeningDocument}
-                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                            >
-                              {isOpeningDocument
-                                ? 'Opening...'
-                                : hasFilledDocumentRecord
-                                ? 'View Filled Document'
-                                : 'View Document'}
-                            </button>
+                                    <span
+                                      className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                        isFilled
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'bg-amber-500 text-white'
+                                      }`}
+                                    >
+                                      {isFilled ? 'Filled' : 'Pending'}
+                                    </span>
+                                  </div>
+                                  {statusDoc.filledDocumentName || statusDoc.legalDocumentName ? (
+                                    <p className="mt-1 text-[11px] text-stone-500 truncate">
+                                      {statusDoc.filledDocumentName ||
+                                        statusDoc.legalDocumentName}
+                                    </p>
+                                  ) : null}
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleOpenStatusDocument(item, statusDoc)
+                                      }
+                                      disabled={isOpening}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-60 transition-colors"
+                                    >
+                                      <FiEye size={11} />
+                                      {isOpening ? 'Opening…' : 'View'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleDownloadStatusDocument(item, statusDoc)
+                                      }
+                                      disabled={isDownloading}
+                                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold disabled:opacity-60 transition-colors ${
+                                        isFilled
+                                          ? 'bg-violet-600 text-white hover:bg-violet-700'
+                                          : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-100'
+                                      }`}
+                                      title={
+                                        isFilled
+                                          ? 'Download the filled document'
+                                          : 'Download the document template'
+                                      }
+                                    >
+                                      <FiDownload size={11} />
+                                      {isDownloading ? 'Downloading…' : 'Download'}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : preferredStatusDocument || resolvedLegalDocumentId ? (
+                            (() => {
+                              const syntheticDoc: WipStatusDocument =
+                                preferredStatusDocument || ({
+                                  id: `legal-${item.id}`,
+                                  status: item.status,
+                                  documentType: '',
+                                  legalDocumentId: resolvedLegalDocumentId,
+                                  legalDocumentName:
+                                    fallbackLegalDocument?.documentName || '',
+                                  version: 1,
+                                  uploadedAt: item.updatedAt,
+                                  lastModifiedAt: item.updatedAt,
+                                } as WipStatusDocument);
+                              const isFilled = isStatusDocumentFilled(syntheticDoc);
+                              const stepLabel = getStatusDocStepLabel(String(syntheticDoc.status));
+                              const isOpening =
+                                loadingViewDocumentId === syntheticDoc.id ||
+                                loadingViewDocumentId === resolvedLegalDocumentId;
+                              const isDownloading = downloadingDocumentId === syntheticDoc.id;
+                              return (
+                                <div
+                                  className={`rounded-lg border px-2.5 py-2 ${
+                                    isFilled
+                                      ? 'border-emerald-200 bg-emerald-50'
+                                      : 'border-blue-200 bg-blue-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-stone-700">
+                                      <FiFileText size={12} />
+                                      {stepLabel}
+                                    </span>
+                                  </div>
+                                  {fallbackLegalDocument?.documentName && (
+                                    <p className="mt-1 text-[11px] text-stone-500 truncate">
+                                      {fallbackLegalDocument.documentName}
+                                    </p>
+                                  )}
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleOpenStatusDocument(item, syntheticDoc)
+                                      }
+                                      disabled={isOpening}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-60 transition-colors"
+                                    >
+                                      <FiEye size={11} />
+                                      {isOpening ? 'Opening…' : 'View'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleDownloadStatusDocument(item, syntheticDoc)
+                                      }
+                                      disabled={isDownloading}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60 transition-colors"
+                                    >
+                                      <FiDownload size={11} />
+                                      {isDownloading ? 'Downloading…' : 'Download'}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })()
                           ) : (
-                            <p className="text-xs text-stone-500">No Documents</p>
+                            <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-2.5 text-center">
+                              <FiFileText
+                                size={14}
+                                className="mx-auto text-stone-400 mb-1"
+                              />
+                              <p className="text-[11px] text-stone-500 font-medium">
+                                No documents yet
+                              </p>
+                              <p className="text-[10px] text-stone-400">
+                                Move to LOI/OTP/OTL to add one
+                              </p>
+                            </div>
                           )}
-                          {!loadingLegalDocuments &&
-                            resolvedLegalDocumentId &&
-                            !hasSelectedLegalDocument &&
-                            !hasFilledDocumentRecord &&
-                            (item.statusDocuments || []).length === 0 && (
-                            <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
-                              Linked document not found in Legal Docs.
-                            </p>
-                            )}
                           {rowError && (
-                            <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded font-medium">
-                              ❌ {rowError}
+                            <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded font-medium">
+                              {rowError}
                             </p>
                           )}
                           {legalDocumentsError && (
-                            <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+                            <p className="text-[11px] text-red-600 bg-red-50 px-2 py-1 rounded">
                               Legal Docs load error: {legalDocumentsError}
                             </p>
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-stone-600">
+                      <td className="px-6 py-4 text-sm text-stone-600 align-top">
                         <div className="min-w-[180px]">
                           {item.comment ? (
                             <>
@@ -1588,12 +1809,12 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                         </div>
                       </td>
                       {isAdmin && (
-                        <td className="px-6 py-4 text-center">
+                        <td className="px-6 py-4 text-center align-top">
                           <button
                             type="button"
                             onClick={() => { void handleDeleteDeal(item); }}
                             disabled={deletingId === item.id}
-                            className="p-1.5 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                            className="p-1.5 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50"
                             title="Delete deal"
                           >
                             <FiTrash2 size={15} className="text-red-500" />
@@ -1609,6 +1830,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         )}
       </div>
 
+      {/* Canvassing Sheets */}
+      <CanvassingSheets broker={{ id: broker.id, name: broker.name }} />
+
       {/* Deal Date Modal */}
       <DealDateModal
         isOpen={selectedDealForDateModal !== null}
@@ -1623,17 +1847,34 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl border border-stone-200 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 bg-stone-50">
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-lg font-semibold text-stone-900">Document Viewer</h3>
-                <p className="text-xs text-stone-500">{selectedViewDocument.documentName}</p>
+                <p className="text-xs text-stone-500 truncate">{selectedViewDocument.documentName}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedViewDocument(null)}
-                className="px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-100 text-sm"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {selectedViewDocument.fileType !== 'pdf' && selectedViewDocument.content && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadTextFile(
+                        selectedViewDocument.fileName || selectedViewDocument.documentName,
+                        selectedViewDocument.content || ''
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 text-white hover:bg-violet-700 text-sm font-semibold transition-colors"
+                  >
+                    <FiDownload size={14} />
+                    Download
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedViewDocument(null)}
+                  className="px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-100 text-sm"
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             <div className="h-[70vh] overflow-auto">

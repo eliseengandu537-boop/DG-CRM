@@ -317,7 +317,76 @@ export class BrochureService {
       text: toEmailText(brochure),
     });
 
+    // Best-effort: notify the brochure's owner broker if a different broker sent it.
+    await this.notifyOwnerOfBrochureSend(brochure, options?.user, to).catch(() => {
+      /* never break the send-brochure response on a notification failure */
+    });
+
     return { to };
+  }
+
+  // Sends an info email to the brochure owner when a different broker emails their brochure.
+  private async notifyOwnerOfBrochureSend(
+    brochure: CustomRecord,
+    actingUser: User | null | undefined,
+    clientEmail: string
+  ): Promise<void> {
+    try {
+      const ownerBrokerId = String(brochure.createdByBrokerId || '').trim();
+      const ownerUserId = String(brochure.createdByUserId || '').trim();
+      const actingUserId = String(actingUser?.id || '').trim();
+      const actingBrokerId = String(actingUser?.brokerId || '').trim();
+
+      // Determine acting broker name (fallback to the user name / payload value).
+      const payload = toPayload(brochure.payload);
+      const actingBrokerName =
+        String(actingUser?.name || '').trim() ||
+        String(payload.createdBy || '').trim() ||
+        'another broker';
+
+      // Resolve the owner broker record (prefer broker id, fall back to creator user's email).
+      let ownerBroker: { id: string; name: string; email: string } | null = null;
+      if (ownerBrokerId) {
+        ownerBroker = await prisma.broker.findUnique({
+          where: { id: ownerBrokerId },
+          select: { id: true, name: true, email: true },
+        });
+      }
+      if (!ownerBroker && ownerUserId) {
+        const ownerUser = await prisma.user.findUnique({
+          where: { id: ownerUserId },
+          select: { email: true },
+        });
+        if (ownerUser?.email) {
+          ownerBroker = await prisma.broker.findUnique({
+            where: { email: ownerUser.email.trim().toLowerCase() },
+            select: { id: true, name: true, email: true },
+          });
+        }
+      }
+
+      if (!ownerBroker || !ownerBroker.email) {
+        // Owner email can't be resolved - skip silently.
+        return;
+      }
+
+      // Skip when the acting user is the owner.
+      const actingIsOwner =
+        (!!actingBrokerId && actingBrokerId === ownerBroker.id) ||
+        (!!ownerBrokerId && actingBrokerId === ownerBrokerId) ||
+        (!!actingUserId && !!ownerUserId && actingUserId === ownerUserId);
+      if (actingIsOwner) return;
+
+      await emailService.sendBrochureSentNotification({
+        ownerEmail: ownerBroker.email,
+        ownerName: ownerBroker.name,
+        brochureName: brochure.name,
+        actingBrokerName,
+        clientEmail,
+      });
+    } catch {
+      // Best-effort only - never surface notification errors.
+    }
   }
 }
 

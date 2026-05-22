@@ -183,6 +183,124 @@ export class EmailService {
     });
   }
 
+  // Notifies a brochure's owner broker that another broker sent their brochure to a client.
+  async sendBrochureSentNotification(params: {
+    ownerEmail: string;
+    ownerName?: string;
+    brochureName: string;
+    actingBrokerName: string;
+    clientEmail?: string;
+  }): Promise<void> {
+    const { ownerEmail, ownerName, brochureName, actingBrokerName, clientEmail } = params;
+    const subject = `Your brochure "${brochureName}" was sent to a client`;
+    const text = [
+      `Hello ${ownerName || 'there'},`,
+      '',
+      `Your brochure "${brochureName}" was sent to a client by ${actingBrokerName}.`,
+      ...(clientEmail ? ['', `Sent to: ${clientEmail}`] : []),
+      '',
+      'DG Property CRM',
+    ].join('\n');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #111827;">
+        <p>Hello ${ownerName || 'there'},</p>
+        <p>Your brochure <strong>"${brochureName}"</strong> was sent to a client by <strong>${actingBrokerName}</strong>.</p>
+        ${clientEmail ? `<p><strong>Sent to:</strong> ${clientEmail}</p>` : ''}
+        <p>DG Property CRM</p>
+      </div>
+    `;
+
+    await this.sendMail({ to: ownerEmail, subject, text, html });
+  }
+
+  // Notifies the admin that a new legal document was created and needs review.
+  async sendLegalDocCreatedToAdmin(params: {
+    adminEmail: string;
+    documentName: string;
+    documentType: string;
+    createdBy: string;
+    description?: string;
+    fileName?: string;
+    status?: string;
+    createdDate?: string;
+  }): Promise<void> {
+    const {
+      adminEmail,
+      documentName,
+      documentType,
+      createdBy,
+      description,
+      fileName,
+      status,
+      createdDate,
+    } = params;
+    const subject = `Legal document "${documentName}" (${documentType}) needs review`;
+    const text = [
+      `A legal document "${documentName}" (${documentType}) was created by ${createdBy} and needs review.`,
+      '',
+      'Document Details:',
+      `Name: ${documentName}`,
+      `Type: ${documentType}`,
+      `Created By: ${createdBy}`,
+      ...(createdDate ? [`Created Date: ${createdDate}`] : []),
+      ...(status ? [`Status: ${status}`] : []),
+      ...(fileName ? [`File: ${fileName}`] : []),
+      ...(description ? ['', `Description: ${description}`] : []),
+      '',
+      'DG Property CRM',
+    ].join('\n');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #111827;">
+        <p>A legal document <strong>"${documentName}"</strong> (${documentType}) was created by <strong>${createdBy}</strong> and needs review.</p>
+        <p style="margin: 8px 0 0;"><strong>Name:</strong> ${documentName}</p>
+        <p style="margin: 4px 0 0;"><strong>Type:</strong> ${documentType}</p>
+        <p style="margin: 4px 0 0;"><strong>Created By:</strong> ${createdBy}</p>
+        ${createdDate ? `<p style="margin: 4px 0 0;"><strong>Created Date:</strong> ${createdDate}</p>` : ''}
+        ${status ? `<p style="margin: 4px 0 0;"><strong>Status:</strong> ${status}</p>` : ''}
+        ${fileName ? `<p style="margin: 4px 0 0;"><strong>File:</strong> ${fileName}</p>` : ''}
+        ${description ? `<p style="margin: 8px 0 0;"><strong>Description:</strong> ${description}</p>` : ''}
+        <p>DG Property CRM</p>
+      </div>
+    `;
+
+    await this.sendMail({ to: adminEmail, subject, text, html });
+  }
+
+  // Notifies the document creator that the admin completed/approved their legal document.
+  async sendLegalDocCompletedToBroker(params: {
+    recipientEmail: string;
+    recipientName?: string;
+    documentName: string;
+    documentType?: string;
+    status: string;
+  }): Promise<void> {
+    const { recipientEmail, recipientName, documentName, documentType, status } = params;
+    const subject = `Your legal document "${documentName}" has been ${status.toLowerCase()}`;
+    const text = [
+      `Hello ${recipientName || 'there'},`,
+      '',
+      `Admin has marked your legal document "${documentName}"${
+        documentType ? ` (${documentType})` : ''
+      } as ${status}.`,
+      '',
+      'DG Property CRM',
+    ].join('\n');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #111827;">
+        <p>Hello ${recipientName || 'there'},</p>
+        <p>Admin has marked your legal document <strong>"${documentName}"</strong>${
+          documentType ? ` (${documentType})` : ''
+        } as <strong>${status}</strong>.</p>
+        <p>DG Property CRM</p>
+      </div>
+    `;
+
+    await this.sendMail({ to: recipientEmail, subject, text, html });
+  }
+
   private normalizeSmtpError(error: any): Error {
     const message = String(error?.message || 'Unknown SMTP error');
     const lower = message.toLowerCase();

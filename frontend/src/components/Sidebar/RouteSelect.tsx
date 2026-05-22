@@ -5,6 +5,7 @@ import { AppPage, getAllowedPages } from '@/lib/pageAccess';
 import { useReminderNotifications } from '@/context/ReminderContext';
 import {
   FiAward,
+  FiBarChart2,
   FiCalendar,
   FiBriefcase,
   FiClipboard,
@@ -36,6 +37,7 @@ const NAV_ROUTES: Array<{ title: AppPage; icon: IconType }> = [
   { title: 'Legal Docs', icon: FiFileText },
   { title: 'Reminders', icon: FiCalendar },
   { title: 'Brochures', icon: FiPaperclip },
+  { title: 'Reports', icon: FiBarChart2 },
   { title: 'Settings', icon: FiSettings },
 ];
 

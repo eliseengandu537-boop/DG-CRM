@@ -2,14 +2,16 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Fund } from '../../data/crm-types';
-import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiChevronDown, FiChevronUp, FiHome, FiUpload, FiDownload } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiChevronDown, FiChevronUp, FiHome, FiUpload, FiDownload, FiUsers, FiKey, FiTag, FiTrendingUp } from 'react-icons/fi';
 import { brokerService } from '@/services/brokerService';
-import { contactService } from '@/services/contactService';
+import { contactService, type Contact } from '@/services/contactService';
 import {
   customRecordService,
   type CustomRecord,
 } from '@/services/customRecordService';
 import { propertyService, type PropertyRecord } from '@/services/propertyService';
+import { stockService, type StockItemRecord } from '@/services/stockService';
+import { useAuth } from '@/context/AuthContext';
 
 type CompanySuggestion = {
   id: string;
@@ -38,6 +40,21 @@ type FundPayload = {
 };
 
 const ENTITY_TYPE = 'fund';
+
+type FundAuctionRecord = {
+  id: string;
+  propertyName: string;
+  location: string;
+  auctionStatus: string;
+  auctionDate: string;
+};
+
+type FundProfileData = {
+  contacts: Contact[];
+  leasing: StockItemRecord[];
+  sales: StockItemRecord[];
+  auctions: FundAuctionRecord[];
+};
 
 const emptyFormData = {
   name: '',
@@ -149,6 +166,9 @@ const collectCompanySuggestions = (
 };
 
 export const PropertyFundsManager: React.FC = () => {
+  const { user } = useAuth();
+  const canEditStatus = user?.role === 'admin' || user?.role === 'manager';
+
   const [funds, setFunds] = useState<Fund[]>([]);
   const [brokers, setBrokers] = useState<Array<{ id: string; company?: string; name?: string }>>([]);
   const [contacts, setContacts] = useState<Array<{ id: string; company?: string; name?: string }>>([]);
@@ -167,6 +187,8 @@ export const PropertyFundsManager: React.FC = () => {
   const [expandedFundId, setExpandedFundId] = useState<string | null>(null);
   const [fundProperties, setFundProperties] = useState<Record<string, PropertyRecord[]>>({});
   const [loadingFundProperties, setLoadingFundProperties] = useState<string | null>(null);
+  const [fundProfiles, setFundProfiles] = useState<Record<string, FundProfileData>>({});
+  const [loadingFundProfile, setLoadingFundProfile] = useState<string | null>(null);
 
   const refreshFunds = async () => {
     const result = await customRecordService.getAllCustomRecords<Record<string, unknown>>({
@@ -176,13 +198,72 @@ export const PropertyFundsManager: React.FC = () => {
     setFunds(result.data.map(toFund));
   };
 
+  const loadFundProfile = async (fundId: string, propertyIds: string[]) => {
+    if (fundProfiles[fundId]) return;
+    setLoadingFundProfile(fundId);
+    const idSet = new Set(propertyIds);
+
+    const [contacts, leasing, sales, auctions] = await Promise.all([
+      contactService
+        .getAllContacts({ limit: 1000 })
+        .then((res) =>
+          (res.data || []).filter((contact) =>
+            (contact.linkedPropertyIds || []).some((pid) => idSet.has(String(pid)))
+          )
+        )
+        .catch(() => [] as Contact[]),
+      stockService
+        .getAllStockItems({ module: 'leasing', limit: 1000 })
+        .then((res) => (res.data || []).filter((item) => idSet.has(String(item.propertyId))))
+        .catch(() => [] as StockItemRecord[]),
+      stockService
+        .getAllStockItems({ module: 'sales', limit: 1000 })
+        .then((res) => (res.data || []).filter((item) => idSet.has(String(item.propertyId))))
+        .catch(() => [] as StockItemRecord[]),
+      customRecordService
+        .getAllCustomRecords<Record<string, unknown>>({ entityType: 'auction', limit: 1000 })
+        .then((res) =>
+          (res.data || [])
+            .filter((record) => {
+              const payload = (record.payload || {}) as Record<string, unknown>;
+              const refId = String(record.referenceId || '');
+              const payloadPropId = String(payload.selectedSystemPropertyId || '');
+              return (
+                (refId && idSet.has(refId)) ||
+                (payloadPropId && idSet.has(payloadPropId))
+              );
+            })
+            .map((record): FundAuctionRecord => {
+              const payload = (record.payload || {}) as Record<string, unknown>;
+              return {
+                id: record.id,
+                propertyName: String(payload.propertyName || record.name || ''),
+                location: String(payload.location || ''),
+                auctionStatus: String(payload.auctionStatus || record.status || 'Open'),
+                auctionDate: String(payload.auctionDate || ''),
+              };
+            })
+        )
+        .catch(() => [] as FundAuctionRecord[]),
+    ]);
+
+    setFundProfiles((prev) => ({
+      ...prev,
+      [fundId]: { contacts, leasing, sales, auctions },
+    }));
+    setLoadingFundProfile(null);
+  };
+
   const handleFundExpand = async (fundId: string, fund: Fund) => {
     if (expandedFundId === fundId) {
       setExpandedFundId(null);
       return;
     }
     setExpandedFundId(fundId);
-    if (fundProperties[fundId]) return;
+    if (fundProperties[fundId]) {
+      void loadFundProfile(fundId, fundProperties[fundId].map((p) => p.id));
+      return;
+    }
     setLoadingFundProperties(fundId);
     try {
       const result = await propertyService.getAllProperties({ limit: 1000 });
@@ -196,8 +277,10 @@ export const PropertyFundsManager: React.FC = () => {
         return false;
       });
       setFundProperties((prev) => ({ ...prev, [fundId]: linked }));
+      void loadFundProfile(fundId, linked.map((p) => p.id));
     } catch {
       setFundProperties((prev) => ({ ...prev, [fundId]: [] }));
+      void loadFundProfile(fundId, []);
     } finally {
       setLoadingFundProperties(null);
     }
@@ -322,9 +405,11 @@ export const PropertyFundsManager: React.FC = () => {
 
     try {
       if (selectedFund) {
+        // Only admin/manager users may change a fund's status when editing.
+        const statusToSave = canEditStatus ? formData.status : selectedFund.status;
         await customRecordService.updateCustomRecord(selectedFund.id, {
           name: formData.name.trim(),
-          status: formData.status,
+          status: statusToSave,
           category: formData.fundType,
           referenceId: formData.registrationNumber.trim() || undefined,
           payload,
@@ -572,33 +657,150 @@ export const PropertyFundsManager: React.FC = () => {
                   </tr>
                   {expandedFundId === fund.id && (
                     <tr className="bg-violet-50 border-t border-violet-100">
-                      <td colSpan={9} className="px-8 py-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <FiHome size={14} className="text-violet-600" />
-                          <span className="text-sm font-semibold text-violet-800">Linked Map Properties</span>
+                      <td colSpan={9} className="px-8 py-4 space-y-6">
+                        {/* Linked Map Properties */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <FiHome size={14} className="text-violet-600" />
+                            <span className="text-sm font-semibold text-violet-800">Linked Map Properties</span>
+                          </div>
+                          {loadingFundProperties === fund.id ? (
+                            <p className="text-sm text-stone-400">Loading properties…</p>
+                          ) : !fundProperties[fund.id] || fundProperties[fund.id].length === 0 ? (
+                            <p className="text-sm text-stone-400 italic">No map properties linked to this fund. Properties added via the Map module with this fund name will appear here.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {fundProperties[fund.id].map((property) => (
+                                <div key={property.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                  <p className="text-sm font-medium text-stone-900">{property.title || property.address}</p>
+                                  <p className="text-xs text-stone-500 mt-0.5">{property.address}</p>
+                                  <div className="flex gap-2 mt-2 flex-wrap">
+                                    {property.type && (
+                                      <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{property.type}</span>
+                                    )}
+                                    {property.status && (
+                                      <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{property.status}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        {loadingFundProperties === fund.id ? (
-                          <p className="text-sm text-stone-400">Loading properties…</p>
-                        ) : !fundProperties[fund.id] || fundProperties[fund.id].length === 0 ? (
-                          <p className="text-sm text-stone-400 italic">No map properties linked to this fund. Properties added via the Map module with this fund name will appear here.</p>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {fundProperties[fund.id].map((property) => (
-                              <div key={property.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
-                                <p className="text-sm font-medium text-stone-900">{property.title || property.address}</p>
-                                <p className="text-xs text-stone-500 mt-0.5">{property.address}</p>
-                                <div className="flex gap-2 mt-2 flex-wrap">
-                                  {property.type && (
-                                    <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{property.type}</span>
-                                  )}
-                                  {property.status && (
-                                    <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{property.status}</span>
+
+                        {/* Linked Contacts */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <FiUsers size={14} className="text-violet-600" />
+                            <span className="text-sm font-semibold text-violet-800">Linked Contacts</span>
+                          </div>
+                          {loadingFundProfile === fund.id ? (
+                            <p className="text-sm text-stone-400">Loading contacts…</p>
+                          ) : !fundProfiles[fund.id] || fundProfiles[fund.id].contacts.length === 0 ? (
+                            <p className="text-sm text-stone-400 italic">No contacts linked to this fund's assets.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {fundProfiles[fund.id].contacts.map((contact) => (
+                                <div key={contact.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                  <p className="text-sm font-medium text-stone-900">{contact.name}</p>
+                                  <p className="text-xs text-stone-500 mt-0.5">{contact.email || contact.phone || '—'}</p>
+                                  <div className="flex gap-2 mt-2 flex-wrap">
+                                    {contact.company && (
+                                      <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{contact.company}</span>
+                                    )}
+                                    {contact.type && (
+                                      <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{contact.type}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Leasing Records */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <FiKey size={14} className="text-violet-600" />
+                            <span className="text-sm font-semibold text-violet-800">Leasing Records</span>
+                          </div>
+                          {loadingFundProfile === fund.id ? (
+                            <p className="text-sm text-stone-400">Loading leasing records…</p>
+                          ) : !fundProfiles[fund.id] || fundProfiles[fund.id].leasing.length === 0 ? (
+                            <p className="text-sm text-stone-400 italic">No leasing records for this fund's properties.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {fundProfiles[fund.id].leasing.map((item) => (
+                                <div key={item.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                  <p className="text-sm font-medium text-stone-900">{item.name || 'Untitled'}</p>
+                                  <p className="text-xs text-stone-500 mt-0.5">{item.address || '—'}</p>
+                                  {item.moduleType && (
+                                    <div className="flex gap-2 mt-2 flex-wrap">
+                                      <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{item.moduleType}</span>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Sales Records */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <FiTag size={14} className="text-violet-600" />
+                            <span className="text-sm font-semibold text-violet-800">Sales Records</span>
                           </div>
-                        )}
+                          {loadingFundProfile === fund.id ? (
+                            <p className="text-sm text-stone-400">Loading sales records…</p>
+                          ) : !fundProfiles[fund.id] || fundProfiles[fund.id].sales.length === 0 ? (
+                            <p className="text-sm text-stone-400 italic">No sales records for this fund's properties.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {fundProfiles[fund.id].sales.map((item) => (
+                                <div key={item.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                  <p className="text-sm font-medium text-stone-900">{item.name || 'Untitled'}</p>
+                                  <p className="text-xs text-stone-500 mt-0.5">{item.address || '—'}</p>
+                                  {item.moduleType && (
+                                    <div className="flex gap-2 mt-2 flex-wrap">
+                                      <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{item.moduleType}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Auction Records */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <FiTrendingUp size={14} className="text-violet-600" />
+                            <span className="text-sm font-semibold text-violet-800">Auction Records</span>
+                          </div>
+                          {loadingFundProfile === fund.id ? (
+                            <p className="text-sm text-stone-400">Loading auction records…</p>
+                          ) : !fundProfiles[fund.id] || fundProfiles[fund.id].auctions.length === 0 ? (
+                            <p className="text-sm text-stone-400 italic">No auction records for this fund's properties.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {fundProfiles[fund.id].auctions.map((auction) => (
+                                <div key={auction.id} className="bg-white rounded-lg border border-violet-200 px-4 py-3 shadow-sm">
+                                  <p className="text-sm font-medium text-stone-900">{auction.propertyName || 'Untitled'}</p>
+                                  <p className="text-xs text-stone-500 mt-0.5">{auction.location || '—'}</p>
+                                  <div className="flex gap-2 mt-2 flex-wrap">
+                                    {auction.auctionStatus && (
+                                      <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded">{auction.auctionStatus}</span>
+                                    )}
+                                    {auction.auctionDate && (
+                                      <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded">{auction.auctionDate}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -865,12 +1067,22 @@ export const PropertyFundsManager: React.FC = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, status: e.target.value as Fund['status'] })
                     }
-                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    disabled={!!selectedFund && !canEditStatus}
+                    className={`w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 ${
+                      !!selectedFund && !canEditStatus
+                        ? 'bg-stone-100 text-stone-500 cursor-not-allowed'
+                        : ''
+                    }`}
                   >
                     <option value="Active">Active</option>
                     <option value="Closed">Closed</option>
                     <option value="In Formation">In Formation</option>
                   </select>
+                  {!!selectedFund && !canEditStatus && (
+                    <p className="text-xs text-stone-500 mt-1">
+                      Only management can change status
+                    </p>
+                  )}
                 </div>
               </div>
 
