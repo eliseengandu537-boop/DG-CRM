@@ -14,8 +14,8 @@ import { contactService } from "@/services/contactService";
 import { landlordService } from "@/services/landlordService";
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
-import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
 import { consumeNavFocus } from '@/lib/crmNavigation';
+import { geocodeAddress, searchPlaces, autocompleteAddress } from '@/lib/nominatim';
 
 const GoogleMapWrapper = dynamic(() => import('./GoogleMapWrapper'), { ssr: false });
 
@@ -217,7 +217,6 @@ const mapBackendPropertyToMapProperty = (
 
 const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const { user } = useAuth();
-  const { isLoaded: isGoogleMapsLoaded } = useGoogleMapsLoader();
   const canDeleteProperties = user?.role === 'admin';
   const isGeocodingRef = useRef(false);
   const navFocusConsumedRef = useRef(false);
@@ -227,8 +226,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     setTimeout(() => setNotification(null), 4000);
   }, []);
   const propertyAddressInputRef = useRef<HTMLInputElement | null>(null);
-  const propertyAddressAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const propertyAddressAutocompleteListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const zoom = 12;
@@ -610,26 +607,13 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const fetchAddressGeocode = async (
     address: string
   ): Promise<{ formattedAddress: string; lat: number; lng: number } | null> => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      throw new Error('Google Maps API key is missing.');
-    }
-
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address
-    )}&key=${apiKey}`;
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (!data?.results?.length) return null;
-
-    const topResult = data.results[0];
-    const lat = topResult.geometry?.location?.lat;
-    const lng = topResult.geometry?.location?.lng;
-    const formattedAddress = topResult.formatted_address || address;
-    if (typeof lat !== 'number' || typeof lng !== 'number') return null;
-
-    return { formattedAddress, lat, lng };
+    const geo = await geocodeAddress(address);
+    if (!geo) return null;
+    return {
+      formattedAddress: geo.formattedAddress || address,
+      lat: geo.latitude,
+      lng: geo.longitude,
+    };
   };
 
   const focusPropertyOnMap = React.useCallback(
@@ -742,9 +726,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   // Auto-geocode any properties that have an address but no coordinates.
   // Runs quietly in the background after load so all imported properties
   // appear on the map without the user having to click each one first.
+  // Uses Nominatim (OpenStreetMap, free) — throttled internally to 1 req/sec.
   useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!apiKey || properties.length === 0) return;
+    if (properties.length === 0) return;
 
     const missing = properties.filter(
       (p) => !hasPropertyCoordinates(p) && p.address && p.address.trim().length > 3
@@ -762,28 +746,21 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       for (const property of missing) {
         if (cancelled) break;
         try {
-          const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(property.address)}&key=${apiKey}`;
-          const res = await fetch(url);
-          const data = await res.json();
+          const geo = await geocodeAddress(property.address);
           if (cancelled) break;
-          if (!data?.results?.length) continue;
-          const loc = data.results[0]?.geometry?.location;
-          const formattedAddress = data.results[0]?.formatted_address || property.address;
-          if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') continue;
+          if (!geo) continue;
 
-          geocoded.push({ id: property.id, address: formattedAddress, lat: loc.lat, lng: loc.lng });
+          const formattedAddress = geo.formattedAddress || property.address;
+          geocoded.push({ id: property.id, address: formattedAddress, lat: geo.latitude, lng: geo.longitude });
 
           // Update map state immediately so the pin appears
           setProperties((prev) =>
             prev.map((p) =>
               p.id === property.id
-                ? { ...p, address: formattedAddress, latitude: loc.lat, longitude: loc.lng }
+                ? { ...p, address: formattedAddress, latitude: geo.latitude, longitude: geo.longitude }
                 : p
             )
           );
-
-          // Respect Google's rate limit (~10 req/s to be safe)
-          await new Promise((r) => setTimeout(r, 100));
         } catch {
           // Skip properties that fail to geocode
         }
@@ -816,50 +793,56 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     return () => { cancelled = true; isGeocodingRef.current = false; };
   }, [properties.length]);
 
+  // Nominatim-powered address suggestions for the Add Property modal.
+  const [addressSuggestions, setAddressSuggestions] = useState<
+    Array<{ placeId: string; displayName: string; lat: number; lng: number }>
+  >([]);
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
+  const addressSuggestQueryRef = useRef('');
+
   useEffect(() => {
     if (!showAddPropertyModal) {
-      propertyAddressAutocompleteListenerRef.current?.remove();
-      propertyAddressAutocompleteListenerRef.current = null;
-      propertyAddressAutocompleteRef.current = null;
+      setAddressSuggestions([]);
+      setShowAddressSuggestions(false);
       return;
     }
 
-    if (!isGoogleMapsLoaded || !(window as any)?.google?.maps?.places || !propertyAddressInputRef.current) {
+    const q = newProperty.address.trim();
+    if (q.length < 4) {
+      setAddressSuggestions([]);
       return;
     }
+    addressSuggestQueryRef.current = q;
+    const handle = setTimeout(async () => {
+      const results = await autocompleteAddress(q);
+      // Drop the response if the user has typed further since we requested.
+      if (addressSuggestQueryRef.current !== q) return;
+      setAddressSuggestions(
+        results.map((r) => ({
+          placeId: r.placeId,
+          displayName: r.displayName,
+          lat: r.latitude,
+          lng: r.longitude,
+        }))
+      );
+      setShowAddressSuggestions(true);
+    }, 400);
 
-    propertyAddressAutocompleteRef.current = new google.maps.places.Autocomplete(propertyAddressInputRef.current, {
-      fields: ['formatted_address', 'geometry', 'name'],
-      types: ['geocode'],
-    });
+    return () => clearTimeout(handle);
+  }, [newProperty.address, showAddPropertyModal]);
 
-    propertyAddressAutocompleteListenerRef.current = propertyAddressAutocompleteRef.current.addListener(
-      'place_changed',
-      () => {
-        const place = propertyAddressAutocompleteRef.current?.getPlace();
-        const fallbackAddress = propertyAddressInputRef.current?.value?.trim() || '';
-        const resolvedAddress = place?.formatted_address || place?.name || fallbackAddress;
-        const location = place?.geometry?.location;
-        const lat = typeof location?.lat === 'function' ? location.lat() : null;
-        const lng = typeof location?.lng === 'function' ? location.lng() : null;
-
-        setNewProperty((prev) => ({
-          ...prev,
-          address: resolvedAddress,
-          latitude:
-            typeof lat === 'number' && Number.isFinite(lat) ? String(lat) : prev.latitude,
-          longitude:
-            typeof lng === 'number' && Number.isFinite(lng) ? String(lng) : prev.longitude,
-        }));
-      }
-    );
-
-    return () => {
-      propertyAddressAutocompleteListenerRef.current?.remove();
-      propertyAddressAutocompleteListenerRef.current = null;
-      propertyAddressAutocompleteRef.current = null;
-    };
-  }, [showAddPropertyModal, isGoogleMapsLoaded]);
+  const applyAddressSuggestion = useCallback(
+    (s: { displayName: string; lat: number; lng: number }) => {
+      setNewProperty((prev) => ({
+        ...prev,
+        address: s.displayName,
+        latitude: String(s.lat),
+        longitude: String(s.lng),
+      }));
+      setShowAddressSuggestions(false);
+    },
+    []
+  );
 
   const handleCreateAsset = async () => {
     if (!newAsset.propertyName.trim()) {
@@ -921,38 +904,31 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   }, [mapSearch, filteredProperties]);
 
   const runTextSearch = React.useCallback(
-    (query: string) => {
+    async (query: string) => {
       const q = query.trim();
       if (!q) return;
-      if (!(window as any)?.google?.maps) return;
       setIsSearching(true);
       setShowSearchDropdown(false);
-      const service = new google.maps.places.PlacesService(
-        mapInstance || document.createElement('div')
-      );
-      service.textSearch({ query: q }, (results, status) => {
-        setIsSearching(false);
-        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-          const mapped = results
-            .filter((r) => r.geometry?.location)
-            .map((r) => ({
-              id: r.place_id || `sr-${Math.random().toString(36).slice(2)}`,
-              name: r.name || '',
-              address: r.formatted_address || (r as any).vicinity || '',
-              lat: r.geometry!.location!.lat(),
-              lng: r.geometry!.location!.lng(),
-              rating: r.rating,
-            }));
-          setPlacesResults(mapped);
-          setActivePanel('search');
-          setShowResultsPanel(true);
-          if (mapInstance && mapped.length > 0) {
-            const bounds = new google.maps.LatLngBounds();
-            mapped.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
-            mapInstance.fitBounds(bounds, 80);
-          }
+      try {
+        const results = await searchPlaces(q, { limit: 10 });
+        const mapped = results.map((r) => ({
+          id: r.placeId,
+          name: r.name || r.displayName.split(',')[0] || '',
+          address: r.formattedAddress,
+          lat: r.latitude,
+          lng: r.longitude,
+        }));
+        setPlacesResults(mapped);
+        setActivePanel('search');
+        setShowResultsPanel(true);
+        if (mapInstance && mapped.length > 0) {
+          // mapInstance is a Leaflet L.Map; use its fitBounds.
+          const latlngs: Array<[number, number]> = mapped.map((r) => [r.lat, r.lng]);
+          mapInstance.fitBounds(latlngs, { padding: [80, 80] });
         }
-      });
+      } finally {
+        setIsSearching(false);
+      }
     },
     [mapInstance]
   );
@@ -1494,21 +1470,44 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-stone-700 mb-1">Property Address <span className="text-red-400">*</span></label>
                   <input
                     ref={propertyAddressInputRef}
                     type="text"
                     autoComplete="off"
-                    placeholder="e.g., 123 Main Street, New York, NY 10001"
+                    placeholder="e.g., 123 Main Street, Sandton, 2196"
                     value={newProperty.address}
                     onChange={(e) =>
                       setNewProperty({ ...newProperty, address: e.target.value })
                     }
+                    onFocus={() => {
+                      if (addressSuggestions.length > 0) setShowAddressSuggestions(true);
+                    }}
+                    onBlur={() => {
+                      // Delay so click on a suggestion still fires.
+                      setTimeout(() => setShowAddressSuggestions(false), 150);
+                    }}
                     className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
+                  {showAddressSuggestions && addressSuggestions.length > 0 && (
+                    <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg">
+                      {addressSuggestions.map((s) => (
+                        <li
+                          key={s.placeId}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            applyAddressSuggestion(s);
+                          }}
+                          className="cursor-pointer px-3 py-2 text-xs text-stone-700 hover:bg-stone-50"
+                        >
+                          {s.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <p className="mt-1 text-xs text-stone-400">
-                    {isGoogleMapsLoaded ? "Start typing to search Google Maps addresses." : "Google Maps address search will appear once the map loads."}
+                    Start typing to search OpenStreetMap addresses (free, no API key).
                   </p>
                 </div>
               </div>

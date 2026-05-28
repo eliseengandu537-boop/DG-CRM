@@ -6,6 +6,7 @@ import { FiMapPin, FiX, FiZoomIn, FiZoomOut, FiPlus } from 'react-icons/fi';
 import { formatRand } from '@/lib/currency';
 import { propertyService, type PropertyRecord } from '@/services/propertyService';
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh';
+import { geocodeAddress } from '@/lib/nominatim';
 
 interface PropertyLocation {
   id: string;
@@ -135,25 +136,16 @@ const SalesMap: React.FC = () => {
     let lat = -28.8;
     let lng = 24.5;
     let address = newProperty.address.trim();
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-    if (apiKey) {
-      try {
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-            address
-          )}&key=${apiKey}`
-        );
-        const data = await response.json();
-        const location = data?.results?.[0]?.geometry?.location;
-        if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
-          lat = location.lat;
-          lng = location.lng;
-          address = data.results[0].formatted_address || address;
-        }
-      } catch (error) {
-        console.warn('Failed to geocode sales property address.', error);
+    try {
+      const geo = await geocodeAddress(address);
+      if (geo) {
+        lat = geo.latitude;
+        lng = geo.longitude;
+        address = geo.formattedAddress || address;
       }
+    } catch (error) {
+      console.warn('Failed to geocode sales property address.', error);
     }
 
     try {

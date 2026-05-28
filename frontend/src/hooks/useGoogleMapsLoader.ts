@@ -1,23 +1,13 @@
 'use client';
 
-import { Libraries, useJsApiLoader } from '@react-google-maps/api';
-
-const GOOGLE_MAPS_SCRIPT_ID = 'app-google-maps-script';
-const GOOGLE_MAPS_LIBRARIES: Libraries = ['places', 'geometry'];
-
+// Compatibility stub. The app now uses Leaflet + OpenStreetMap (no API key,
+// no billing). This hook used to load Google Maps JS API; it's kept as a stub
+// so existing callsites that check `isLoaded` continue to work unchanged.
 export function useGoogleMapsLoader() {
-  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
-
-  const loaderState = useJsApiLoader({
-    id: GOOGLE_MAPS_SCRIPT_ID,
-    googleMapsApiKey: mapsApiKey,
-    libraries: GOOGLE_MAPS_LIBRARIES,
-    preventGoogleFontsLoading: true,
-  });
-
   return {
-    mapsApiKey,
-    ...loaderState,
+    mapsApiKey: '',
+    isLoaded: true,
+    loadError: undefined as unknown as Error | undefined,
   };
 }
 

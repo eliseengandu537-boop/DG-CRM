@@ -1,13 +1,16 @@
 "use client";
 
+// Note: filename kept as GoogleMapWrapper so existing dynamic imports keep working.
+// Implementation is now Leaflet + OpenStreetMap (free, no API key). Street View
+// opens via Google's free URL scheme in a new tab.
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, GoogleMap, InfoWindow, Marker } from '@react-google-maps/api';
-import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { geocodeAddress, streetViewUrl } from '@/lib/nominatim';
 
 type AnyObj = Record<string, any>;
-type LatLngLiteral = google.maps.LatLngLiteral;
-type LayerId = 'traffic' | 'transit';
-type StreetViewState = { lat: number; lng: number; heading?: number } | null;
 type SupportedMapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
 
 interface SearchResultMarker {
@@ -24,108 +27,202 @@ interface Props {
   selectedProperty: AnyObj | null;
   setSelectedProperty: (p: AnyObj | null) => void;
   zoom?: number;
-  mapTypeId?: 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
+  mapTypeId?: SupportedMapType;
   enableGoogleMapControls?: boolean;
   enableMapSearch?: boolean;
   searchResultMarkers?: SearchResultMarker[];
   onSearchResultMarkerClick?: (marker: SearchResultMarker) => void;
-  onMapReady?: (map: google.maps.Map) => void;
+  onMapReady?: (map: L.Map) => void;
   focusLocation?: { lat: number; lng: number; zoom?: number } | null;
 }
 
-// ─── Collapsible map controls panel ────────────────────────────────────────
-interface MapControlsPanelProps {
-  activeMapType: SupportedMapType;
-  layerVisibility: Record<LayerId, boolean>;
-  streetViewError: boolean;
-  selectedPropertyName?: string;
-  onToggleSatellite: () => void;
-  onToggleTraffic: () => void;
-  onToggleTransit: () => void;
-  onMyLocation: () => void;
-  onStreetView: () => void;
+// ─── Tile layer URLs ──────────────────────────────────────────────────────
+const TILE_ROADMAP = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_ROADMAP_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+// Esri's World Imagery free tile service for satellite view (no key required).
+const TILE_SATELLITE =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const TILE_SATELLITE_ATTR =
+  'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics';
+const TILE_TERRAIN = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
+const TILE_TERRAIN_ATTR =
+  '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)';
+
+function tilesFor(mapType: SupportedMapType): { url: string; attribution: string } {
+  if (mapType === 'satellite' || mapType === 'hybrid') {
+    return { url: TILE_SATELLITE, attribution: TILE_SATELLITE_ATTR };
+  }
+  if (mapType === 'terrain') {
+    return { url: TILE_TERRAIN, attribution: TILE_TERRAIN_ATTR };
+  }
+  return { url: TILE_ROADMAP, attribution: TILE_ROADMAP_ATTR };
 }
 
-const MapControlsPanel: React.FC<MapControlsPanelProps> = ({
-  activeMapType,
-  layerVisibility,
-  streetViewError,
-  selectedPropertyName,
-  onToggleSatellite,
-  onToggleTraffic,
-  onToggleTransit,
-  onMyLocation,
-  onStreetView,
-}) => {
+// ─── Custom house-shaped pin SVG matching the prior Google marker style ───
+function buildPropertyPinSvg(color: string, isSelected: boolean): string {
+  const scale = isSelected ? 1.18 : 1;
+  const stroke = isSelected ? 2.8 : 2.2;
+  // House outline matches the prior GoogleMap symbol path so users see the same icon.
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(34 * scale)}" height="${Math.round(34 * scale)}" viewBox="-16 -16 32 32">
+      <path d="M 0 -14 L 14 -3 L 10 -3 L 10 14 L -10 14 L -10 -3 L -14 -3 Z M -3 14 L -3 5 L 3 5 L 3 14 Z"
+            fill="${color}" stroke="#ffffff" stroke-width="${stroke}" />
+    </svg>
+  `.trim();
+}
+
+function propertyDivIcon(color: string, isSelected: boolean): L.DivIcon {
+  const size = isSelected ? 40 : 34;
+  return L.divIcon({
+    className: 'crm-property-pin',
+    html: buildPropertyPinSvg(color, isSelected),
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size - 4],
+    popupAnchor: [0, -size + 6],
+  });
+}
+
+function searchResultDivIcon(index: number): L.DivIcon {
+  const num = index + 1;
+  const html = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
+    <path d="M16 0 C7.163 0 0 7.163 0 16 C0 28 16 40 16 40 C16 40 32 28 32 16 C32 7.163 24.837 0 16 0 Z" fill="#EA4335"/>
+    <circle cx="16" cy="16" r="9" fill="white"/>
+    <text x="16" y="20.5" text-anchor="middle" dominant-baseline="middle" font-family="Arial,sans-serif" font-size="${num > 9 ? 9 : 11}" font-weight="bold" fill="#EA4335">${num}</text>
+  </svg>`;
+  return L.divIcon({
+    className: 'crm-search-pin',
+    html,
+    iconSize: [32, 40],
+    iconAnchor: [16, 40],
+    popupAnchor: [0, -38],
+  });
+}
+
+const myLocationDivIcon: L.DivIcon = L.divIcon({
+  className: 'crm-me-pin',
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" fill="#1d6bd6" fill-opacity="0.18"/>
+    <circle cx="12" cy="12" r="6" fill="#1d6bd6" stroke="white" stroke-width="2"/>
+    <circle cx="12" cy="12" r="2.5" fill="white"/>
+  </svg>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
+
+const searchMarkerIcon: L.DivIcon = L.divIcon({
+  className: 'crm-search-marker',
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="-11 -11 22 22">
+    <circle cx="0" cy="0" r="9" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
+  </svg>`,
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+  popupAnchor: [0, -10],
+});
+
+// ─── Imperative bridge to the Leaflet map instance ────────────────────────
+function MapBridge({
+  onReady,
+  focusLocation,
+  selectedProperty,
+  fitProperties,
+}: {
+  onReady?: (map: L.Map) => void;
+  focusLocation?: { lat: number; lng: number; zoom?: number } | null;
+  selectedProperty: AnyObj | null;
+  fitProperties: AnyObj[];
+}) {
+  const map = useMap();
+  const initialFitDone = useRef(false);
+
+  useEffect(() => {
+    if (onReady) onReady(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fit to all property pins on first load (when several pins exist).
+  useEffect(() => {
+    if (initialFitDone.current) return;
+    if (fitProperties.length < 2) return;
+    const bounds = L.latLngBounds(fitProperties.map((p) => L.latLng(p.lat, p.lng)));
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [40, 40] });
+      initialFitDone.current = true;
+    }
+  }, [fitProperties, map]);
+
+  // Pan to selected property.
+  useEffect(() => {
+    if (
+      !selectedProperty ||
+      typeof selectedProperty.lat !== 'number' ||
+      !Number.isFinite(selectedProperty.lat) ||
+      typeof selectedProperty.lng !== 'number' ||
+      !Number.isFinite(selectedProperty.lng)
+    ) {
+      return;
+    }
+    const targetZoom = Math.max(map.getZoom(), 17);
+    map.setView([selectedProperty.lat, selectedProperty.lng], targetZoom, { animate: true });
+  }, [selectedProperty, map]);
+
+  // External focusLocation prop (e.g. focus from deep-link / search bar).
+  useEffect(() => {
+    if (!focusLocation) return;
+    map.setView([focusLocation.lat, focusLocation.lng], focusLocation.zoom ?? 15, { animate: true });
+  }, [focusLocation, map]);
+
+  return null;
+}
+
+// ─── Collapsible map controls panel (same UI shape as before) ─────────────
+const MapControlsPanel: React.FC<{
+  activeMapType: SupportedMapType;
+  selectedPropertyName?: string;
+  onToggleSatellite: () => void;
+  onMyLocation: () => void;
+  onStreetView: () => void;
+}> = ({ activeMapType, selectedPropertyName, onToggleSatellite, onMyLocation, onStreetView }) => {
   const [expanded, setExpanded] = useState(true);
   const isSatellite = activeMapType === 'satellite' || activeMapType === 'hybrid';
 
   return (
-    <div className="absolute bottom-24 right-4 z-10 flex flex-col-reverse items-end gap-0" style={{ minWidth: '140px' }}>
-      {/* Toggle header */}
+    <div
+      className="absolute bottom-24 right-4 z-[400] flex flex-col-reverse items-end gap-0"
+      style={{ minWidth: '140px' }}
+    >
       <button
         onClick={() => setExpanded((p) => !p)}
         className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl shadow-lg px-3 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors select-none mt-2"
         style={{ whiteSpace: 'nowrap' }}
       >
         <svg
-          className={`w-3.5 h-3.5 text-stone-500 transition-transform duration-200 ${expanded ? 'rotate-180' : 'rotate-0'}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          className={`w-3.5 h-3.5 text-stone-500 transition-transform duration-200 ${
+            expanded ? 'rotate-180' : 'rotate-0'
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
         Map Controls
       </button>
 
-      {/* Expandable controls — expands upward */}
       {expanded && (
-        <div className="bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden" style={{ minWidth: '140px' }}>
-          {/* Satellite */}
+        <div
+          className="bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden"
+          style={{ minWidth: '140px' }}
+        >
           <button
             onClick={onToggleSatellite}
             className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
-              isSatellite
-                ? 'bg-stone-900 text-white'
-                : 'bg-white text-stone-700 hover:bg-stone-50'
+              isSatellite ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'
             }`}
           >
             <span className="text-base">🛰</span>
             {isSatellite ? 'Road Map' : 'Satellite'}
           </button>
 
-          {/* Traffic */}
-          <button
-            onClick={onToggleTraffic}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
-              layerVisibility.traffic
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-stone-700 hover:bg-stone-50'
-            }`}
-          >
-            <span className="text-base">🚦</span>
-            Traffic
-            {layerVisibility.traffic && (
-              <span className="ml-auto text-[10px] bg-white bg-opacity-30 px-1.5 py-0.5 rounded-full font-bold">ON</span>
-            )}
-          </button>
-
-          {/* Transit */}
-          <button
-            onClick={onToggleTransit}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium border-b border-stone-100 transition-colors ${
-              layerVisibility.transit
-                ? 'bg-emerald-600 text-white'
-                : 'bg-white text-stone-700 hover:bg-stone-50'
-            }`}
-          >
-            <span className="text-base">🚌</span>
-            Transit
-            {layerVisibility.transit && (
-              <span className="ml-auto text-[10px] bg-white bg-opacity-30 px-1.5 py-0.5 rounded-full font-bold">ON</span>
-            )}
-          </button>
-
-          {/* My Location */}
           <button
             onClick={onMyLocation}
             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-stone-700 border-b border-stone-100 hover:bg-stone-50 transition-colors bg-white"
@@ -134,7 +231,6 @@ const MapControlsPanel: React.FC<MapControlsPanelProps> = ({
             My Location
           </button>
 
-          {/* Street View */}
           <button
             onClick={onStreetView}
             title={selectedPropertyName ? `Street View: ${selectedPropertyName}` : 'Street View at map center'}
@@ -143,19 +239,13 @@ const MapControlsPanel: React.FC<MapControlsPanelProps> = ({
             <span className="text-base">🚶</span>
             Street View
           </button>
-
-          {streetViewError && (
-            <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-t border-red-100">
-              No Street View available here.
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 };
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Main wrapper ─────────────────────────────────────────────────────────
 const GoogleMapWrapper: React.FC<Props> = ({
   properties,
   selectedProperty,
@@ -169,272 +259,70 @@ const GoogleMapWrapper: React.FC<Props> = ({
   onMapReady,
   focusLocation,
 }) => {
-  const { mapsApiKey, isLoaded, loadError } = useGoogleMapsLoader();
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
-  const transitLayerRef = useRef<google.maps.TransitLayer | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const [activeMapType, setActiveMapType] = useState<SupportedMapType>(mapTypeId);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMarker, setSearchMarker] = useState<AnyObj | null>(null);
-  const [myLocationMarker, setMyLocationMarker] = useState<LatLngLiteral | null>(null);
-  const [myLocationAccuracy, setMyLocationAccuracy] = useState<number>(0);
-  const accuracyCircleRef = useRef<google.maps.Circle | null>(null);
-  const streetViewContainerRef = useRef<HTMLDivElement | null>(null);
-  const [streetViewState, setStreetViewState] = useState<StreetViewState>(null);
-  const [streetViewError, setStreetViewError] = useState(false);
-  const [activeMapType, setActiveMapType] = useState<SupportedMapType>(mapTypeId);
-  const [layerVisibility, setLayerVisibility] = useState<Record<LayerId, boolean>>({
-    traffic: false,
-    transit: false,
-  });
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+
+  useEffect(() => setActiveMapType(mapTypeId), [mapTypeId]);
 
   const safeProperties = useMemo(
     () =>
       properties.filter(
-        (p) => typeof p?.lat === 'number' && Number.isFinite(p.lat) && typeof p?.lng === 'number' && Number.isFinite(p.lng)
+        (p) =>
+          typeof p?.lat === 'number' &&
+          Number.isFinite(p.lat) &&
+          typeof p?.lng === 'number' &&
+          Number.isFinite(p.lng)
       ),
     [properties]
   );
 
-  const center = useMemo(() => {
+  const initialCenter = useMemo<[number, number]>(() => {
     if (
       typeof selectedProperty?.lat === 'number' &&
       Number.isFinite(selectedProperty.lat) &&
       typeof selectedProperty?.lng === 'number' &&
       Number.isFinite(selectedProperty.lng)
     ) {
-      return { lat: selectedProperty.lat, lng: selectedProperty.lng };
+      return [selectedProperty.lat, selectedProperty.lng];
     }
-    if (safeProperties.length > 0) {
-      return { lat: safeProperties[0].lat, lng: safeProperties[0].lng };
-    }
-    return { lat: -29.4, lng: 24.5 };
-  }, [safeProperties, selectedProperty]);
-
-  const setLayerMap = useCallback((layer: LayerId, enabled: boolean) => {
-    if (!mapRef.current) return;
-
-    if (layer === 'traffic' && trafficLayerRef.current) {
-      trafficLayerRef.current.setMap(enabled ? mapRef.current : null);
-      return;
-    }
-    if (layer === 'transit' && transitLayerRef.current) {
-      transitLayerRef.current.setMap(enabled ? mapRef.current : null);
-    }
+    if (safeProperties.length > 0) return [safeProperties[0].lat, safeProperties[0].lng];
+    return [-29.4, 24.5]; // South Africa centre
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const apply3DView = useCallback((map: google.maps.Map | null) => {
-    if (!map) return;
-    const currentZoom = map.getZoom() ?? zoom;
-    if (currentZoom >= 18) {
-      map.setTilt(45);
-      map.setOptions({ rotateControl: true });
-      return;
-    }
-    map.setTilt(0);
-  }, [zoom]);
+  const handleReady = useCallback(
+    (map: L.Map) => {
+      mapRef.current = map;
+      onMapReady?.(map);
+    },
+    [onMapReady]
+  );
 
-  const toggleLayer = useCallback((layer: LayerId) => {
-    setLayerVisibility((prev) => {
-      const nextValue = !prev[layer];
-      setLayerMap(layer, nextValue);
-      return {
-        ...prev,
-        [layer]: nextValue,
-      };
-    });
-  }, [setLayerMap]);
-
-  const toggleSatelliteView = useCallback(() => {
-    setActiveMapType((prev) => {
-      if (prev === 'satellite' || prev === 'hybrid') return 'roadmap';
-      return 'hybrid';
-    });
+  const toggleSatellite = useCallback(() => {
+    setActiveMapType((prev) => (prev === 'satellite' || prev === 'hybrid' ? 'roadmap' : 'hybrid'));
   }, []);
 
   const focusMyLocation = useCallback(() => {
-    if (!mapRef.current) return;
     if (typeof window === 'undefined' || !navigator.geolocation) {
       alert('Geolocation is not supported in this browser.');
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
-        const currentPosition: LatLngLiteral = {
-          lat: coords.latitude,
-          lng: coords.longitude,
-        };
-        mapRef.current?.panTo(currentPosition);
-        mapRef.current?.setZoom(17);
-        setMyLocationMarker(currentPosition);
-        setMyLocationAccuracy(coords.accuracy);
-
-        // Draw / update accuracy circle
-        if (accuracyCircleRef.current) {
-          accuracyCircleRef.current.setMap(null);
-        }
-        if (mapRef.current && coords.accuracy > 0) {
-          accuracyCircleRef.current = new google.maps.Circle({
-            strokeColor: '#1d6bd6',
-            strokeOpacity: 0.4,
-            strokeWeight: 1,
-            fillColor: '#1d6bd6',
-            fillOpacity: 0.08,
-            map: mapRef.current,
-            center: currentPosition,
-            radius: coords.accuracy,
-          });
-        }
+        setMyLocation({ lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy });
+        mapRef.current?.setView([coords.latitude, coords.longitude], 17, { animate: true });
       },
-      () => {
-        alert('Unable to access your location. Please allow location permissions in your browser.');
-      },
+      () => alert('Unable to access your location. Please allow location permissions in your browser.'),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }
     );
   }, []);
 
-  const handleAutocompleteLoad = useCallback((autocomplete: google.maps.places.Autocomplete) => {
-    autocompleteRef.current = autocomplete;
-  }, []);
-
-  const clearMapSearch = useCallback(() => {
-    setSearchQuery('');
-    setSearchMarker(null);
-    setSelectedProperty(null);
-  }, [setSelectedProperty]);
-
-  const resolveFormattedAddress = useCallback(
-    (params: { placeId?: string; lat: number; lng: number; fallback: string }) =>
-      new Promise<string>((resolve) => {
-        if (!(window as any)?.google?.maps) {
-          resolve(params.fallback);
-          return;
-        }
-
-        const geocoder = new google.maps.Geocoder();
-        const request = params.placeId
-          ? { placeId: params.placeId }
-          : { location: { lat: params.lat, lng: params.lng } };
-
-        geocoder.geocode(request as any, (results, status) => {
-          if (status === google.maps.GeocoderStatus.OK && results?.[0]?.formatted_address) {
-            resolve(results[0].formatted_address);
-            return;
-          }
-          resolve(params.fallback);
-        });
-      }),
-    []
-  );
-
-  const handleAutocompletePlaceChanged = useCallback(async () => {
-    if (!autocompleteRef.current || !mapRef.current) return;
-
-    const place = autocompleteRef.current.getPlace();
-    const location = place?.geometry?.location;
-    if (!location) return;
-
-    const lat = location.lat();
-    const lng = location.lng();
-    const nextPos = { lat, lng };
-
-    const fallbackAddress = place.formatted_address || place.name || 'Selected location';
-    const resolvedAddress = await resolveFormattedAddress({
-      placeId: place.place_id,
-      lat,
-      lng,
-      fallback: fallbackAddress,
-    });
-
-    setSearchQuery(resolvedAddress);
-    mapRef.current.panTo(nextPos);
-    mapRef.current.setZoom(17);
-
-    const matched = safeProperties.find((item) => {
-      const latDiff = Math.abs(Number(item.lat) - lat);
-      const lngDiff = Math.abs(Number(item.lng) - lng);
-      return latDiff < 0.0007 && lngDiff < 0.0007;
-    });
-
-    if (matched) {
-      setSearchMarker(null);
-      setSelectedProperty(matched);
-      return;
-    }
-
-    setSelectedProperty(null);
-    setSearchMarker({
-      id: 'search-result',
-      name: place.name || 'Search Result',
-      address: resolvedAddress,
-      lat,
-      lng,
-      markerColor: '#2563eb',
-    });
-  }, [resolveFormattedAddress, safeProperties, setSelectedProperty]);
-
-  const handleManualSearch = useCallback(async () => {
-    const query = searchQuery.trim();
-    if (!query || !mapRef.current || !(window as any)?.google?.maps) return;
-
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({ address: query }, async (results, status) => {
-      if (status !== google.maps.GeocoderStatus.OK || !results?.[0]?.geometry?.location) {
-        alert('Address not found. Please try a more specific address.');
-        return;
-      }
-
-      const first = results[0];
-      const lat = first.geometry.location.lat();
-      const lng = first.geometry.location.lng();
-      const resolvedAddress = await resolveFormattedAddress({
-        placeId: first.place_id,
-        lat,
-        lng,
-        fallback: first.formatted_address || query,
-      });
-
-      setSearchQuery(resolvedAddress);
-      mapRef.current?.panTo({ lat, lng });
-      mapRef.current?.setZoom(17);
-      setSelectedProperty(null);
-      setSearchMarker({
-        id: 'search-result',
-        name: first.formatted_address || query,
-        address: resolvedAddress,
-        lat,
-        lng,
-        markerColor: '#2563eb',
-      });
-    });
-  }, [resolveFormattedAddress, searchQuery, setSelectedProperty]);
-
   const openStreetViewAt = useCallback((lat: number, lng: number) => {
-    setStreetViewError(false);
-    if (!(window as any)?.google?.maps) return;
-
-    const sv = new google.maps.StreetViewService();
-    sv.getPanorama(
-      { location: { lat, lng }, radius: 100, source: google.maps.StreetViewSource.OUTDOOR },
-      (data, status) => {
-        if (status === google.maps.StreetViewStatus.OK && data?.location?.latLng) {
-          const panoLat = data.location.latLng.lat();
-          const panoLng = data.location.latLng.lng();
-          // Compute heading toward the requested point.
-          const heading = google.maps.geometry?.spherical
-            ? google.maps.geometry.spherical.computeHeading(
-                data.location.latLng,
-                new google.maps.LatLng(lat, lng)
-              )
-            : 0;
-          setStreetViewState({ lat: panoLat, lng: panoLng, heading: heading ?? 0 });
-        } else {
-          setStreetViewError(true);
-          setTimeout(() => setStreetViewError(false), 3000);
-        }
-      }
-    );
+    const url = streetViewUrl(lat, lng);
+    if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener');
   }, []);
 
   const handleOpenStreetView = useCallback(() => {
@@ -442,431 +330,270 @@ const GoogleMapWrapper: React.FC<Props> = ({
       openStreetViewAt(selectedProperty.lat, selectedProperty.lng);
       return;
     }
-    if (myLocationMarker) {
-      openStreetViewAt(myLocationMarker.lat, myLocationMarker.lng);
+    if (myLocation) {
+      openStreetViewAt(myLocation.lat, myLocation.lng);
       return;
     }
     if (searchMarker && typeof searchMarker.lat === 'number') {
       openStreetViewAt(searchMarker.lat, searchMarker.lng);
       return;
     }
-    // Fall back: open Street View for map center
     if (mapRef.current) {
       const c = mapRef.current.getCenter();
-      if (c) openStreetViewAt(c.lat(), c.lng());
+      openStreetViewAt(c.lat, c.lng);
     }
-  }, [openStreetViewAt, selectedProperty, myLocationMarker, searchMarker]);
+  }, [openStreetViewAt, selectedProperty, myLocation, searchMarker]);
 
-  const handleLoad = useCallback((map: google.maps.Map) => {
-    mapRef.current = map;
-
-    if (safeProperties.length > 1) {
-      const bounds = new google.maps.LatLngBounds();
-      safeProperties.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
-      map.fitBounds(bounds);
-    }
-
-    trafficLayerRef.current = new google.maps.TrafficLayer();
-    transitLayerRef.current = new google.maps.TransitLayer();
-
-    apply3DView(map);
-    onMapReady?.(map);
-  }, [safeProperties, apply3DView, onMapReady]);
-
-  const handleUnmount = useCallback(() => {
-    if (trafficLayerRef.current) trafficLayerRef.current.setMap(null);
-    if (transitLayerRef.current) transitLayerRef.current.setMap(null);
-    if (accuracyCircleRef.current) accuracyCircleRef.current.setMap(null);
-    mapRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    if (
-      !mapRef.current ||
-      typeof selectedProperty?.lat !== 'number' ||
-      !Number.isFinite(selectedProperty.lat) ||
-      typeof selectedProperty?.lng !== 'number' ||
-      !Number.isFinite(selectedProperty.lng)
-    ) {
+  const runMapSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    const geo = await geocodeAddress(q);
+    if (!geo) {
+      alert('Address not found. Please try a more specific search.');
       return;
     }
-    mapRef.current.panTo({ lat: selectedProperty.lat, lng: selectedProperty.lng });
-    mapRef.current.setZoom(Math.max(mapRef.current.getZoom() || 0, 17));
-    apply3DView(mapRef.current);
-  }, [selectedProperty, apply3DView]);
+    mapRef.current?.setView([geo.latitude, geo.longitude], 17, { animate: true });
 
-  useEffect(() => {
-    setActiveMapType(mapTypeId);
-  }, [mapTypeId]);
-
-  useEffect(() => {
-    if (!mapRef.current || !focusLocation) return;
-    mapRef.current.panTo({ lat: focusLocation.lat, lng: focusLocation.lng });
-    mapRef.current.setZoom(focusLocation.zoom ?? 15);
-  }, [focusLocation]);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    mapRef.current.setMapTypeId(activeMapType);
-    apply3DView(mapRef.current);
-  }, [activeMapType, zoom, apply3DView]);
-
-  useEffect(() => {
-    setLayerMap('traffic', layerVisibility.traffic);
-    setLayerMap('transit', layerVisibility.transit);
-  }, [layerVisibility, setLayerMap]);
-
-  const getPropertyMarkerIcon = useCallback((location: AnyObj) => {
-    const isSelected = selectedProperty?.id === location.id;
-    const markerColor = location.markerColor || '#16a34a';
-
-    // House-shaped marker for broker-added properties.
-    return {
-      path: 'M 0 -14 L 14 -3 L 10 -3 L 10 14 L -10 14 L -10 -3 L -14 -3 Z M -3 14 L -3 5 L 3 5 L 3 14 Z',
-      fillColor: markerColor,
-      fillOpacity: 1,
-      strokeColor: '#ffffff',
-      strokeWeight: isSelected ? 2.8 : 2.2,
-      scale: isSelected ? 1.18 : 1,
-    };
-  }, [selectedProperty]);
-
-  const getMyLocationIcon = useCallback(() => {
-    // Classic Google Maps pulsing blue dot as SVG data URI
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="10" fill="#1d6bd6" fill-opacity="0.18"/>
-        <circle cx="12" cy="12" r="6" fill="#1d6bd6" stroke="white" stroke-width="2"/>
-        <circle cx="12" cy="12" r="2.5" fill="white"/>
-      </svg>
-    `.trim();
-    return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-      scaledSize: new google.maps.Size(28, 28),
-      anchor: new google.maps.Point(14, 14),
-    };
-  }, []);
-
-  const getSearchMarkerIcon = useCallback(() => {
-    const googleSymbolPath =
-      typeof window !== 'undefined' && (window as any)?.google?.maps?.SymbolPath
-        ? (window as any).google.maps.SymbolPath
-        : null;
-
-    if (!googleSymbolPath) {
-      return {
-        path: 'M 0 -10 A 10 10 0 1 1 0 10 A 10 10 0 1 1 0 -10 Z',
-        fillColor: '#2563eb',
-        fillOpacity: 0.95,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-        scale: 1,
-      };
-    }
-
-    return {
-      path: googleSymbolPath.CIRCLE,
-      fillColor: '#2563eb',
-      fillOpacity: 0.95,
-      strokeColor: '#ffffff',
-      strokeWeight: 2,
-      scale: 7,
-    };
-  }, []);
-
-  const getSearchResultNumberedIcon = useCallback((index: number) => {
-    const num = index + 1;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40"><path d="M16 0 C7.163 0 0 7.163 0 16 C0 28 16 40 16 40 C16 40 32 28 32 16 C32 7.163 24.837 0 16 0 Z" fill="#EA4335"/><circle cx="16" cy="16" r="9" fill="white"/><text x="16" y="20.5" text-anchor="middle" dominant-baseline="middle" font-family="Arial,sans-serif" font-size="${num > 9 ? 9 : 11}" font-weight="bold" fill="#EA4335">${num}</text></svg>`;
-    return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-      scaledSize: new google.maps.Size(32, 40),
-      anchor: new google.maps.Point(16, 40),
-    };
-  }, []);
-
-  const mapOptions = useMemo(
-    () => ({
-      streetViewControl: true,
-      mapTypeControl: false,
-      zoomControl: true,
-      scaleControl: false,
-      clickableIcons: true,
-      keyboardShortcuts: true,
-      gestureHandling: 'greedy' as const,
-      mapTypeId: activeMapType,
-    }),
-    [activeMapType]
-  );
-
-  // Mount Street View panorama into the overlay div whenever streetViewState changes
-  useEffect(() => {
-    if (!streetViewState || !streetViewContainerRef.current) return;
-    if (!(window as any)?.google?.maps) return;
-
-    const pano = new google.maps.StreetViewPanorama(streetViewContainerRef.current, {
-      position: { lat: streetViewState.lat, lng: streetViewState.lng },
-      pov: { heading: streetViewState.heading ?? 0, pitch: 5 },
-      zoom: 1,
-      addressControl: true,
-      addressControlOptions: { position: google.maps.ControlPosition.BOTTOM_CENTER },
-      fullscreenControl: false,
-      motionTracking: false,
-      motionTrackingControl: false,
-      showRoadLabels: true,
+    const matched = safeProperties.find((item) => {
+      const latDiff = Math.abs(Number(item.lat) - geo.latitude);
+      const lngDiff = Math.abs(Number(item.lng) - geo.longitude);
+      return latDiff < 0.0007 && lngDiff < 0.0007;
     });
+    if (matched) {
+      setSearchMarker(null);
+      setSelectedProperty(matched);
+      return;
+    }
+    setSelectedProperty(null);
+    setSearchMarker({
+      id: 'search-result',
+      name: geo.name || 'Search Result',
+      address: geo.formattedAddress,
+      lat: geo.latitude,
+      lng: geo.longitude,
+    });
+  }, [safeProperties, searchQuery, setSelectedProperty]);
 
-    return () => {
-      pano.setVisible(false);
-    };
-  }, [streetViewState]);
-
-  if (!mapsApiKey) {
-    return (
-      <div className="w-full h-full min-h-[500px] flex items-center justify-center bg-stone-100 text-stone-700 p-6 text-center">
-        Google Maps API key is missing. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to enable map features.
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="w-full h-full min-h-[500px] flex items-center justify-center bg-stone-100 text-stone-700 p-6 text-center">
-        Google Maps failed to load. Check API key, domain restrictions, and enabled Maps/Places APIs.
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="w-full h-full min-h-[500px] bg-stone-100 animate-pulse" aria-hidden="true" />
-    );
-  }
+  const tiles = tilesFor(activeMapType);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '500px' }}>
-    <GoogleMap
-      mapContainerStyle={{ width: '100%', height: '100%', minHeight: '500px' }}
-      center={center}
-      zoom={zoom}
-      onLoad={handleLoad}
-      onUnmount={handleUnmount}
-      onZoomChanged={() => apply3DView(mapRef.current)}
-      options={mapOptions}
-    >
-        {enableMapSearch && (
-          <div className="absolute top-3 left-3 z-10 w-[min(420px,calc(100%-1.5rem))]">
-            <Autocomplete
-              onLoad={handleAutocompleteLoad}
-              onPlaceChanged={handleAutocompletePlaceChanged}
-              options={{
-                fields: ['formatted_address', 'geometry', 'name', 'place_id'],
-              }}
-            >
-              <div className="relative">
-                <input
-                  value={searchQuery}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setSearchQuery(nextValue);
-                    if (!nextValue.trim()) {
-                      setSearchMarker(null);
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      void handleManualSearch();
-                    }
-                  }}
-                  placeholder="Search places, addresses, streets..."
-                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 pr-20 text-sm shadow"
-                />
-                {searchQuery ? (
-                  <button
-                    onClick={clearMapSearch}
-                    type="button"
-                    className="absolute right-12 top-1/2 -translate-y-1/2 rounded px-1 text-stone-500 hover:bg-stone-100"
-                    title="Clear search"
-                  >
-                    ×
-                  </button>
-                ) : null}
-                <button
-                  onClick={() => void handleManualSearch()}
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-stone-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-stone-700"
-                >
-                  Go
-                </button>
-              </div>
-            </Autocomplete>
-          </div>
-        )}
-
-      {enableGoogleMapControls && (
-        <MapControlsPanel
-          activeMapType={activeMapType}
-          layerVisibility={layerVisibility}
-          streetViewError={streetViewError}
-          onToggleSatellite={toggleSatelliteView}
-          onToggleTraffic={() => toggleLayer('traffic')}
-          onToggleTransit={() => toggleLayer('transit')}
-          onMyLocation={focusMyLocation}
-          onStreetView={handleOpenStreetView}
-          selectedPropertyName={selectedProperty?.name}
+      <MapContainer
+        center={initialCenter}
+        zoom={zoom}
+        style={{ width: '100%', height: '100%', minHeight: '500px' }}
+        scrollWheelZoom
+        zoomControl
+      >
+        <TileLayer
+          key={activeMapType}
+          url={tiles.url}
+          attribution={tiles.attribution}
+          maxZoom={19}
         />
-      )}
 
-        {safeProperties.map((location) => (
-          <Marker
-            key={location.id}
-            position={{ lat: location.lat, lng: location.lng }}
-            onClick={() => setSelectedProperty(location)}
-            icon={getPropertyMarkerIcon(location)}
-          >
-            {selectedProperty?.id === location.id && (
-              <InfoWindow
-                position={{ lat: location.lat, lng: location.lng }}
-                onCloseClick={() => setSelectedProperty(null)}
+        <MapBridge
+          onReady={handleReady}
+          focusLocation={focusLocation || null}
+          selectedProperty={selectedProperty}
+          fitProperties={safeProperties}
+        />
+
+        {safeProperties.map((location) => {
+          const color = location.markerColor || '#16a34a';
+          const isSelected = selectedProperty?.id === location.id;
+          return (
+            <Marker
+              key={location.id}
+              position={[location.lat, location.lng]}
+              icon={propertyDivIcon(color, isSelected)}
+              eventHandlers={{ click: () => setSelectedProperty(location) }}
+            >
+              <Popup
+                eventHandlers={{ remove: () => setSelectedProperty(null) }}
+                minWidth={240}
+                maxWidth={320}
               >
-                <div className="max-w-xs" style={{ minWidth: '240px' }}>
-                  {/* Name + address */}
-                  <h4 className="font-bold text-sm mb-0.5 text-gray-900">{location.name}</h4>
-                  <p className="text-xs text-gray-700 mb-2 flex items-start gap-1">
+                <div style={{ minWidth: '220px' }}>
+                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: '#111827' }}>
+                    {location.name}
+                  </h4>
+                  <p
+                    style={{
+                      margin: '4px 0 8px',
+                      fontSize: '12px',
+                      color: '#4b5563',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '4px',
+                    }}
+                  >
                     <span style={{ marginTop: '1px' }}>📍</span>
                     <span>{location.address || 'Address not available'}</span>
                   </p>
-
-                  {/* Satellite + Street View buttons */}
-                  <div className="flex gap-1.5 mb-2">
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <button
-                      onClick={toggleSatelliteView}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border transition-colors"
-                      style={
-                        activeMapType === 'satellite' || activeMapType === 'hybrid'
-                          ? { background: '#1e293b', color: '#fff', borderColor: '#1e293b' }
-                          : { background: '#f8fafc', color: '#334155', borderColor: '#cbd5e1' }
-                      }
+                      onClick={toggleSatellite}
+                      style={{
+                        background:
+                          activeMapType === 'satellite' || activeMapType === 'hybrid'
+                            ? '#1e293b'
+                            : '#f8fafc',
+                        color:
+                          activeMapType === 'satellite' || activeMapType === 'hybrid'
+                            ? '#fff'
+                            : '#334155',
+                        border: '1px solid #cbd5e1',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                      }}
                     >
                       🛰 {activeMapType === 'satellite' || activeMapType === 'hybrid' ? 'Map' : 'Satellite'}
                     </button>
                     <button
                       onClick={() => openStreetViewAt(location.lat, location.lng)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border transition-colors"
-                      style={{ background: '#f8fafc', color: '#334155', borderColor: '#cbd5e1' }}
+                      style={{
+                        background: '#f8fafc',
+                        color: '#334155',
+                        border: '1px solid #cbd5e1',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                      }}
+                      title="Open Google Street View in a new tab"
                     >
                       🚶 Street View
                     </button>
                   </div>
-
-                  {streetViewError && (
-                    <p className="text-xs text-red-600 mb-2">No Street View available here.</p>
-                  )}
                 </div>
-              </InfoWindow>
-            )}
-          </Marker>
-        ))}
+              </Popup>
+            </Marker>
+          );
+        })}
 
-        {searchResultMarkers?.map((marker, index) => (
+        {searchResultMarkers?.map((m, index) => (
           <Marker
-            key={`sr-${marker.id}`}
-            position={{ lat: marker.lat, lng: marker.lng }}
-            icon={getSearchResultNumberedIcon(index)}
-            onClick={() => onSearchResultMarkerClick?.(marker)}
-            zIndex={100 + index}
-          />
+            key={`sr-${m.id}`}
+            position={[m.lat, m.lng]}
+            icon={searchResultDivIcon(index)}
+            eventHandlers={{ click: () => onSearchResultMarkerClick?.(m) }}
+          >
+            <Popup>
+              <div>
+                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{m.name}</h4>
+                {m.address && (
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>{m.address}</p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
         ))}
 
         {searchMarker && (
-          <Marker
-            key={searchMarker.id}
-            position={{ lat: searchMarker.lat, lng: searchMarker.lng }}
-            onClick={() => setSearchMarker(searchMarker)}
-            icon={getSearchMarkerIcon()}
-          >
-            <InfoWindow
-              position={{ lat: searchMarker.lat, lng: searchMarker.lng }}
-              onCloseClick={() => setSearchMarker(null)}
-            >
-              <div className="max-w-xs">
-                <h4 className="font-bold text-sm mb-1">{searchMarker.name}</h4>
-                <p className="text-xs text-gray-600">{searchMarker.address}</p>
+          <Marker position={[searchMarker.lat, searchMarker.lng]} icon={searchMarkerIcon}>
+            <Popup eventHandlers={{ remove: () => setSearchMarker(null) }}>
+              <div>
+                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{searchMarker.name}</h4>
+                {searchMarker.address && (
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                    {searchMarker.address}
+                  </p>
+                )}
               </div>
-            </InfoWindow>
+            </Popup>
           </Marker>
         )}
 
-        {myLocationMarker && (
-          <Marker
-            key="my-location"
-            position={myLocationMarker}
-            icon={getMyLocationIcon()}
-            title="Your location"
-            zIndex={999}
-          >
-            <InfoWindow
-              position={myLocationMarker}
-              onCloseClick={() => {
-                setMyLocationMarker(null);
-                if (accuracyCircleRef.current) {
-                  accuracyCircleRef.current.setMap(null);
-                  accuracyCircleRef.current = null;
-                }
-              }}
-            >
+        {myLocation && (
+          <Marker position={[myLocation.lat, myLocation.lng]} icon={myLocationDivIcon}>
+            <Popup eventHandlers={{ remove: () => setMyLocation(null) }}>
               <div>
-                <p className="font-semibold text-sm">Your Location</p>
-                {myLocationAccuracy > 0 && (
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Accuracy: ±{Math.round(myLocationAccuracy)} m
+                <p style={{ margin: 0, fontWeight: 600, fontSize: '12px' }}>Your Location</p>
+                {myLocation.accuracy > 0 && (
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                    Accuracy: ±{Math.round(myLocation.accuracy)} m
                   </p>
                 )}
                 <button
-                  onClick={() => openStreetViewAt(myLocationMarker.lat, myLocationMarker.lng)}
-                  className="mt-1.5 rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700"
+                  onClick={() => openStreetViewAt(myLocation.lat, myLocation.lng)}
+                  style={{
+                    marginTop: '6px',
+                    background: '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
                 >
                   Open Street View here
                 </button>
               </div>
-            </InfoWindow>
+            </Popup>
           </Marker>
         )}
-    </GoogleMap>
+      </MapContainer>
 
-    {/* ─── Street View overlay ─────────────────────────────────────── */}
-    {streetViewState && (
-      <div
-        style={{ position: 'absolute', inset: 0, zIndex: 20 }}
-      >
-        {/* Panorama renders here via useEffect */}
-        <div ref={streetViewContainerRef} style={{ width: '100%', height: '100%' }} />
-        {/* Close button */}
-        <button
-          onClick={() => setStreetViewState(null)}
-          style={{
-            position: 'absolute',
-            top: '16px',
-            left: '16px',
-            zIndex: 30,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: 'white',
-            border: '1px solid #d1d5db',
-            borderRadius: '8px',
-            padding: '8px 14px',
-            fontSize: '13px',
-            fontWeight: 600,
-            color: '#374151',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
-            cursor: 'pointer',
-          }}
-        >
-          ← Back to Map
-        </button>
-      </div>
-    )}
+      {enableMapSearch && (
+        <div className="absolute top-3 left-3 z-[500] w-[min(420px,calc(100%-1.5rem))]">
+          <div className="relative">
+            <input
+              value={searchQuery}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSearchQuery(v);
+                if (!v.trim()) setSearchMarker(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void runMapSearch();
+                }
+              }}
+              placeholder="Search places, addresses, streets..."
+              className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 pr-20 text-sm shadow"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchMarker(null);
+                  setSelectedProperty(null);
+                }}
+                type="button"
+                className="absolute right-12 top-1/2 -translate-y-1/2 rounded px-1 text-stone-500 hover:bg-stone-100"
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
+            <button
+              onClick={() => void runMapSearch()}
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-stone-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-stone-700"
+            >
+              Go
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enableGoogleMapControls && (
+        <MapControlsPanel
+          activeMapType={activeMapType}
+          selectedPropertyName={selectedProperty?.name}
+          onToggleSatellite={toggleSatellite}
+          onMyLocation={focusMyLocation}
+          onStreetView={handleOpenStreetView}
+        />
+      )}
     </div>
   );
 };

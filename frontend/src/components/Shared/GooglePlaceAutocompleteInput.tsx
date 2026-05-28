@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useCallback, useRef } from 'react';
-import { Autocomplete } from '@react-google-maps/api';
-import { useGoogleMapsLoader } from '@/hooks/useGoogleMapsLoader';
+// Nominatim-backed address autocomplete input. The export name + shape match
+// the prior Google-Places version so existing call sites don't change.
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { autocompleteAddress } from '@/lib/nominatim';
 
 export type SelectedGooglePlace = {
   name: string;
@@ -28,85 +30,106 @@ export function GooglePlaceAutocompleteInput({
   value,
   onInputChange,
   onPlaceSelect,
-  placeholder = 'Search Google Maps for a property...',
+  placeholder = 'Search OpenStreetMap for an address...',
   disabled = false,
   error,
 }: GooglePlaceAutocompleteInputProps) {
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const { mapsApiKey, isLoaded, loadError } = useGoogleMapsLoader();
+  const [suggestions, setSuggestions] = useState<
+    Array<{
+      placeId: string;
+      name: string;
+      displayName: string;
+      city: string;
+      area: string;
+      lat: number;
+      lng: number;
+    }>
+  >([]);
+  const [open, setOpen] = useState(false);
+  const lastQueryRef = useRef('');
 
-  const handlePlaceChanged = useCallback(() => {
-    const autocomplete = autocompleteRef.current;
-    if (!autocomplete) return;
-
-    const place = autocomplete.getPlace();
-    const location = place?.geometry?.location;
-    const formattedAddress = String(place?.formatted_address || '').trim();
-    const name = String(place?.name || '').trim();
-    const placeId = String(place?.place_id || '').trim();
-    const components = Array.isArray(place?.address_components) ? place.address_components : [];
-    const getComponent = (...types: string[]) =>
-      components.find(component => types.every(type => component.types.includes(type)));
-    const city =
-      getComponent('locality')?.long_name ||
-      getComponent('administrative_area_level_2')?.long_name ||
-      getComponent('administrative_area_level_1')?.long_name ||
-      '';
-    const area =
-      getComponent('sublocality', 'sublocality_level_1')?.long_name ||
-      getComponent('neighborhood')?.long_name ||
-      getComponent('locality')?.long_name ||
-      '';
-
-    if (!location || !formattedAddress || !name || !placeId) {
+  useEffect(() => {
+    const q = value.trim();
+    if (q.length < 4) {
+      setSuggestions([]);
       return;
     }
+    lastQueryRef.current = q;
+    const handle = setTimeout(async () => {
+      const results = await autocompleteAddress(q);
+      if (lastQueryRef.current !== q) return;
+      setSuggestions(
+        results.map((r) => ({
+          placeId: r.placeId,
+          name: r.name,
+          displayName: r.displayName,
+          city: r.city,
+          area: r.area,
+          lat: r.latitude,
+          lng: r.longitude,
+        }))
+      );
+      setOpen(true);
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [value]);
 
-    onPlaceSelect({
-      name,
-      formattedAddress,
-      address: formattedAddress,
-      city,
-      area,
-      latitude: location.lat(),
-      longitude: location.lng(),
-      placeId,
-    });
-  }, [onPlaceSelect]);
-
-  const input = (
-    <input
-      type="search"
-      value={value}
-      onChange={(event) => onInputChange(event.target.value)}
-      disabled={disabled || !mapsApiKey || Boolean(loadError) || !isLoaded}
-      placeholder={placeholder}
-      className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-stone-100 disabled:text-stone-500"
-    />
+  const handleSelect = useCallback(
+    (s: {
+      placeId: string;
+      name: string;
+      displayName: string;
+      city: string;
+      area: string;
+      lat: number;
+      lng: number;
+    }) => {
+      onPlaceSelect({
+        name: s.name || s.displayName.split(',')[0] || s.displayName,
+        formattedAddress: s.displayName,
+        address: s.displayName,
+        city: s.city,
+        area: s.area,
+        latitude: s.lat,
+        longitude: s.lng,
+        placeId: s.placeId,
+      });
+      setOpen(false);
+    },
+    [onPlaceSelect]
   );
 
   return (
-    <div className="space-y-1">
-      {mapsApiKey && !loadError && isLoaded ? (
-        <Autocomplete
-          onLoad={(autocomplete) => {
-            autocompleteRef.current = autocomplete;
-          }}
-          onPlaceChanged={handlePlaceChanged}
-          options={{
-            fields: ['formatted_address', 'geometry', 'name', 'place_id', 'address_components'],
-          }}
-        >
-          {input}
-        </Autocomplete>
-      ) : (
-        input
+    <div className="space-y-1 relative">
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onInputChange(event.target.value)}
+        onFocus={() => {
+          if (suggestions.length > 0) setOpen(true);
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        disabled={disabled}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-stone-100 disabled:text-stone-500"
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg">
+          {suggestions.map((s) => (
+            <li
+              key={s.placeId}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                handleSelect(s);
+              }}
+              className="cursor-pointer px-3 py-2 text-xs text-stone-700 hover:bg-stone-50"
+            >
+              {s.displayName}
+            </li>
+          ))}
+        </ul>
       )}
-      {(error || !mapsApiKey || loadError) && (
-        <p className="text-xs text-red-600">
-          {error || 'Please select a valid property from the map'}
-        </p>
-      )}
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }
