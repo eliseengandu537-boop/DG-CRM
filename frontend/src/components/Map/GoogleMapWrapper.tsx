@@ -5,7 +5,7 @@
 // opens via Google's free URL scheme in a new tab.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { geocodeAddress, streetViewUrl } from '@/lib/nominatim';
@@ -189,7 +189,7 @@ const MapControlsPanel: React.FC<{
 
   return (
     <div
-      className="absolute bottom-24 right-4 z-[400] flex flex-col-reverse items-end gap-0"
+      className="absolute bottom-24 right-4 z-[1100] flex flex-col-reverse items-end gap-0"
       style={{ minWidth: '140px' }}
     >
       <button
@@ -387,8 +387,11 @@ const GoogleMapWrapper: React.FC<Props> = ({
         maxZoom={MAP_MAX_ZOOM}
         style={{ width: '100%', height: '100%', minHeight: '500px' }}
         scrollWheelZoom
-        zoomControl
+        zoomControl={false}
       >
+        {/* Move Leaflet's +/- buttons to bottom-left so they don't collide
+            with the persistent search bar at top-left. */}
+        <ZoomControl position="bottomleft" />
         {isSatellite ? (
           <>
             <TileLayer
@@ -574,7 +577,7 @@ const GoogleMapWrapper: React.FC<Props> = ({
       </MapContainer>
 
       {enableMapSearch && (
-        <div className="absolute top-3 left-3 z-[500] w-[min(420px,calc(100%-1.5rem))]">
+        <div className="absolute top-3 left-3 z-[1100] w-[min(420px,calc(100%-1.5rem))]">
           <div className="relative">
             <input
               value={searchQuery}

@@ -634,9 +634,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           return;
         }
 
+        // Keep the imported address verbatim — only fill in coordinates.
         const updatedProperty: Property = {
           ...property,
-          address: geo.formattedAddress || property.address,
           latitude: geo.lat,
           longitude: geo.lng,
         };
@@ -648,7 +648,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         setFocusLocation({ lat: geo.lat, lng: geo.lng, zoom: 16 });
 
         await propertyService.updateProperty(property.id, {
-          address: updatedProperty.address,
           latitude: geo.lat,
           longitude: geo.lng,
         });
@@ -741,7 +740,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       // Suppress realtime loadData() during geocoding to avoid
       // 63 concurrent reload calls flooding the server
       isGeocodingRef.current = true;
-      const geocoded: { id: string; address: string; lat: number; lng: number }[] = [];
+      const geocoded: { id: string; lat: number; lng: number }[] = [];
 
       for (const property of missing) {
         if (cancelled) break;
@@ -750,14 +749,16 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
           if (cancelled) break;
           if (!geo) continue;
 
-          const formattedAddress = geo.formattedAddress || property.address;
-          geocoded.push({ id: property.id, address: formattedAddress, lat: geo.latitude, lng: geo.longitude });
+          // Preserve the imported address verbatim — only fill in coordinates.
+          // Nominatim's formatted_address is often less specific than the
+          // address the user imported, so overwriting it loses information.
+          geocoded.push({ id: property.id, lat: geo.latitude, lng: geo.longitude });
 
           // Update map state immediately so the pin appears
           setProperties((prev) =>
             prev.map((p) =>
               p.id === property.id
-                ? { ...p, address: formattedAddress, latitude: geo.latitude, longitude: geo.longitude }
+                ? { ...p, latitude: geo.latitude, longitude: geo.longitude }
                 : p
             )
           );
@@ -777,7 +778,6 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         if (cancelled) break;
         try {
           await propertyService.updateProperty(item.id, {
-            address: item.address,
             latitude: item.lat,
             longitude: item.lng,
           });
@@ -994,8 +994,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         />
       </div>
 
-      {/* ─── Google Maps-style Search Bar ───────────────────────────── */}
-      <div className="absolute top-4 left-4 z-30" style={{ width: '380px' }}>
+      {/* ─── Google Maps-style Search Bar — always visible above the map ─── */}
+      <div className="absolute top-4 left-4 z-[1100]" style={{ width: '380px' }}>
         <div className="bg-white rounded-2xl shadow-xl overflow-visible">
           <div className="flex items-center px-4 py-3.5 gap-3">
             {isSearching ? (
@@ -1065,7 +1065,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       {/* ─── Results / Properties Panel ─────────────────────────────── */}
       {showResultsPanel && (
         <div
-          className="absolute z-30 bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col"
+          className="absolute z-[1100] bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col"
           style={{ top: '80px', left: '16px', width: '380px', maxHeight: 'calc(100vh - 100px)' }}
         >
           <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between shrink-0">
@@ -1346,10 +1346,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         </div>
       )}
 
-      {/* ─── Selected Google Place Info Card ────────────────────────── */}
+      {/* ─── Selected Place Info Card ───────────────────────────────── */}
       {selectedPlacesResult && (
         <div
-          className="absolute z-30 bg-white rounded-2xl shadow-xl overflow-hidden"
+          className="absolute z-[1100] bg-white rounded-2xl shadow-xl overflow-hidden"
           style={{ bottom: '100px', left: '16px', width: '380px' }}
         >
           <div className="p-4">
@@ -1375,8 +1375,8 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         </div>
       )}
 
-      {/* ─── My Properties toggle button + Fullscreen (top-right) ─── */}
-      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+      {/* ─── My Properties toggle + Fullscreen (top-right) — always visible ─ */}
+      <div className="absolute top-4 right-4 z-[1100] flex items-center gap-2">
         <button
           onClick={() => setIsFullscreen((v) => !v)}
           title={isFullscreen ? 'Exit fullscreen' : 'Expand map fullscreen'}
@@ -1419,7 +1419,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       )}
 
       {/* ─── Floating Add Property Button (bottom right) ─────────────── */}
-      <div className="absolute bottom-6 right-6 z-30 flex gap-3">
+      <div className="absolute bottom-6 right-6 z-[1100] flex gap-3">
         <button
           onClick={() => setShowImportModal(true)}
           className="bg-white hover:bg-stone-50 text-indigo-600 shadow-xl rounded-full h-14 w-14 flex items-center justify-center transition-all hover:scale-105 active:scale-95"

@@ -475,7 +475,7 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
   return (
     <div
       data-pin-panel
-      className="fixed z-50 bg-white shadow-2xl overflow-hidden border border-gray-200 flex flex-col"
+      className="fixed z-[1200] bg-white shadow-2xl overflow-hidden border border-gray-200 flex flex-col"
       style={{
         ...(pos
           ? { left: pos.x, top: pos.y, width: 400, height: '90vh', borderRadius: '16px' }
