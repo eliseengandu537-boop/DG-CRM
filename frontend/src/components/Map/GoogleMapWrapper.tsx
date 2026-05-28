@@ -44,19 +44,21 @@ const TILE_SATELLITE =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const TILE_SATELLITE_ATTR =
   'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics';
+// Transparent labels overlay (roads, place names, boundaries) over satellite imagery.
+const TILE_SATELLITE_LABELS =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
 const TILE_TERRAIN = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
 const TILE_TERRAIN_ATTR =
   '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)';
 
-function tilesFor(mapType: SupportedMapType): { url: string; attribution: string } {
-  if (mapType === 'satellite' || mapType === 'hybrid') {
-    return { url: TILE_SATELLITE, attribution: TILE_SATELLITE_ATTR };
-  }
-  if (mapType === 'terrain') {
-    return { url: TILE_TERRAIN, attribution: TILE_TERRAIN_ATTR };
-  }
-  return { url: TILE_ROADMAP, attribution: TILE_ROADMAP_ATTR };
-}
+// Esri imagery has native tiles up to z=18 globally; some areas go higher but
+// rural SA caps lower. Cap the layer's nativeZoom and let Leaflet upscale
+// gently above that so the user can still zoom in without the tiles
+// shattering or going blank.
+const SATELLITE_MAX_NATIVE_ZOOM = 18;
+const OSM_MAX_NATIVE_ZOOM = 19;
+const TERRAIN_MAX_NATIVE_ZOOM = 17;
+const MAP_MAX_ZOOM = 20;
 
 // ─── Custom house-shaped pin SVG matching the prior Google marker style ───
 function buildPropertyPinSvg(color: string, isSelected: boolean): string {
@@ -374,23 +376,53 @@ const GoogleMapWrapper: React.FC<Props> = ({
     });
   }, [safeProperties, searchQuery, setSelectedProperty]);
 
-  const tiles = tilesFor(activeMapType);
+  const isSatellite = activeMapType === 'satellite' || activeMapType === 'hybrid';
+  const isTerrain = activeMapType === 'terrain';
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '500px' }}>
       <MapContainer
         center={initialCenter}
         zoom={zoom}
+        maxZoom={MAP_MAX_ZOOM}
         style={{ width: '100%', height: '100%', minHeight: '500px' }}
         scrollWheelZoom
         zoomControl
       >
-        <TileLayer
-          key={activeMapType}
-          url={tiles.url}
-          attribution={tiles.attribution}
-          maxZoom={19}
-        />
+        {isSatellite ? (
+          <>
+            <TileLayer
+              key="esri-imagery"
+              url={TILE_SATELLITE}
+              attribution={TILE_SATELLITE_ATTR}
+              maxZoom={MAP_MAX_ZOOM}
+              maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
+            />
+            <TileLayer
+              key="esri-labels"
+              url={TILE_SATELLITE_LABELS}
+              maxZoom={MAP_MAX_ZOOM}
+              maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
+              opacity={0.9}
+            />
+          </>
+        ) : isTerrain ? (
+          <TileLayer
+            key="opentopomap"
+            url={TILE_TERRAIN}
+            attribution={TILE_TERRAIN_ATTR}
+            maxZoom={MAP_MAX_ZOOM}
+            maxNativeZoom={TERRAIN_MAX_NATIVE_ZOOM}
+          />
+        ) : (
+          <TileLayer
+            key="osm"
+            url={TILE_ROADMAP}
+            attribution={TILE_ROADMAP_ATTR}
+            maxZoom={MAP_MAX_ZOOM}
+            maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
+          />
+        )}
 
         <MapBridge
           onReady={handleReady}
