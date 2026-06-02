@@ -570,7 +570,26 @@ export const PropertyPin: React.FC<PropertyPinProps> = ({
                 {property.ownerContactNumber && <Row label="Owner Number" value={property.ownerContactNumber} />}
                 {property.tenantContactNumber && <Row label="Tenants No." value={property.tenantContactNumber} />}
                 {property.ownerEmail && <Row label="Email" value={property.ownerEmail} />}
+                {property.linkedFundName && <Row label="Fund Name" value={property.linkedFundName} />}
               </div>
+              {Array.isArray(property.tenants) && property.tenants.length > 0 && (
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+                  <p className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">
+                    Tenants ({property.tenants.length})
+                  </p>
+                  <ul className="divide-y divide-gray-100">
+                    {property.tenants.map((tenant, idx) => (
+                      <li key={idx} className="flex items-center justify-between gap-3 py-1.5">
+                        <span className="text-sm font-medium text-gray-800">{tenant.name}</span>
+                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                          {tenant.contactNumber && <span>📞 {tenant.contactNumber}</span>}
+                          {tenant.leaseExpiry && <span>📅 {tenant.leaseExpiry}</span>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>

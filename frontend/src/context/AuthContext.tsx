@@ -103,7 +103,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     await authService.logout();
     setUser(null);
-    router.push('/login');
+    // Hard navigation: clears all in-memory state (caches, stores) and forces
+    // the browser to fetch fresh CSS/JS chunks for /login. Avoids the dev-mode
+    // issue where soft `router.push` can land on the login page with stale or
+    // missing style chunks.
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    } else {
+      router.push('/login');
+    }
   }, [router]);
 
   const clearError = useCallback(() => {

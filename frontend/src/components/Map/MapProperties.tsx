@@ -210,6 +210,21 @@ const mapBackendPropertyToMapProperty = (
     ownerContactNumber: metadata.ownerContactNumber ? String(metadata.ownerContactNumber) : undefined,
     tenantName: metadata.tenantName ? String(metadata.tenantName) : undefined,
     tenantContactNumber: metadata.tenantContactNumber ? String(metadata.tenantContactNumber) : undefined,
+    tenants: Array.isArray(metadata.tenants)
+      ? (metadata.tenants as any[])
+          .map((t) =>
+            t && typeof t === 'object'
+              ? {
+                  name: String((t as any).name || '').trim(),
+                  leaseExpiry: (t as any).leaseExpiry ? String((t as any).leaseExpiry) : undefined,
+                  contactNumber: (t as any).contactNumber ? String((t as any).contactNumber) : undefined,
+                }
+              : null
+          )
+          .filter((t): t is { name: string; leaseExpiry?: string; contactNumber?: string } =>
+            Boolean(t && t.name)
+          )
+      : undefined,
     brokerName: raw.assignedBrokerName || metadata.assignedBrokerName || 'Unassigned',
     brokerId: raw.assignedBrokerId || raw.brokerId,
   });

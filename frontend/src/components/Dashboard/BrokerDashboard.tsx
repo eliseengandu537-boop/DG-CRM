@@ -28,6 +28,8 @@ import { formatCurrency, formatRelativeTime, isTaskActivity } from '@/lib/dashbo
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { NotificationCenter } from '@/components/Notifications/NotificationCenter';
 import { UnifiedStatsCards } from './UnifiedStatsCards';
+import NeedsAttentionWidget from './NeedsAttentionWidget';
+import TopPerformerBadge from './TopPerformerBadge';
 
 interface BrokerDashboardProps {
   onPageChange?: (page: string) => void;
@@ -665,6 +667,7 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
   return (
     <div className="min-h-screen bg-stone-100 px-4 pb-6 pt-0 lg:px-6">
       <div className="mb-4 flex items-center justify-end gap-3">
+        <TopPerformerBadge topPerformer={metrics?.topPerformer || null} size={56} />
         <NotificationCenter />
         <div className="rounded-full bg-white px-3 py-1 text-xs text-stone-500 shadow-sm">
           {lastUpdated ? `Updated ${formatRelativeTime(lastUpdated)}` : 'Live updates enabled'}
@@ -733,86 +736,12 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
         />
       </div>
 
-      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,1.05fr)]">
-        <div className="flex flex-col gap-4">
-          <div className="grid items-start gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="relative min-h-[300px] rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-          <button
-            onClick={() => setIsExpandedChat(true)}
-            className="absolute right-3 top-3 rounded-lg border border-stone-200 p-2 text-stone-500 hover:bg-stone-50"
-            title="Expand chat"
-            type="button"
-          >
-            <FiArrowUpRight />
-          </button>
-          <div className="flex h-full flex-col gap-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-              <div className="relative flex shrink-0 justify-center sm:block">
-                <img
-                  src="/dogchat.png"
-                  alt="DG-CRM Assistant"
-                  className="h-48 w-48 object-contain"
-                />
-              </div>
-              <div className="flex-1">
-                <div className="max-h-48 space-y-3 overflow-y-auto pr-2">
-                  {chatMessages.map((message, index) => (
-                    <div
-                      key={`${message.sender}-${index}`}
-                      className={`w-full max-w-[360px] text-sm ${
-                        message.sender === 'assistant'
-                          ? 'mr-auto rounded-2xl border border-stone-200 bg-white p-4 text-stone-700 shadow-md'
-                          : 'ml-auto rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-md'
-                      }`}
-                    >
-                      <p className="leading-relaxed">{message.text}</p>
-                      {message.time && (
-                        <p
-                          className={`mt-2 text-[11px] ${
-                            message.sender === 'assistant' ? 'text-stone-400' : 'text-blue-100'
-                          }`}
-                        >
-                          {message.time}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+      <div className="mb-4 max-h-[420px]">
+        <NeedsAttentionWidget />
+      </div>
 
-            <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
-              <input
-                value={chatInput}
-                onChange={event => setChatInput(event.target.value)}
-                onKeyDown={event => event.key === 'Enter' && handleSendChat()}
-                placeholder="Ask anything about your CRM system..."
-                className="w-full max-w-[360px] rounded-2xl border border-stone-200 bg-white px-4 py-2 text-xs text-stone-600 shadow-md outline-none focus:border-blue-300"
-              />
-              <button
-                onClick={() => (isVoiceListening ? stopVoice() : startVoice())}
-                className={`flex h-10 w-10 items-center justify-center rounded-xl border border-stone-200 text-stone-500 shadow-md transition hover:bg-stone-50 ${
-                  !isVoiceSupported ? 'cursor-not-allowed opacity-50' : ''
-                }`}
-                title={isVoiceSupported ? 'Voice input' : 'Voice input not supported'}
-                type="button"
-                disabled={!isVoiceSupported}
-              >
-                {isVoiceListening ? <FiMicOff /> : <FiMic />}
-              </button>
-              <button
-                onClick={handleSendChat}
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition hover:bg-blue-700"
-                title="Send"
-                type="button"
-              >
-                <FiArrowUpRight />
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="h-full min-h-[300px] rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+        <section className="order-2 xl:order-2 h-full min-h-[400px] rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md flex flex-col">
           <div className="mb-3 flex items-start justify-between">
             <div>
               <h3 className="text-lg font-semibold text-stone-900">Monthly Sales</h3>
@@ -825,30 +754,37 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
             <div className="h-56 animate-pulse rounded-xl bg-stone-100" />
           ) : (
             <>
-              <div className="relative h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={monthlySalesItems}
-                      dataKey="value"
-                      nameKey="label"
-                      innerRadius={50}
-                      outerRadius={70}
-                      paddingAngle={2}
-                    >
-                      {monthlySalesItems.map(item => (
-                        <Cell key={item.label} fill={item.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <div className="relative h-44 flex items-center justify-center">
+                {monthlySalesItems.every(i => !i.value) ? (
+                  // Empty-state placeholder ring so the card doesn't look blank.
+                  <svg viewBox="0 0 100 100" className="h-32 w-32">
+                    <circle cx="50" cy="50" r="38" fill="none" stroke="#f1f5f9" strokeWidth="14" />
+                  </svg>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={monthlySalesItems}
+                        dataKey="value"
+                        nameKey="label"
+                        innerRadius={50}
+                        outerRadius={70}
+                        paddingAngle={2}
+                      >
+                        {monthlySalesItems.map(item => (
+                          <Cell key={item.label} fill={item.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
                   <p className="text-[11px] uppercase text-stone-400">This Month</p>
                   <p className="text-lg font-semibold text-stone-900">{centerLabel}</p>
                 </div>
               </div>
 
-              <div className="mt-3 space-y-2">
+              <div className="mt-auto pt-4 space-y-2">
                 {monthlySalesItems.map(item => (
                   <div key={item.label} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 text-stone-600">
@@ -871,7 +807,7 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
           )}
         </section>
 
-        <section className="h-full min-h-[300px] rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+        <section className="order-3 xl:order-3 h-full min-h-[400px] rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md flex flex-col">
           <div className="mb-3 flex items-start justify-between">
             <div>
               <h3 className="text-lg font-semibold text-stone-900">Statistics</h3>
@@ -883,62 +819,42 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
           {isLoading ? (
             <div className="h-48 animate-pulse rounded-xl bg-stone-100" />
           ) : (
-            <div className="space-y-3">
+            <div className="mt-auto space-y-3">
               <div className="h-36 rounded-xl bg-stone-50 flex items-end justify-around px-4 py-3 gap-2">
                 {(() => {
                   const bars = [
-                    { label: 'Open', value: metrics?.statistics.openDeals || 0, color: 'bg-blue-500' },
-                    { label: 'Closed', value: metrics?.statistics.closedDeals || 0, color: 'bg-emerald-500' },
-                    { label: 'Lost', value: metrics?.statistics.lostDeals || 0, color: 'bg-red-400' },
-                    { label: 'Conv%', value: Math.round(metrics?.statistics.conversionRate || 0), color: 'bg-amber-400' },
+                    { label: 'Open', value: metrics?.statistics.openDeals || 0, color: 'bg-blue-500', empty: 'bg-blue-200' },
+                    { label: 'Closed', value: metrics?.statistics.closedDeals || 0, color: 'bg-emerald-500', empty: 'bg-emerald-200' },
+                    { label: 'Lost', value: metrics?.statistics.lostDeals || 0, color: 'bg-red-400', empty: 'bg-red-200' },
+                    { label: 'Conv%', value: Math.round(metrics?.statistics.conversionRate || 0), color: 'bg-amber-400', empty: 'bg-amber-200' },
                   ];
                   const maxVal = Math.max(...bars.map(b => b.value), 1);
-                  return bars.map(bar => (
-                    <div key={bar.label} className="flex flex-col items-center gap-1 flex-1">
-                      <p className="text-[10px] font-semibold text-stone-600">{bar.value}{bar.label === 'Conv%' ? '%' : ''}</p>
-                      <div
-                        className={`w-full ${bar.color} rounded-t-sm transition-all duration-500`}
-                        style={{ height: `${Math.max(Math.round((bar.value / maxVal) * 72), bar.value > 0 ? 4 : 0)}px` }}
-                      />
-                      <p className="text-[10px] text-stone-400">{bar.label}</p>
-                    </div>
-                  ));
+                  return bars.map(bar => {
+                    // Always show a small baseline bar so the chart never looks empty.
+                    const isEmpty = bar.value === 0;
+                    const heightPx = isEmpty
+                      ? 8
+                      : Math.max(Math.round((bar.value / maxVal) * 72), 6);
+                    return (
+                      <div key={bar.label} className="flex flex-col items-center gap-1 flex-1">
+                        <p className="text-[10px] font-semibold text-stone-600">
+                          {bar.value}{bar.label === 'Conv%' ? '%' : ''}
+                        </p>
+                        <div
+                          className={`w-full ${isEmpty ? bar.empty : bar.color} rounded-t-sm transition-all duration-500`}
+                          style={{ height: `${heightPx}px` }}
+                        />
+                        <p className="text-[10px] text-stone-400">{bar.label}</p>
+                      </div>
+                    );
+                  });
                 })()}
-              </div>
-              <div className="grid grid-cols-4 gap-2 text-[11px]">
-                <div className="rounded-lg bg-stone-50 px-2 py-2 text-center">
-                  <p className="text-stone-500">Open</p>
-                  <p className="text-sm font-semibold text-blue-600">
-                    {metrics?.statistics.openDeals || 0}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-stone-50 px-2 py-2 text-center">
-                  <p className="text-stone-500">Closed</p>
-                  <p className="text-sm font-semibold text-emerald-600">
-                    {metrics?.statistics.closedDeals || 0}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-stone-50 px-2 py-2 text-center">
-                  <p className="text-stone-500">Lost</p>
-                  <p className="text-sm font-semibold text-red-500">
-                    {metrics?.statistics.lostDeals || 0}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-stone-50 px-2 py-2 text-center">
-                  <p className="text-stone-500">Conv%</p>
-                  <p className="text-sm font-semibold text-amber-500">
-                    {(metrics?.statistics.conversionRate || 0).toFixed(1)}%
-                  </p>
-                </div>
               </div>
             </div>
           )}
         </section>
 
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-4 items-start">
-            <section className="lg:col-span-2 self-start rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+        <section className="order-1 xl:order-1 min-h-[400px] flex flex-col rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
             <div>
               <h3 className="text-lg font-semibold text-stone-900">Calendar</h3>
@@ -1064,113 +980,7 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
           </div>
         </section>
 
-            <section className="self-start rounded-2xl border border-stone-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
-              <div className="mb-2 flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-stone-900">Performance Metrics</h3>
-                  <p className="text-xs text-stone-500">Live performance overview</p>
-                </div>
-                <FiMoreHorizontal className="text-stone-400" />
-              </div>
-
-              {isLoading ? (
-                <div className="h-40 animate-pulse rounded-xl bg-stone-100" />
-              ) : (
-                <div className="space-y-2 text-xs">
-                  <div className="rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 px-3 py-2 text-white shadow-sm">
-                    <p className="text-[11px] uppercase text-blue-100">Conversion Rate</p>
-                    <p className="mt-1 text-xl font-semibold">
-                      {(metrics?.statistics.conversionRate || 0).toFixed(1)}%
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 px-3 py-2 text-white shadow-sm">
-                    <p className="text-[11px] uppercase text-purple-100">Avg Deal Value</p>
-                    <p className="mt-1 text-xl font-semibold">
-                      {formatCurrency(averageDealValue)}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-white shadow-sm">
-                    <p className="text-[11px] uppercase text-orange-100">Top Performer</p>
-                    <p className="mt-1 text-sm font-semibold">
-                      {metrics?.topPerformer?.name || 'N/A'}
-                    </p>
-                    <p className="text-[11px] text-orange-100">
-                      {metrics?.topPerformer?.closedDeals || 0} closings ·{' '}
-                      {formatCurrency(metrics?.topPerformer?.brokerCommission || 0)} commission
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-lg bg-blue-50 p-1.5 text-center">
-                      <p className="text-[10px] font-semibold text-blue-600">OPEN</p>
-                      <p className="text-base font-semibold text-blue-700">
-                        {metrics?.statistics.openDeals || 0}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-emerald-50 p-1.5 text-center">
-                      <p className="text-[10px] font-semibold text-emerald-600">CLOSED</p>
-                      <p className="text-base font-semibold text-emerald-700">
-                        {metrics?.statistics.closedDeals || 0}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-amber-50 p-1.5 text-center">
-                      <p className="text-[10px] font-semibold text-amber-600">LEADS</p>
-                      <p className="text-base font-semibold text-amber-700">
-                        {metrics?.leadCount || 0}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section
-              id="recent-activities"
-              className="self-start rounded-2xl border border-stone-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md"
-            >
-              <div className="mb-2 flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-stone-900">Recent Activities</h3>
-                  <p className="text-xs text-stone-500">
-                    {isBroker
-                      ? 'Latest activity linked to your portfolio'
-                      : 'Latest system activity for your dashboard'}
-                  </p>
-                </div>
-                <FiMoreHorizontal className="text-stone-400" />
-              </div>
-
-              {isLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={`headline-activity-skeleton-${index}`}
-                      className="h-12 animate-pulse rounded-lg bg-stone-100"
-                    />
-                  ))}
-                </div>
-              ) : headlineActivities.length > 0 ? (
-                <div className="space-y-2">
-                  {headlineActivities.map(activity => (
-                    <div
-                      key={`headline-${activity.id}`}
-                      className="rounded-lg border border-stone-100 bg-stone-50 p-3 text-xs"
-                    >
-                      <p className="font-medium text-stone-700">{activity.description}</p>
-                      <p className="mt-1 text-stone-500">
-                        {formatRelativeTime(activity.timestamp)} · {activity.actor}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-stone-500">Recent activities will appear here automatically.</p>
-              )}
-            </section>
-
-          </div>
-        </div>
-
-        <section className="flex flex-col self-start max-h-[360px] rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+        <section className="order-4 xl:order-4 flex flex-col min-h-[400px] rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md">
           <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
             <div>
               <h3 className="text-lg font-semibold text-stone-900">My Tasks</h3>
@@ -1197,7 +1007,13 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
                 ))}
               </div>
             ) : taskList.length === 0 ? (
-              <p className="p-3 text-sm text-stone-500">No upcoming tasks.</p>
+              <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center mb-3">
+                  <FiCalendar size={20} className="text-stone-400" />
+                </div>
+                <p className="text-sm font-semibold text-stone-700">All caught up</p>
+                <p className="text-xs text-stone-500 mt-1">No upcoming tasks on your calendar.</p>
+              </div>
             ) : (
               taskList.map(task => {
                 const status = getTaskStatusLabel(task);
@@ -1234,7 +1050,7 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
 
           <button
             onClick={() => openPage('Reminders')}
-            className="border-t border-stone-100 px-3 py-2 text-left text-xs font-semibold text-blue-600 hover:bg-stone-50"
+            className="mt-auto border-t border-stone-100 px-3 py-2 text-left text-xs font-semibold text-blue-600 hover:bg-stone-50"
             type="button"
           >
             Show more
@@ -1431,6 +1247,23 @@ export const BrokerDashboard: React.FC<BrokerDashboardProps> = ({ onPageChange }
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating Mr Leo chat launcher — always visible, WhatsApp-style. */}
+      {!isExpandedChat && (
+        <button
+          type="button"
+          onClick={() => setIsExpandedChat(true)}
+          title="Ask Mr Leo"
+          className="fixed bottom-6 right-6 z-[1300] flex h-16 w-16 items-center justify-center rounded-full bg-white border border-stone-200 shadow-2xl hover:scale-105 transition-transform"
+        >
+          <img
+            src="/dogchat.png"
+            alt="Mr Leo"
+            className="h-12 w-12 object-contain"
+          />
+          <span className="absolute -top-1 -right-1 inline-flex h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+        </button>
       )}
     </div>
   );

@@ -17,6 +17,11 @@ export interface CreateBrokerResult {
   passwordSent: boolean;
   passwordError?: string;
   temporaryPassword?: string;
+  /** True when an admin/manager user with this email already existed; we kept
+   *  their existing password instead of overwriting it. */
+  rolePreserved?: boolean;
+  /** The pre-existing user's role when `rolePreserved` is true. */
+  existingRole?: string;
 }
 
 export interface GenerateBrokerPasswordResult {
@@ -360,8 +365,36 @@ export class BrokerService {
         userId: upsertedUser.id,
         userExisted: Boolean(existingUser),
         brokerExisted: Boolean(existingBroker),
+        preservedRole: preserveRole,
+        existingRole: existingUser?.role,
       };
     });
+
+    // If the existing User row was admin/manager we deliberately did NOT
+    // change their password. Returning a freshly generated "temporaryPassword"
+    // here would be a lie — the DB still holds their old password. Surface a
+    // clear warning instead.
+    if (brokerResult.preservedRole) {
+      const metricsByBrokerId = await this.getBillingMetricsByBrokerIds([
+        {
+          id: brokerResult.broker.id,
+          billingTarget: brokerResult.broker.billingTarget,
+        },
+      ]).catch(() => new Map());
+      return {
+        broker: mapBroker(
+          brokerResult.broker,
+          metricsByBrokerId.get(brokerResult.broker.id)
+        ),
+        passwordSent: false,
+        passwordError:
+          `User already exists with role "${brokerResult.existingRole}" — their existing password is unchanged. ` +
+          `Ask them to sign in with their current credentials, or click "Regenerate Password" to override.`,
+        temporaryPassword: undefined,
+        rolePreserved: true,
+        existingRole: brokerResult.existingRole,
+      };
+    }
 
     try {
       await emailService.sendBrokerPasswordEmail({

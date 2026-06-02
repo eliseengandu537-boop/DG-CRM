@@ -103,7 +103,9 @@ export class BrokerController {
       const validated = createBrokerSchema.parse(req.body);
       const result = await brokerService.createBroker(validated, { user: req.user });
 
-      const message = result.passwordSent
+      const message = result.rolePreserved
+        ? `Broker record created, but a user with this email already had role "${result.existingRole}". Their existing password is unchanged — they should sign in with that, or click "Regenerate Password" to override.`
+        : result.passwordSent
         ? 'Broker created successfully and password email sent'
         : 'Broker created successfully, but password email could not be sent';
 
@@ -130,6 +132,8 @@ export class BrokerController {
           passwordSent: result.passwordSent,
           passwordError: result.passwordError,
           temporaryPassword: result.temporaryPassword,
+          rolePreserved: result.rolePreserved,
+          existingRole: result.existingRole,
         },
         timestamp: new Date(),
       });

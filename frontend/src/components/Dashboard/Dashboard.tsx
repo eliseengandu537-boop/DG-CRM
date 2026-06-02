@@ -24,6 +24,9 @@ const Sales2 = dynamic(() => import("../Sales/Sales2").then((m) => m.Sales2), {
 const PropertyFunds = dynamic(() => import("../PropertyFunds/PropertyFunds"), {
   loading: () => <div className="p-6 text-stone-600">Loading Property Funds...</div>,
 });
+const MasterDatabase = dynamic(() => import("../MasterDatabase/MasterDatabase"), {
+  loading: () => <div className="p-6 text-stone-600">Loading Master Database...</div>,
+});
 const LegalDocs = dynamic(() => import("../LegalDocs/LegalDocs"), {
   loading: () => <div className="p-6 text-stone-600">Loading Legal Docs...</div>,
 });
@@ -91,6 +94,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ) : safePage === "Property Funds" ? (
         <div className="p-6">
           <PropertyFunds />
+        </div>
+      ) : safePage === "Master Database" ? (
+        <div className="p-6">
+          <MasterDatabase />
         </div>
       ) : safePage === "Legal Docs" ? (
         <div className="p-6">

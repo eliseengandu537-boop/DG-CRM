@@ -73,6 +73,12 @@ export interface Deal {
     step2Status?: string;
     agreementStatus?: string;
   };
+  /** ISO timestamp — auto-updated on every status change / document upload / note. */
+  lastActivityAt?: string;
+  /** What the broker plans to do next on this deal. */
+  nextAction?: string;
+  /** ISO date the next-action is due. */
+  nextActionDue?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -95,6 +101,8 @@ export interface CreateDealRequest {
   value: number;
   targetClosureDate?: string;
   closedDate?: string;
+  nextAction?: string;
+  nextActionDue?: string;
   leadId?: string;
   propertyId?: string;
   brokerId?: string;

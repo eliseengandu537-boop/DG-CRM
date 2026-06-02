@@ -110,6 +110,8 @@ export interface Deal {
   };
   lastActivityAt?: Date;
   inactivityNotifiedAt?: Date | null;
+  nextAction?: string;
+  nextActionDue?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

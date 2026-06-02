@@ -9,6 +9,8 @@ import { useAuth } from "@/context/AuthContext";
 import { formatCurrency, formatRelativeTime, isTaskActivity } from "@/lib/dashboardService";
 import { activityService } from "@/services/activityService";
 import { RevenueChart } from "./RevenueChart";
+import NeedsAttentionWidget from "./NeedsAttentionWidget";
+import TopPerformerBadge from "./TopPerformerBadge";
 import { ActivityDetailsModal } from "./ActivityDetailsModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NotificationCenter } from "@/components/Notifications/NotificationCenter";
@@ -432,7 +434,7 @@ export const Grid = () => {
     <>
       <style>{chartAnimationStyles}</style>
       <div className="p-2 bg-stone-100 min-h-0 space-y-2">
-      {/* Header with last updated */}
+      {/* Header with last updated + Top Performer badge */}
       <div className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-base font-bold text-stone-950">Dashboard</h1>
@@ -440,7 +442,10 @@ export const Grid = () => {
             <p className="text-[10px] text-stone-500 mt-0.5">Last updated: {formatRelativeTime(lastUpdated)}</p>
           )}
         </div>
-        <NotificationCenter />
+        <div className="flex items-center gap-3">
+          <TopPerformerBadge topPerformer={metrics?.topPerformer || null} size={56} />
+          <NotificationCenter />
+        </div>
       </div>
 
       {/* Top Metrics */}
@@ -476,6 +481,11 @@ export const Grid = () => {
             );
           })
         )}
+      </div>
+
+      {/* Needs Attention — deals that need a touch today */}
+      <div className="max-h-[420px]">
+        <NeedsAttentionWidget />
       </div>
 
       {/* Charts and Analytics Section - 3 Column Layout */}
@@ -586,257 +596,15 @@ export const Grid = () => {
         )}
       </div>
 
-      {/* Bottom Section - Chat, Deals & Activities */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-        <div className="rounded-xl border border-stone-200 bg-white p-2 shadow-sm transition-shadow hover:shadow-md flex flex-row min-h-0 h-[180px]">
-          <div className="flex flex-col w-full">
-            <div className="flex items-start justify-between mb-1">
-              <div>
-                <h3 className="text-base font-semibold text-stone-900">Mr Leo Chat</h3>
-                <p className="text-xs text-stone-500">AI Assistant - Full System Knowledge</p>
-              </div>
-              <button
-                onClick={() => setIsExpandedChat(!isExpandedChat)}
-                className="rounded border border-stone-200 p-1 text-stone-500 hover:bg-stone-50"
-                title="Expand chat"
-                type="button"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6v10a2 2 0 002 2h10v-4m-4-6l6-6m0 0l4 4m-4-4v10" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex flex-row gap-2 flex-1 min-h-0">
-              <div className="flex items-center justify-center shrink-0">
-                <img src="/dogchat.png" alt="DG-CRM Assistant" className="h-20 w-20 object-contain" />
-              </div>
-              <div className="flex-1 flex flex-col">
-                <div className="flex-1 min-h-0 max-h-[110px] space-y-2 overflow-y-auto pr-1">
-                  {chatMessages.map((msg, idx) => (
-                    <div
-                      key={idx}
-                      className={`w-full max-w-[220px] text-xs ${
-                        msg.sender === 'user'
-                          ? 'ml-auto rounded-xl bg-blue-600 px-2 py-1.5 text-white shadow'
-                          : 'mr-auto rounded-xl border border-stone-200 bg-white p-2 text-stone-700 shadow'
-                      }`}
-                    >
-                      <p className="leading-relaxed">{msg.text}</p>
-                      <p
-                        className={`mt-1 text-[10px] ${
-                          msg.sender === 'user' ? 'text-blue-100' : 'text-stone-400'
-                        }`}
-                      >
-                        {msg.time}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-auto flex flex-wrap items-center justify-end gap-1 pt-1">
-                  <input
-                    type="text"
-                    value={userInput}
-                    onChange={(e) => setUserInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Ask anything about your CRM system..."
-                    className="w-full max-w-[180px] rounded-xl border border-stone-200 bg-white px-2 py-1 text-xs text-stone-600 shadow outline-none focus:border-blue-300"
-                  />
-                  <button
-                    onClick={() => (isVoiceListening ? stopVoice() : startVoice())}
-                    className={`flex h-7 w-7 items-center justify-center rounded border border-stone-200 text-stone-500 shadow transition hover:bg-stone-50 ${
-                      !isVoiceSupported ? 'cursor-not-allowed opacity-50' : ''
-                    }`}
-                    title={isVoiceSupported ? 'Voice input' : 'Voice input not supported'}
-                    type="button"
-                    disabled={!isVoiceSupported}
-                  >
-                    {isVoiceListening ? <FiMicOff size={14} /> : <FiMic size={14} />}
-                  </button>
-                  <button
-                    onClick={handleSendMessage}
-                    className="flex h-7 w-7 items-center justify-center rounded bg-blue-600 text-white shadow transition hover:bg-blue-700"
-                    type="button"
-                  >
-                    <FiArrowUpRight size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Deals & Performance */}
-        <div className="bg-gradient-to-br from-white via-blue-50 to-indigo-50 rounded p-1 border border-indigo-200 shadow-sm min-h-0 h-[180px] flex flex-col justify-between">
-          <h3 className="text-xs font-bold text-indigo-950 mb-1">Performance Metrics</h3>
-          <div className="space-y-1">
-            {/* Conversion Rate Card */}
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded p-1.5 shadow group cursor-pointer hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-200 text-[10px] font-semibold uppercase">Conversion Rate</p>
-                  <p className="text-base font-bold text-white mt-0.5">{(metrics?.statistics.conversionRate || 0).toFixed(1)}%</p>
-                </div>
-                <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center">
-                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Average Deal Value Card */}
-            {!isBroker && (
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded p-1.5 shadow group cursor-pointer hover:shadow-md transition-all">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-purple-200 text-[10px] font-semibold uppercase">Avg Deal Value</p>
-                    <p className="text-base font-bold text-white mt-0.5">
-                      {metrics?.dealCount && metrics?.dealCount > 0 
-                        ? formatCurrency((metrics?.totalRevenue || 0) / metrics?.dealCount)
-                        : 'R 0'
-                      }
-                    </p>
-                  </div>
-                  <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Top Broker Card */}
-            <div
-              className="bg-gradient-to-br from-amber-500 to-orange-600 rounded p-1.5 shadow cursor-pointer hover:shadow-md transition-all"
-              onClick={() => window.dispatchEvent(new CustomEvent('navigation:page-change', { detail: { page: 'Broker Profiles' } }))}
-              title="View Broker Profiles"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="relative flex-shrink-0">
-                  <div className="w-12 h-12 rounded-full bg-white/25 ring-2 ring-white/70 overflow-hidden flex items-center justify-center">
-                    {topBroker?.photo ? (
-                      <img
-                        src={topBroker.photo}
-                        alt={topBroker.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-white font-bold text-sm">{topBroker?.initials || '—'}</span>
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow">
-                    <GiTrophy className="text-amber-500 text-[11px]" />
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] text-amber-200 font-semibold uppercase tracking-wide">Top Performer</p>
-                  <p className="text-sm font-bold text-white truncate leading-tight">{topBroker?.name || "N/A"}</p>
-                  <p className="text-[10px] text-amber-100 leading-tight mt-0.5">
-                    {topBroker?.closedDeals || 0} Closings · {formatCurrency(topBroker?.commission || 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Quick Stats Bar */}
-          <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-indigo-200">
-            <div className="text-center p-1 bg-blue-50 rounded">
-              <p className="text-[11px] text-blue-600 font-semibold">OPEN</p>
-              <p className="text-xl font-bold text-blue-900">{metrics?.statistics.openDeals || 0}</p>
-            </div>
-            <div className="text-center p-2 bg-purple-50 rounded-md">
-              <p className="text-xs text-purple-600 font-semibold">CLOSED</p>
-              <p className="text-xl font-bold text-purple-900">{metrics?.statistics.closedDeals || 0}</p>
-            </div>
-            <div className="text-center p-2 bg-amber-50 rounded-md">
-              <p className="text-xs text-amber-600 font-semibold">LEADS</p>
-              <p className="text-xl font-bold text-amber-900">{metrics?.leadCount || 0}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Activities */}
-        <div id="recent-activities" className="bg-white rounded-xl p-6 border border-stone-200 shadow-sm">
-          <h3 className="text-lg font-bold text-stone-950 mb-1">Recent Activities</h3>
-          <p className="text-xs text-stone-500 mb-6">Live Activity Feed</p>
-          
-          {isLoading ? (
-            <div className="space-y-3">
-              {Array(3).fill(0).map((_, i) => (
-                <div key={i} className="h-14 bg-stone-100 rounded-lg animate-pulse"></div>
-              ))}
-            </div>
-          ) : visibleActivities.length > 0 ? (
-            <>
-            <div className={`space-y-2 overflow-y-auto ${showAllActivities ? '' : 'max-h-96'}`}>
-              {visibleActivities.map((activity) => (
-                <div
-                  key={activity.id}
-                  onClick={() => {
-                    setSelectedActivity(activity);
-                    setShowActivityModal(true);
-                  }}
-                  className="group p-4 rounded-lg border border-stone-200 bg-stone-50 hover:bg-white hover:border-stone-300 hover:shadow-md transition-all cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <p className="text-sm font-semibold text-stone-900 line-clamp-2">{activity.description}</p>
-                      </div>
-                      <p className="text-xs text-stone-500">
-                        {formatRelativeTime(activity.timestamp)} by <span className="font-medium text-stone-600">{activity.actor}</span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleDeleteActivity(activity.id);
-                          }}
-                          disabled={deletingActivityId === activity.id}
-                          className="rounded px-2 py-1 text-[11px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
-                        >
-                          {deletingActivityId === activity.id ? 'Deleting...' : 'Delete'}
-                        </button>
-                      )}
-                      <FiChevronRight className="text-stone-400 group-hover:text-stone-600 transition-colors" size={18} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {visibleActivities.length > 4 && (
-              <div className="mt-2 border-t border-stone-100 pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => setShowAllActivities(prev => !prev)}
-                  className="text-xs font-semibold text-blue-600 hover:underline"
-                >
-                  {showAllActivities ? '▲ Collapse' : `▼ Show all ${visibleActivities.length} activities`}
-                </button>
-              </div>
-            )}
-            </>
-          ) : (
-            <div className="text-center py-12 text-stone-400">
-              <p className="text-sm">No activities yet</p>
-            </div>
-          )}
-        </div>
-
-        {/* Activity Details Modal */}
-        <ActivityDetailsModal
-          activity={selectedActivity}
-          isOpen={showActivityModal}
-          onClose={() => {
-            setShowActivityModal(false);
-            setSelectedActivity(null);
-          }}
-        />
-      </div>
+      {/* Activity Details Modal — kept for triggers from elsewhere */}
+      <ActivityDetailsModal
+        activity={selectedActivity}
+        isOpen={showActivityModal}
+        onClose={() => {
+          setShowActivityModal(false);
+          setSelectedActivity(null);
+        }}
+      />
 
       {/* Expanded Chat Modal */}
       {isExpandedChat && (
@@ -952,6 +720,23 @@ export const Grid = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating Mr Leo chat launcher — always visible, WhatsApp-style. */}
+      {!isExpandedChat && (
+        <button
+          type="button"
+          onClick={() => setIsExpandedChat(true)}
+          title="Ask Mr Leo"
+          className="fixed bottom-6 right-6 z-[1300] flex h-16 w-16 items-center justify-center rounded-full bg-white border border-stone-200 shadow-2xl hover:scale-105 transition-transform"
+        >
+          <img
+            src="/dogchat.png"
+            alt="Mr Leo"
+            className="h-12 w-12 object-contain"
+          />
+          <span className="absolute -top-1 -right-1 inline-flex h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+        </button>
       )}
       </div>
     </>

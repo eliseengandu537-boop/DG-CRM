@@ -55,6 +55,10 @@ export interface CreateBrokerResult {
   passwordError?: string;
   temporaryPassword?: string;
   message?: string;
+  /** True when an admin/manager user with this email already existed. The
+   *  password shown is NOT applied; the user keeps their existing one. */
+  rolePreserved?: boolean;
+  existingRole?: string;
 }
 
 class BrokerService {
@@ -134,6 +138,8 @@ class BrokerService {
           passwordSent?: boolean;
           passwordError?: string;
           temporaryPassword?: string;
+          rolePreserved?: boolean;
+          existingRole?: string;
         };
       }>(
         '/brokers',
@@ -149,6 +155,8 @@ class BrokerService {
         passwordError: response.data.meta?.passwordError,
         temporaryPassword: response.data.meta?.temporaryPassword,
         message: response.data.message,
+        rolePreserved: response.data.meta?.rolePreserved,
+        existingRole: response.data.meta?.existingRole,
       };
     } catch (error) {
       const axiosError = error as AxiosError<any>;

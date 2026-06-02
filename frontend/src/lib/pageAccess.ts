@@ -9,6 +9,7 @@ export type AppPage =
   | 'Auction'
   | 'Deal Sheet'
   | 'Property Funds'
+  | 'Master Database'
   | 'Legal Docs'
   | 'Reminders'
   | 'Brochures'
@@ -26,6 +27,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Auction',
     'Deal Sheet',
     'Property Funds',
+    'Master Database',
     'Legal Docs',
     'Reminders',
     'Brochures',
@@ -42,6 +44,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Auction',
     'Deal Sheet',
     'Property Funds',
+    'Master Database',
     'Legal Docs',
     'Reminders',
     'Brochures',
@@ -57,6 +60,7 @@ const ROLE_PAGE_ACCESS: Record<AppRole, AppPage[]> = {
     'Sales',
     'Auction',
     'Property Funds',
+    'Master Database',
     'Legal Docs',
     'Reminders',
     'Brochures',

@@ -51,6 +51,7 @@ const getInitialContact = () => ({
   type: "Broker",
   status: "Active",
   industry: "",
+  notes: "",
 });
 
 export const Contacts: React.FC = () => {
@@ -140,6 +141,7 @@ export const Contacts: React.FC = () => {
         type: newContact.type,
         status: newContact.status,
         industry: newContact.industry,
+        notes: newContact.notes,
         linkedPropertyIds: [],
         linkedDealIds: [],
         moduleType: "leasing",
@@ -232,6 +234,7 @@ export const Contacts: React.FC = () => {
       type: contact.type,
       status: contact.status,
       industry: contact.industry || "",
+      notes: contact.notes || "",
     });
     setShowAddModal(true);
   };
@@ -250,6 +253,7 @@ export const Contacts: React.FC = () => {
         type: newContact.type,
         status: newContact.status,
         industry: newContact.industry,
+        notes: newContact.notes,
         moduleType: "leasing",
       });
       const mapped = toLeasingContact(updated);
@@ -442,6 +446,20 @@ export const Contacts: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    What they&apos;re looking for / investing in
+                  </label>
+                  <textarea
+                    value={newContact.notes}
+                    onChange={(e) =>
+                      setNewContact({ ...newContact, notes: e.target.value })
+                    }
+                    rows={3}
+                    placeholder="e.g., Looking for retail shopping centres in Gauteng, 9%+ yield, R20m-R50m..."
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
                 </div>
               </div>
               <div className="flex gap-3 mt-6 justify-end">

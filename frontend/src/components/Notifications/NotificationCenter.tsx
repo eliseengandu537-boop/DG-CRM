@@ -252,13 +252,14 @@ export const NotificationCenter: React.FC = () => {
                           void handleMarkRead(notification.id);
                         }
 
+                        // The Recent Activities card was removed from the dashboard —
+                        // notifications now live inside this dropdown only. We still
+                        // navigate to Dashboard so users land somewhere meaningful.
                         window.dispatchEvent(
                           new CustomEvent('navigation:page-change', {
                             detail: { page: 'Dashboard' },
                           })
                         );
-                        window.location.hash = 'recent-activities';
-                        window.dispatchEvent(new Event('activity:open-history'));
                       }}
                       className="w-full bg-white px-3 py-3 text-left transition-colors hover:bg-stone-50"
                     >

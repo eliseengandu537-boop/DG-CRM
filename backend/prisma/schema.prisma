@@ -114,6 +114,8 @@ model Deal {
   coBrokerSplits     Json?          @map("co_broker_splits")
   lastActivityAt     DateTime       @default(now()) @map("last_activity_at")
   inactivityNotifiedAt DateTime?    @map("inactivity_notified_at")
+  nextAction         String?        @map("next_action")
+  nextActionDue      DateTime?      @map("next_action_due")
   targetClosureDate  DateTime?
   closedDate         DateTime?
   leadId             String
@@ -142,6 +144,7 @@ model Deal {
   @@index([status])
   @@index([lastActivityAt])
   @@index([inactivityNotifiedAt])
+  @@index([nextActionDue])
 }
 
 model DealStatusHistory {

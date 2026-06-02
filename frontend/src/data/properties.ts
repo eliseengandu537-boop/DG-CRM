@@ -63,6 +63,8 @@ export interface Property {
   ownerContactNumber?: string;
   tenantName?: string;
   tenantContactNumber?: string;
+  /** Tenants saved from the Assets editor (multi-tenant). */
+  tenants?: Array<{ name: string; leaseExpiry?: string; contactNumber?: string }>;
   brokerName: string;
   brokerId?: string;
   brokerEmail?: string;

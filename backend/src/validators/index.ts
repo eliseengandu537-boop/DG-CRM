@@ -297,6 +297,11 @@ export const createDealSchema = z.object({
   coBrokerSplits: z.array(coBrokerSplitSchema).optional(),
   targetClosureDate: z.string().datetime().optional(),
   closedDate: z.string().datetime().optional(),
+  nextAction: optionalTrimmedStringSchema,
+  nextActionDue: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().datetime().optional()
+  ),
   leadId: z.string(),
   propertyId: z.string(),
   brokerId: z.string().optional(),

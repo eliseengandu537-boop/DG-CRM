@@ -205,6 +205,8 @@ function mapDeal(record: NonNullable<DealWithBroker>): Deal {
     },
     lastActivityAt: (record as any).lastActivityAt ?? undefined,
     inactivityNotifiedAt: (record as any).inactivityNotifiedAt ?? undefined,
+    nextAction: (record as any).nextAction ?? undefined,
+    nextActionDue: (record as any).nextActionDue ?? undefined,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -613,6 +615,8 @@ export class DealService {
           auctionCommissionPercent: financials.auctionCommissionPercent,
           coBrokerSplits: (financials.coBrokerSplits as any) ?? undefined,
           targetClosureDate: data.targetClosureDate ? new Date(data.targetClosureDate) : undefined,
+          nextAction: (data as any).nextAction || null,
+          nextActionDue: (data as any).nextActionDue ? new Date((data as any).nextActionDue) : null,
           leadId: data.leadId,
           propertyId: data.propertyId,
           brokerId,
@@ -844,6 +848,16 @@ export class DealService {
             : data.closedDate === undefined
             ? undefined
             : null,
+          nextAction:
+            (data as any).nextAction === undefined
+              ? undefined
+              : (data as any).nextAction || null,
+          nextActionDue:
+            (data as any).nextActionDue === undefined
+              ? undefined
+              : (data as any).nextActionDue
+              ? new Date((data as any).nextActionDue)
+              : null,
           leadId: data.leadId,
           propertyId: data.propertyId,
           brokerId,

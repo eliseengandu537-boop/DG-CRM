@@ -126,7 +126,9 @@ export async function ensureSchemaCompatibility(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "auction_commission_percent" DOUBLE PRECISION NOT NULL DEFAULT 10,
       ADD COLUMN IF NOT EXISTS "co_broker_splits" JSONB,
       ADD COLUMN IF NOT EXISTS "last_activity_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS "inactivity_notified_at" TIMESTAMP(3)
+      ADD COLUMN IF NOT EXISTS "inactivity_notified_at" TIMESTAMP(3),
+      ADD COLUMN IF NOT EXISTS "next_action" TEXT,
+      ADD COLUMN IF NOT EXISTS "next_action_due" TIMESTAMP(3)
   `;
 
   await prisma.$executeRaw`

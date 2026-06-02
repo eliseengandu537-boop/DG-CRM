@@ -7,12 +7,23 @@ import DealsClosedAwaitingPayment from './DealsClosedAwaitingPayment';
 import ForecastDeals from './ForecastDeals';
 import BrokerSummary from './BrokerSummary';
 import BrokersTargets from './BrokersTargets';
+import DealPipelineKanban from './DealPipelineKanban';
+
+type TabId =
+  | 'summary'
+  | 'pipeline'
+  | 'forecast-deals'
+  | 'broker-summary'
+  | 'broker-targets'
+  | 'completed'
+  | 'awaiting-payment';
 
 export default function DealSheet() {
-  const [activeTab, setActiveTab] = useState<'summary' | 'forecast-deals' | 'broker-summary' | 'broker-targets' | 'completed' | 'awaiting-payment'>('summary');
+  const [activeTab, setActiveTab] = useState<TabId>('summary');
 
-  const tabs = [
+  const tabs: Array<{ id: TabId; label: string; icon: string }> = [
     { id: 'summary', label: '📊 Summary Dashboard', icon: '📊' },
+    { id: 'pipeline', label: '🗂 Pipeline (Kanban)', icon: '🗂' },
     { id: 'forecast-deals', label: '📈 Forecast Deals', icon: '📈' },
     { id: 'broker-summary', label: '👥 Broker Summary', icon: '👥' },
     { id: 'broker-targets', label: '🎯 Broker Targets', icon: '🎯' },
@@ -27,7 +38,7 @@ export default function DealSheet() {
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
               activeTab === tab.id
                 ? 'bg-stone-900 text-white shadow-md'
@@ -43,6 +54,7 @@ export default function DealSheet() {
       {/* Tab Content */}
       <div className="bg-white rounded-lg border border-stone-200 p-6 shadow-sm">
         {activeTab === 'summary' && <SummaryDashboard />}
+        {activeTab === 'pipeline' && <DealPipelineKanban />}
         {activeTab === 'forecast-deals' && <ForecastDeals />}
         {activeTab === 'broker-summary' && <BrokerSummary />}
         {activeTab === 'broker-targets' && <BrokersTargets />}
