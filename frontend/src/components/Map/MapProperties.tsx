@@ -333,9 +333,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const loadData = React.useCallback(async () => {
     try {
       const [apiResponse, fundResponse, assetResponse, brokerResponse, contactResponse, landlordResponse] = await Promise.all([
-        propertyService.getAllProperties({ limit: 500 }),
-        customRecordService.getAllCustomRecords({ entityType: 'fund', limit: 500 }),
-        customRecordService.getAllCustomRecords<AssetPayload>({ entityType: 'asset', limit: 500 }),
+        propertyService.getAllProperties({ limit: 10000 }),
+        customRecordService.getAllCustomRecords({ entityType: 'fund', limit: 10000 }),
+        customRecordService.getAllCustomRecords<AssetPayload>({ entityType: 'asset', limit: 10000 }),
         brokerService.getAllBrokers().catch(() => []),
         contactService.getAllContacts({ limit: 1000 }).catch(() => ({ data: [] })),
         landlordService.getAllLandlords({ limit: 1000 }).catch(() => ({ data: [] })),
