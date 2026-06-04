@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { AppPage, getAllowedPages } from '@/lib/pageAccess';
 import { useReminderNotifications } from '@/context/ReminderContext';
 import {
+  FiActivity,
   FiAward,
   FiBarChart2,
   FiCalendar,
@@ -40,6 +41,7 @@ const NAV_ROUTES: Array<{ title: AppPage; icon: IconType }> = [
   { title: 'Reminders', icon: FiCalendar },
   { title: 'Brochures', icon: FiPaperclip },
   { title: 'Reports', icon: FiBarChart2 },
+  { title: 'Audit Trail', icon: FiActivity },
   { title: 'Settings', icon: FiSettings },
 ];
 

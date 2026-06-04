@@ -12,19 +12,30 @@ import {
   FiFilter,
   FiUsers,
   FiTarget,
+  FiHome,
+  FiMapPin,
+  FiExternalLink,
 } from 'react-icons/fi';
 import { useAuth } from '@/context/AuthContext';
 import {
   customRecordService,
   type CustomRecord,
 } from '@/services/customRecordService';
+import { propertyService, type PropertyRecord } from '@/services/propertyService';
 import { PROPERTY_TYPE_OPTIONS } from '@/lib/propertyTypes';
+import { navigateToPage } from '@/lib/crmNavigation';
 
-type Tab = 'potential' | 'buyers';
+type Kind = 'potential' | 'buyer';
+type KindFilter = 'all' | Kind;
 
-const ENTITY_TYPE: Record<Tab, string> = {
+const ENTITY_TYPE: Record<Kind, string> = {
   potential: 'master_db_potential',
-  buyers: 'master_db_buyer',
+  buyer: 'master_db_buyer',
+};
+
+const KIND_LABEL: Record<Kind, string> = {
+  potential: 'Potential B&S',
+  buyer: 'Buyer Brief',
 };
 
 interface PotentialPayload {
@@ -33,6 +44,7 @@ interface PotentialPayload {
   email?: string;
   contactNumber?: string;
   altContactNumber?: string;
+  company?: string;
   assetTypes?: string[];
   lookingFor?: string;
   notes?: string;
@@ -70,6 +82,7 @@ const emptyPotential: PotentialPayload = {
   email: '',
   contactNumber: '',
   altContactNumber: '',
+  company: '',
   assetTypes: [],
   lookingFor: '',
   notes: '',
@@ -92,73 +105,12 @@ const emptyBuyer: BuyerPayload = {
   comments: '',
 };
 
-function isBuyer(rec: AnyRecord): rec is CustomRecord<BuyerPayload> {
-  return rec.entityType === ENTITY_TYPE.buyers;
+function recordKind(rec: AnyRecord): Kind {
+  return rec.entityType === ENTITY_TYPE.buyer ? 'buyer' : 'potential';
 }
 
-function toCsv(records: AnyRecord[], tab: Tab): string {
-  if (tab === 'potential') {
-    const header = [
-      'Name',
-      'Surname',
-      'Email',
-      'Contact Number',
-      'Alt Contact Number',
-      'Asset Types',
-      'Looking For',
-      'Notes',
-    ];
-    const rows = records.map((r) => {
-      const p = r.payload as PotentialPayload;
-      return [
-        p.name || '',
-        p.surname || '',
-        p.email || '',
-        p.contactNumber || '',
-        p.altContactNumber || '',
-        (p.assetTypes || []).join('; '),
-        p.lookingFor || '',
-        p.notes || '',
-      ];
-    });
-    return toCsvString([header, ...rows]);
-  }
-  const header = [
-    'Name',
-    'Surname',
-    'Email',
-    'Contact Number',
-    'Company',
-    'Area',
-    'Category',
-    'Zoning',
-    'Size',
-    'Price',
-    'Description',
-    'Asset Types',
-    'Looking For',
-    'Comments',
-  ];
-  const rows = records.map((r) => {
-    const p = r.payload as BuyerPayload;
-    return [
-      p.name || '',
-      p.surname || '',
-      p.email || '',
-      p.contactNumber || '',
-      p.company || '',
-      p.area || '',
-      p.category || '',
-      p.zoning || '',
-      p.size || '',
-      p.price || '',
-      p.description || '',
-      (p.assetTypes || []).join('; '),
-      p.lookingFor || '',
-      p.comments || '',
-    ];
-  });
-  return toCsvString([header, ...rows]);
+function isBuyerRecord(rec: AnyRecord): rec is CustomRecord<BuyerPayload> {
+  return recordKind(rec) === 'buyer';
 }
 
 function toCsvString(rows: string[][]): string {
@@ -187,19 +139,68 @@ function downloadCsv(name: string, body: string) {
   URL.revokeObjectURL(url);
 }
 
+function combinedCsv(records: AnyRecord[]): string {
+  const header = [
+    'Kind',
+    'Name',
+    'Surname',
+    'Email',
+    'Contact Number',
+    'Alt Contact Number',
+    'Company',
+    'Area',
+    'Category',
+    'Zoning',
+    'Size',
+    'Price',
+    'Description',
+    'Asset Types',
+    'Looking For',
+    'Comments / Notes',
+    'Linked Property Count',
+  ];
+  const rows = records.map((r) => {
+    const k = recordKind(r);
+    const p = r.payload as AnyPayload;
+    const buyer = p as BuyerPayload;
+    const potential = p as PotentialPayload;
+    return [
+      KIND_LABEL[k],
+      p.name || '',
+      p.surname || '',
+      p.email || '',
+      p.contactNumber || '',
+      potential.altContactNumber || '',
+      p.company || '',
+      buyer.area || '',
+      buyer.category || '',
+      buyer.zoning || '',
+      buyer.size || '',
+      buyer.price || '',
+      buyer.description || '',
+      (p.assetTypes || []).join('; '),
+      p.lookingFor || '',
+      buyer.comments || potential.notes || '',
+      String((p.linkedPropertyIds || []).length),
+    ];
+  });
+  return toCsvString([header, ...rows]);
+}
+
 const MasterDatabase: React.FC = () => {
   const { user } = useAuth();
   const isPrivileged = user?.role === 'admin' || user?.role === 'manager';
   const canEdit = isPrivileged;
 
-  const [activeTab, setActiveTab] = useState<Tab>('potential');
   const [potentialRecords, setPotentialRecords] = useState<AnyRecord[]>([]);
   const [buyerRecords, setBuyerRecords] = useState<AnyRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<string[]>([]);
   const [showAssetTypeFilter, setShowAssetTypeFilter] = useState(false);
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [newKind, setNewKind] = useState<Kind>('potential');
   const [formPotential, setFormPotential] = useState<PotentialPayload>(emptyPotential);
   const [formBuyer, setFormBuyer] = useState<BuyerPayload>(emptyBuyer);
   const [loading, setLoading] = useState(true);
@@ -207,6 +208,11 @@ const MasterDatabase: React.FC = () => {
     null
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Property index used to resolve linkedPropertyIds -> property details when
+  // a contact card is expanded. Loaded lazily on first expand.
+  const [propertyIndex, setPropertyIndex] = useState<Map<string, PropertyRecord> | null>(null);
+  const [loadingProperties, setLoadingProperties] = useState(false);
 
   const showNotification = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -219,11 +225,11 @@ const MasterDatabase: React.FC = () => {
       const [potential, buyer] = await Promise.all([
         customRecordService.getAllCustomRecords<AnyPayload>({
           entityType: ENTITY_TYPE.potential,
-          limit: 2000,
+          limit: 5000,
         }),
         customRecordService.getAllCustomRecords<AnyPayload>({
-          entityType: ENTITY_TYPE.buyers,
-          limit: 2000,
+          entityType: ENTITY_TYPE.buyer,
+          limit: 5000,
         }),
       ]);
       setPotentialRecords(potential.data);
@@ -239,11 +245,33 @@ const MasterDatabase: React.FC = () => {
     void loadData();
   }, [loadData]);
 
-  const records = activeTab === 'potential' ? potentialRecords : buyerRecords;
+  // Lazily load property index when the first record is expanded.
+  const ensurePropertyIndex = useCallback(async () => {
+    if (propertyIndex || loadingProperties) return;
+    setLoadingProperties(true);
+    try {
+      const res = await propertyService.getAllProperties({ limit: 10000 });
+      const map = new Map<string, PropertyRecord>();
+      for (const p of res.data) map.set(p.id, p);
+      setPropertyIndex(map);
+    } catch (err) {
+      console.warn('Failed to load property index:', err);
+      setPropertyIndex(new Map());
+    } finally {
+      setLoadingProperties(false);
+    }
+  }, [propertyIndex, loadingProperties]);
+
+  const allRecords = useMemo(
+    () => [...potentialRecords, ...buyerRecords],
+    [potentialRecords, buyerRecords]
+  );
 
   const filteredRecords = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return records.filter((r) => {
+    return allRecords.filter((r) => {
+      const k = recordKind(r);
+      if (kindFilter !== 'all' && k !== kindFilter) return false;
       const p = r.payload as AnyPayload;
       if (selectedAssetTypes.length > 0) {
         const types = (p.assetTypes || []).map((t) => t.toLowerCase());
@@ -251,14 +279,15 @@ const MasterDatabase: React.FC = () => {
         if (!matchesAsset) return false;
       }
       if (!q) return true;
+      const buyer = p as BuyerPayload;
       const haystack = [
         p.name,
         p.surname,
         p.email,
         p.contactNumber,
-        (p as BuyerPayload).company,
-        (p as BuyerPayload).area,
-        (p as BuyerPayload).description,
+        p.company,
+        buyer.area,
+        buyer.description,
         p.lookingFor,
       ]
         .filter(Boolean)
@@ -266,31 +295,34 @@ const MasterDatabase: React.FC = () => {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [records, searchQuery, selectedAssetTypes]);
+  }, [allRecords, kindFilter, searchQuery, selectedAssetTypes]);
 
   const handleStartAdd = useCallback(() => {
     setEditingId(null);
+    setNewKind('potential');
     setFormPotential(emptyPotential);
     setFormBuyer(emptyBuyer);
     setShowAddModal(true);
   }, []);
 
-  const handleStartEdit = useCallback(
-    (record: AnyRecord) => {
-      setEditingId(record.id);
-      if (isBuyer(record)) {
-        setFormBuyer({ ...emptyBuyer, ...(record.payload as BuyerPayload) });
-      } else {
-        setFormPotential({ ...emptyPotential, ...(record.payload as PotentialPayload) });
-      }
-      setShowAddModal(true);
-    },
-    []
-  );
+  const handleStartEdit = useCallback((record: AnyRecord) => {
+    setEditingId(record.id);
+    if (isBuyerRecord(record)) {
+      setNewKind('buyer');
+      setFormBuyer({ ...emptyBuyer, ...(record.payload as BuyerPayload) });
+    } else {
+      setNewKind('potential');
+      setFormPotential({ ...emptyPotential, ...(record.payload as PotentialPayload) });
+    }
+    setShowAddModal(true);
+  }, []);
 
   const handleSave = useCallback(async () => {
-    const payload = activeTab === 'potential' ? formPotential : formBuyer;
-    const displayName = `${payload.name || ''} ${payload.surname || ''}`.trim() || payload.email || 'Untitled';
+    const payload = newKind === 'potential' ? formPotential : formBuyer;
+    const displayName =
+      `${payload.name || ''} ${payload.surname || ''}`.trim() ||
+      payload.email ||
+      'Untitled';
 
     if (!payload.name?.trim() && !payload.email?.trim()) {
       showNotification('Please enter a name or email.', 'error');
@@ -306,7 +338,7 @@ const MasterDatabase: React.FC = () => {
         showNotification('Record updated.');
       } else {
         await customRecordService.createCustomRecord<AnyPayload>({
-          entityType: ENTITY_TYPE[activeTab],
+          entityType: ENTITY_TYPE[newKind],
           name: displayName,
           payload,
         });
@@ -318,7 +350,7 @@ const MasterDatabase: React.FC = () => {
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Failed to save record.', 'error');
     }
-  }, [activeTab, editingId, formPotential, formBuyer, loadData, showNotification]);
+  }, [newKind, editingId, formPotential, formBuyer, loadData, showNotification]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -337,9 +369,8 @@ const MasterDatabase: React.FC = () => {
   const handleExport = useCallback(() => {
     if (!isPrivileged) return;
     const stamp = new Date().toISOString().slice(0, 10);
-    const tabLabel = activeTab === 'potential' ? 'potential-bs' : 'buyers-looking';
-    downloadCsv(`master-database-${tabLabel}-${stamp}.csv`, toCsv(filteredRecords, activeTab));
-  }, [activeTab, filteredRecords, isPrivileged]);
+    downloadCsv(`master-database-${stamp}.csv`, combinedCsv(filteredRecords));
+  }, [filteredRecords, isPrivileged]);
 
   const toggleAssetTypeFilter = useCallback((type: string) => {
     setSelectedAssetTypes((prev) =>
@@ -349,7 +380,7 @@ const MasterDatabase: React.FC = () => {
 
   const toggleFormAssetType = useCallback(
     (type: string) => {
-      if (activeTab === 'potential') {
+      if (newKind === 'potential') {
         setFormPotential((prev) => ({
           ...prev,
           assetTypes: prev.assetTypes?.includes(type)
@@ -365,16 +396,28 @@ const MasterDatabase: React.FC = () => {
         }));
       }
     },
-    [activeTab]
+    [newKind]
   );
 
   const counts = {
     potential: potentialRecords.length,
-    buyers: buyerRecords.length,
+    buyer: buyerRecords.length,
+    all: potentialRecords.length + buyerRecords.length,
   };
 
   const currentFormAssetTypes =
-    activeTab === 'potential' ? formPotential.assetTypes : formBuyer.assetTypes;
+    newKind === 'potential' ? formPotential.assetTypes : formBuyer.assetTypes;
+
+  const handleExpand = useCallback(
+    (id: string) => {
+      setExpandedId((curr) => {
+        const next = curr === id ? null : id;
+        if (next !== null) void ensurePropertyIndex();
+        return next;
+      });
+    },
+    [ensurePropertyIndex]
+  );
 
   return (
     <div className="space-y-4">
@@ -393,7 +436,7 @@ const MasterDatabase: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-stone-900">Master Database</h1>
           <p className="text-sm text-stone-500 mt-0.5">
-            Investor list, potential buyers & sellers, and active buyer briefs.
+            All contacts — potential buyers & sellers, active buyer briefs, and property owners.
           </p>
         </div>
         <div className="flex gap-2">
@@ -419,30 +462,6 @@ const MasterDatabase: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-stone-200">
-        <TabButton
-          icon={<FiUsers size={14} />}
-          label="Potential B&S"
-          count={counts.potential}
-          active={activeTab === 'potential'}
-          onClick={() => {
-            setActiveTab('potential');
-            setExpandedId(null);
-          }}
-        />
-        <TabButton
-          icon={<FiTarget size={14} />}
-          label="Buyers Looking"
-          count={counts.buyers}
-          active={activeTab === 'buyers'}
-          onClick={() => {
-            setActiveTab('buyers');
-            setExpandedId(null);
-          }}
-        />
-      </div>
-
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[260px]">
@@ -454,6 +473,32 @@ const MasterDatabase: React.FC = () => {
             className="w-full rounded-lg border border-stone-200 bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
+
+        {/* Kind filter chips */}
+        <div className="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 text-sm">
+          <KindChip
+            label="All"
+            count={counts.all}
+            active={kindFilter === 'all'}
+            onClick={() => setKindFilter('all')}
+          />
+          <KindChip
+            icon={<FiUsers size={12} />}
+            label="Potential B&S"
+            count={counts.potential}
+            active={kindFilter === 'potential'}
+            onClick={() => setKindFilter('potential')}
+          />
+          <KindChip
+            icon={<FiTarget size={12} />}
+            label="Buyers Looking"
+            count={counts.buyer}
+            active={kindFilter === 'buyer'}
+            onClick={() => setKindFilter('buyer')}
+          />
+        </div>
+
+        {/* Asset type filter */}
         <div className="relative">
           <button
             onClick={() => setShowAssetTypeFilter((v) => !v)}
@@ -505,8 +550,10 @@ const MasterDatabase: React.FC = () => {
             </div>
           )}
         </div>
+
         <div className="text-xs text-stone-500">
-          {filteredRecords.length} of {records.length} {records.length === 1 ? 'record' : 'records'}
+          {filteredRecords.length} of {allRecords.length}{' '}
+          {allRecords.length === 1 ? 'record' : 'records'}
         </div>
       </div>
 
@@ -518,7 +565,7 @@ const MasterDatabase: React.FC = () => {
           <div className="p-12 text-center">
             <FiUsers className="mx-auto text-stone-300 mb-2" size={32} />
             <p className="text-sm text-stone-500">
-              {records.length === 0
+              {allRecords.length === 0
                 ? 'No records yet. Add your first contact.'
                 : 'No records match your filters.'}
             </p>
@@ -526,27 +573,49 @@ const MasterDatabase: React.FC = () => {
         ) : (
           <div className="divide-y divide-stone-100">
             {filteredRecords.map((record) => {
+              const k = recordKind(record);
               const p = record.payload as AnyPayload;
+              const buyer = p as BuyerPayload;
+              const potential = p as PotentialPayload;
               const isExpanded = expandedId === record.id;
+              const linkedIds = p.linkedPropertyIds || [];
               return (
                 <div key={record.id} className="px-4 py-3">
                   <div
-                    onClick={() => setExpandedId(isExpanded ? null : record.id)}
+                    onClick={() => handleExpand(record.id)}
                     className="flex items-start gap-4 cursor-pointer"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-stone-900 truncate">
-                        {`${p.name || ''} ${p.surname || ''}`.trim() || p.email || 'Unnamed'}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-stone-900 truncate">
+                          {`${p.name || ''} ${p.surname || ''}`.trim() || p.email || 'Unnamed'}
+                        </p>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            k === 'buyer'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {k === 'buyer' ? <FiTarget size={10} /> : <FiUsers size={10} />}
+                          {KIND_LABEL[k]}
+                        </span>
+                        {linkedIds.length > 0 && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                            title="Owns this many properties"
+                          >
+                            <FiHome size={10} />
+                            {linkedIds.length}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-stone-500">
                         {p.email && <span>📧 {p.email}</span>}
                         {p.contactNumber && <span>📞 {p.contactNumber}</span>}
-                        {isBuyer(record) && (record.payload as BuyerPayload).area && (
-                          <span>📍 {(record.payload as BuyerPayload).area}</span>
-                        )}
-                        {isBuyer(record) && (record.payload as BuyerPayload).price && (
-                          <span>💰 {(record.payload as BuyerPayload).price}</span>
-                        )}
+                        {p.company && <span>🏢 {p.company}</span>}
+                        {k === 'buyer' && buyer.area && <span>📍 {buyer.area}</span>}
+                        {k === 'buyer' && buyer.price && <span>💰 {buyer.price}</span>}
                       </div>
                       {(p.assetTypes || []).length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
@@ -580,50 +649,50 @@ const MasterDatabase: React.FC = () => {
                       </div>
                     )}
                   </div>
+
                   {isExpanded && (
-                    <div className="mt-3 pl-0 pr-0 py-3 border-t border-stone-100 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
-                      {isBuyer(record) ? (
-                        <>
-                          <Field label="Company" value={(record.payload as BuyerPayload).company} />
-                          <Field label="Area" value={(record.payload as BuyerPayload).area} />
-                          <Field label="Category" value={(record.payload as BuyerPayload).category} />
-                          <Field label="Zoning" value={(record.payload as BuyerPayload).zoning} />
-                          <Field label="Size" value={(record.payload as BuyerPayload).size} />
-                          <Field label="Price" value={(record.payload as BuyerPayload).price} />
-                          <Field
-                            label="Description"
-                            value={(record.payload as BuyerPayload).description}
-                            full
-                          />
-                          <Field
-                            label="What they're looking for"
-                            value={(record.payload as BuyerPayload).lookingFor}
-                            full
-                          />
-                          <Field
-                            label="Comments"
-                            value={(record.payload as BuyerPayload).comments}
-                            full
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <Field
-                            label="Alt Contact Number"
-                            value={(record.payload as PotentialPayload).altContactNumber}
-                          />
-                          <Field
-                            label="What they're looking for / investing in"
-                            value={(record.payload as PotentialPayload).lookingFor}
-                            full
-                          />
-                          <Field
-                            label="Notes"
-                            value={(record.payload as PotentialPayload).notes}
-                            full
-                          />
-                        </>
-                      )}
+                    <div className="mt-3 py-3 border-t border-stone-100 space-y-4">
+                      {/* Type-specific details */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                        {k === 'buyer' ? (
+                          <>
+                            <Field label="Company" value={buyer.company} />
+                            <Field label="Area" value={buyer.area} />
+                            <Field label="Category" value={buyer.category} />
+                            <Field label="Zoning" value={buyer.zoning} />
+                            <Field label="Size" value={buyer.size} />
+                            <Field label="Price" value={buyer.price} />
+                            <Field label="Description" value={buyer.description} full />
+                            <Field
+                              label="What they're looking for"
+                              value={buyer.lookingFor}
+                              full
+                            />
+                            <Field label="Comments" value={buyer.comments} full />
+                          </>
+                        ) : (
+                          <>
+                            <Field label="Company" value={p.company} />
+                            <Field
+                              label="Alt Contact Number"
+                              value={potential.altContactNumber}
+                            />
+                            <Field
+                              label="What they're looking for / investing in"
+                              value={potential.lookingFor}
+                              full
+                            />
+                            <Field label="Notes" value={potential.notes} full />
+                          </>
+                        )}
+                      </div>
+
+                      {/* Linked properties */}
+                      <LinkedProperties
+                        linkedIds={linkedIds}
+                        propertyIndex={propertyIndex}
+                        loading={loadingProperties}
+                      />
                     </div>
                   )}
                 </div>
@@ -639,7 +708,7 @@ const MasterDatabase: React.FC = () => {
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl flex flex-col max-h-[92vh]">
             <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3">
               <h2 className="text-lg font-semibold text-stone-900">
-                {editingId ? 'Edit' : 'Add'} {activeTab === 'potential' ? 'Potential B&S Contact' : 'Buyer Brief'}
+                {editingId ? 'Edit Contact' : 'Add Contact'}
               </h2>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -650,7 +719,40 @@ const MasterDatabase: React.FC = () => {
             </div>
 
             <div className="overflow-y-auto px-5 py-4 space-y-4">
-              {activeTab === 'potential' ? (
+              {/* Kind selector — only when creating a new record */}
+              {!editingId && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-500 mb-2">
+                    Contact Type
+                  </p>
+                  <div className="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => setNewKind('potential')}
+                      className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 font-medium ${
+                        newKind === 'potential'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      <FiUsers size={13} /> Potential B&S
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewKind('buyer')}
+                      className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 font-medium ${
+                        newKind === 'buyer'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      <FiTarget size={13} /> Buyer Brief
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {newKind === 'potential' ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <FormInput
@@ -674,14 +776,23 @@ const MasterDatabase: React.FC = () => {
                     <FormInput
                       label="Contact Number"
                       value={formPotential.contactNumber || ''}
-                      onChange={(v) => setFormPotential({ ...formPotential, contactNumber: v })}
+                      onChange={(v) =>
+                        setFormPotential({ ...formPotential, contactNumber: v })
+                      }
                     />
                     <FormInput
                       label="Alt Contact Number"
                       value={formPotential.altContactNumber || ''}
-                      onChange={(v) => setFormPotential({ ...formPotential, altContactNumber: v })}
+                      onChange={(v) =>
+                        setFormPotential({ ...formPotential, altContactNumber: v })
+                      }
                     />
                   </div>
+                  <FormInput
+                    label="Company"
+                    value={formPotential.company || ''}
+                    onChange={(v) => setFormPotential({ ...formPotential, company: v })}
+                  />
                   <FormTextarea
                     label="What they're looking for / investing in"
                     value={formPotential.lookingFor || ''}
@@ -825,8 +936,8 @@ const MasterDatabase: React.FC = () => {
   );
 };
 
-const TabButton: React.FC<{
-  icon: React.ReactNode;
+const KindChip: React.FC<{
+  icon?: React.ReactNode;
   label: string;
   count: number;
   active: boolean;
@@ -834,23 +945,90 @@ const TabButton: React.FC<{
 }> = ({ icon, label, count, active, onClick }) => (
   <button
     onClick={onClick}
-    className={`-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
       active
-        ? 'border-indigo-600 text-indigo-700'
-        : 'border-transparent text-stone-500 hover:text-stone-800'
+        ? 'bg-indigo-100 text-indigo-700'
+        : 'text-stone-600 hover:bg-stone-50'
     }`}
   >
     {icon}
     {label}
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-        active ? 'bg-indigo-100 text-indigo-700' : 'bg-stone-100 text-stone-600'
+      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+        active ? 'bg-indigo-600 text-white' : 'bg-stone-100 text-stone-600'
       }`}
     >
       {count}
     </span>
   </button>
 );
+
+const LinkedProperties: React.FC<{
+  linkedIds: string[];
+  propertyIndex: Map<string, PropertyRecord> | null;
+  loading: boolean;
+}> = ({ linkedIds, propertyIndex, loading }) => {
+  if (linkedIds.length === 0) {
+    return (
+      <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">
+        No linked properties on this contact yet.
+      </div>
+    );
+  }
+
+  const resolved = propertyIndex
+    ? linkedIds.map((id) => propertyIndex.get(id)).filter(Boolean) as PropertyRecord[]
+    : [];
+
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mb-1.5 flex items-center gap-2">
+        <FiHome size={11} />
+        Linked Properties ({linkedIds.length})
+      </p>
+      {loading && resolved.length === 0 ? (
+        <p className="text-xs text-stone-400">Loading properties…</p>
+      ) : resolved.length === 0 ? (
+        <p className="text-xs text-stone-400">Property details unavailable.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {resolved.map((prop) => {
+            const propertyName = prop.title || prop.address || 'Untitled property';
+            return (
+              <button
+                key={prop.id}
+                type="button"
+                onClick={() =>
+                  navigateToPage('Maps', {
+                    kind: 'property',
+                    id: prop.id,
+                    name: propertyName,
+                  })
+                }
+                className="text-left rounded-lg border border-stone-200 bg-white px-3 py-2 hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors flex items-center gap-2 group"
+                title="Open on Map"
+              >
+                <FiMapPin size={14} className="text-violet-500 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-stone-900 truncate group-hover:text-indigo-700">
+                    {propertyName}
+                  </p>
+                  {prop.address && prop.address !== propertyName && (
+                    <p className="text-[10px] text-stone-500 truncate">{prop.address}</p>
+                  )}
+                </div>
+                <FiExternalLink
+                  size={11}
+                  className="text-stone-400 shrink-0 group-hover:text-indigo-500"
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Field: React.FC<{ label: string; value?: string; full?: boolean }> = ({
   label,

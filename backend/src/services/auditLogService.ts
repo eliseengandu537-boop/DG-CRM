@@ -195,6 +195,82 @@ class AuditLogService {
     });
     await this.createNotification(client, created.id, actorUserId, entry);
   }
+
+  async list(params: {
+    entityType?: string;
+    entityId?: string;
+    action?: string;
+    actorUserId?: string;
+    brokerId?: string;
+    search?: string;
+    from?: Date;
+    to?: Date;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    data: Array<Record<string, unknown>>;
+    pagination: { page: number; limit: number; total: number; pages: number };
+  }> {
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.min(500, Math.max(1, Number(params.limit) || 50));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.AuditLogWhereInput = {};
+    if (params.entityType) where.entityType = params.entityType;
+    if (params.entityId) where.entityId = params.entityId;
+    if (params.action) where.action = { contains: params.action, mode: 'insensitive' };
+    if (params.actorUserId) where.actorUserId = params.actorUserId;
+    if (params.brokerId) where.brokerId = params.brokerId;
+    if (params.from || params.to) {
+      where.createdAt = {};
+      if (params.from) where.createdAt.gte = params.from;
+      if (params.to) where.createdAt.lte = params.to;
+    }
+    if (params.search) {
+      where.OR = [
+        { description: { contains: params.search, mode: 'insensitive' } },
+        { actorName: { contains: params.search, mode: 'insensitive' } },
+        { actorEmail: { contains: params.search, mode: 'insensitive' } },
+        { action: { contains: params.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, rows] = await Promise.all([
+      prisma.auditLog.count({ where }),
+      prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        description: row.description,
+        actorUserId: row.actorUserId,
+        actorName: row.actorName,
+        actorEmail: row.actorEmail,
+        actorRole: row.actorRole,
+        brokerId: row.brokerId,
+        visibilityScope: row.visibilityScope,
+        previousValues: row.previousValues,
+        nextValues: row.nextValues,
+        metadata: row.metadata,
+        createdAt: row.createdAt,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
 }
 
 export const auditLogService = new AuditLogService();

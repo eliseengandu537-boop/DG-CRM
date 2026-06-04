@@ -20,6 +20,7 @@ import customRecordRoutes from './customRecordRoutes';
 import activityRoutes from './activityRoutes';
 import notificationRoutes from './notificationRoutes';
 import brochureRoutes from './brochureRoutes';
+import auditLogRoutes from './auditLogRoutes';
 import { createRateLimiter } from '@/middlewares/rateLimit';
 
 const router = Router();
@@ -65,5 +66,6 @@ router.use('/custom-records', customRecordRoutes);
 router.use('/activities', activityRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/brochures', brochureRoutes);
+router.use('/audit-logs', auditLogRoutes);
 
 export default router;
