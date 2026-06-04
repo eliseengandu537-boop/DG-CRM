@@ -9,6 +9,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from 'rea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { geocodeAddress, streetViewUrl } from '@/lib/nominatim';
+import PropertyClusterLayer from './PropertyClusterLayer';
 
 type AnyObj = Record<string, any>;
 type SupportedMapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
@@ -434,82 +435,13 @@ const GoogleMapWrapper: React.FC<Props> = ({
           fitProperties={safeProperties}
         />
 
-        {safeProperties.map((location) => {
-          const color = location.markerColor || '#16a34a';
-          const isSelected = selectedProperty?.id === location.id;
-          return (
-            <Marker
-              key={location.id}
-              position={[location.lat, location.lng]}
-              icon={propertyDivIcon(color, isSelected)}
-              eventHandlers={{ click: () => setSelectedProperty(location) }}
-            >
-              <Popup
-                eventHandlers={{ remove: () => setSelectedProperty(null) }}
-                minWidth={240}
-                maxWidth={320}
-              >
-                <div style={{ minWidth: '220px' }}>
-                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: '#111827' }}>
-                    {location.name}
-                  </h4>
-                  <p
-                    style={{
-                      margin: '4px 0 8px',
-                      fontSize: '12px',
-                      color: '#4b5563',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ marginTop: '1px' }}>📍</span>
-                    <span>{location.address || 'Address not available'}</span>
-                  </p>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={toggleSatellite}
-                      style={{
-                        background:
-                          activeMapType === 'satellite' || activeMapType === 'hybrid'
-                            ? '#1e293b'
-                            : '#f8fafc',
-                        color:
-                          activeMapType === 'satellite' || activeMapType === 'hybrid'
-                            ? '#fff'
-                            : '#334155',
-                        border: '1px solid #cbd5e1',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      🛰 {activeMapType === 'satellite' || activeMapType === 'hybrid' ? 'Map' : 'Satellite'}
-                    </button>
-                    <button
-                      onClick={() => openStreetViewAt(location.lat, location.lng)}
-                      style={{
-                        background: '#f8fafc',
-                        color: '#334155',
-                        border: '1px solid #cbd5e1',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                      }}
-                      title="Open Google Street View in a new tab"
-                    >
-                      🚶 Street View
-                    </button>
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
+        {/* Property pins are rendered through a marker-cluster group so the
+            map stays responsive even with 15k+ pins. */}
+        <PropertyClusterLayer
+          properties={safeProperties}
+          selectedPropertyId={selectedProperty?.id ?? null}
+          onSelect={setSelectedProperty}
+        />
 
         {searchResultMarkers?.map((m, index) => (
           <Marker
