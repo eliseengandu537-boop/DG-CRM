@@ -186,11 +186,11 @@ export const CompanyManager: React.FC = () => {
       const [companyResult, fundResult] = await Promise.all([
         customRecordService.getAllCustomRecords<Record<string, unknown>>({
           entityType: ENTITY_TYPE,
-          limit: 1000,
+          limit: 100000,
         }),
         customRecordService.getAllCustomRecords<Record<string, unknown>>({
           entityType: 'fund',
-          limit: 1000,
+          limit: 10000,
         }),
       ]);
       setCompanies(companyResult.data.map(toCompany));

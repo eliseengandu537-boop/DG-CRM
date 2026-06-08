@@ -82,10 +82,10 @@ export const AssetsManager: React.FC = () => {
     setLoading(true);
     try {
       const [propResult, fundResult] = await Promise.all([
-        propertyService.getAllProperties({ limit: 1000 }),
+        propertyService.getAllProperties({ limit: 100000 }),
         customRecordService.getAllCustomRecords<Record<string, unknown>>({
           entityType: 'fund',
-          limit: 1000,
+          limit: 10000,
         }),
       ]);
       setProperties(
