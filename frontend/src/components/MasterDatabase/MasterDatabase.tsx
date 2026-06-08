@@ -225,11 +225,11 @@ const MasterDatabase: React.FC = () => {
       const [potential, buyer] = await Promise.all([
         customRecordService.getAllCustomRecords<AnyPayload>({
           entityType: ENTITY_TYPE.potential,
-          limit: 5000,
+          limit: 100000,
         }),
         customRecordService.getAllCustomRecords<AnyPayload>({
           entityType: ENTITY_TYPE.buyer,
-          limit: 5000,
+          limit: 100000,
         }),
       ]);
       setPotentialRecords(potential.data);
@@ -250,7 +250,7 @@ const MasterDatabase: React.FC = () => {
     if (propertyIndex || loadingProperties) return;
     setLoadingProperties(true);
     try {
-      const res = await propertyService.getAllProperties({ limit: 10000 });
+      const res = await propertyService.getAllProperties({ limit: 100000 });
       const map = new Map<string, PropertyRecord>();
       for (const p of res.data) map.set(p.id, p);
       setPropertyIndex(map);
