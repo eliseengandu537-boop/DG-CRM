@@ -18,7 +18,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
 }) => {
   return (
-    <div className="flex flex-col h-screen bg-stone-50 border-r border-stone-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-stone-50 border-r border-stone-200 overflow-hidden">
       {/* Header with integrated toggle */}
       <div
         className={`flex items-center shrink-0 h-12 border-b border-stone-200 ${
@@ -47,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Nav items */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 px-2">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 px-2 scrollbar-hide">
         <RouteSelect
           currentPage={currentPage}
           onPageChange={onPageChange}

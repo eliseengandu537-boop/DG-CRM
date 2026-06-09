@@ -27,9 +27,11 @@ export default function LegalDocsPage() {
   return (
     <ErrorBoundary level="page">
       <ProtectedRoute>
-        <main className={`grid gap-4 p-4 transition-all duration-200 ${sidebarCollapsed ? 'grid-cols-[56px,_1fr]' : 'grid-cols-[220px,_1fr]'}`}>
+        <main className={`grid gap-4 p-4 h-screen overflow-hidden transition-all duration-200 ${sidebarCollapsed ? 'grid-cols-[56px,_1fr]' : 'grid-cols-[220px,_1fr]'}`}>
           <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(v => !v)} />
-          <Dashboard currentPage={currentPage} onPageChange={setCurrentPage} />
+          <div className="h-full overflow-y-auto">
+            <Dashboard currentPage={currentPage} onPageChange={setCurrentPage} />
+          </div>
         </main>
       </ProtectedRoute>
     </ErrorBoundary>
