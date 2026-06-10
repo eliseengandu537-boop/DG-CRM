@@ -1,5 +1,6 @@
 import express, { Application, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import 'express-async-errors';
 import http from 'http';
 import { config } from '@/config';
@@ -18,6 +19,10 @@ const allowedOrigins = config.FRONTEND_URL.split(',')
   .filter(Boolean);
 
 // Middlewares
+// Gzip responses. Large JSON payloads (e.g. the full property list) compress
+// roughly 8-10x, which is the single biggest win for slow-loading screens.
+app.use(compression());
+
 // Allow larger payloads for document uploads stored in database (base64 data URLs).
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
