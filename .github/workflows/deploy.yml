@@ -33,14 +33,20 @@ jobs:
             git pull origin main
             
             echo "🔧 Rebuilding all services..."
-            
+
             echo "🔨 Building backend..."
             docker compose -f docker-compose.prod.yml build backend
+            # Remove any existing/stale backend container (including dangling
+            # renamed ones left by an interrupted recreate) so 'up' never fails
+            # with "container name already in use". Scoped to the backend service
+            # by name, so it never touches the postgres container.
+            docker rm -f $(docker ps -aq --filter "name=dg-crm-backend-1") 2>/dev/null || true
             docker compose -f docker-compose.prod.yml up -d backend
             echo "✅ Backend redeployed"
-            
+
             echo "🔨 Building frontend..."
             docker compose -f docker-compose.prod.yml build frontend
+            docker rm -f $(docker ps -aq --filter "name=dg-crm-frontend-1") 2>/dev/null || true
             docker compose -f docker-compose.prod.yml up -d frontend
             echo "✅ Frontend redeployed"
             
