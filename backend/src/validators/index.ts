@@ -242,6 +242,23 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(10, 'Refresh token is required').optional(),
 });
 
+export const verifyOtpSchema = z.object({
+  email: z.string().email('Invalid email'),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Verification code must be 6 digits'),
+});
+
+export const resendOtpSchema = z.object({
+  email: z.string().email('Invalid email'),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
 // Lead validators
 export const createLeadSchema = z.object({
   name: z.string().min(2),
@@ -586,6 +603,9 @@ export const updateCustomRecordSchema = createCustomRecordSchema.partial();
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
+export type ResendOtpInput = z.infer<typeof resendOtpSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type CreateLeadInput = z.infer<typeof createLeadSchema>;
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
 export type UpdateLeadCommentInput = z.infer<typeof updateLeadCommentSchema>;

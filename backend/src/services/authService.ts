@@ -1,6 +1,6 @@
 
 import { BrokerDepartment, User } from '@/types';
-import { RegisterInput, LoginInput, RefreshTokenInput } from '@/validators';
+import { RegisterInput, LoginInput, RefreshTokenInput, VerifyOtpInput, ChangePasswordInput } from '@/validators';
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -13,11 +13,29 @@ import { deleteRefreshTokenHash, getRefreshTokenHash, saveRefreshTokenHash } fro
 import { normalizeBrokerDepartment } from '@/lib/departmentAccess';
 import { isDatabaseConnectionError } from '@/lib/databaseErrors';
 import { isAuthenticatableRole } from '@/lib/authRoles';
-import { logError, logWarn } from '@/lib/logger';
+import { logError, logInfo, logWarn } from '@/lib/logger';
+import {
+  OTP_TTL_MS,
+  clearOtp,
+  generateOtpCode,
+  getResendCooldownMs,
+  hasPendingOtp,
+  saveOtp,
+  verifyOtp as verifyOtpCode,
+} from '@/lib/otpStore';
+import { emailService } from '@/services/emailService';
+import { config } from '@/config';
 
 type AuthTokens = {
   accessToken: string;
   refreshToken: string;
+};
+
+export type OtpChallenge = {
+  otpRequired: true;
+  email: string;
+  /** Only returned in non-production when the code could not be emailed. */
+  devCode?: string;
 };
 
 type StoredUser = User & { password: string };
@@ -81,7 +99,12 @@ export class AuthService {
     };
   }
 
-  async login(data: LoginInput): Promise<{ user: User; tokens: AuthTokens }> {
+  /**
+   * Step 1 of login: verify the email + password. On success an OTP is emailed
+   * and the caller must complete `verifyLoginOtp` to receive session tokens.
+   * No tokens or cookies are issued here.
+   */
+  async login(data: LoginInput): Promise<OtpChallenge> {
     const normalizedEmail = data.email.trim().toLowerCase();
 
     try {
@@ -108,35 +131,13 @@ export class AuthService {
 
       await this.assertBrokerAccountActive(found.email, found.role);
 
-      const brokerId = await this.ensureBrokerProfileForUser({
-        userId: found.id,
-        email: found.email,
-        name: found.name,
-        role: found.role,
-      });
-      const department = await this.getBrokerDepartmentByEmail(found.email);
-
-      const user: StoredUser = {
+      const { devCode } = await this.issueAndSendOtp({
         id: found.id,
         email: found.email,
         name: found.name,
-        role: found.role as User['role'],
-        permissions: this.getPermissionsForRole(found.role),
-        brokerId,
-        department,
-        password: found.password,
-        createdAt: found.createdAt,
-        updatedAt: found.updatedAt,
-      };
+      });
 
-      const tokens = this.buildTokens(user);
-      await this.persistRefreshToken(user.id, tokens.refreshToken);
-      const { password, ...userWithoutPassword } = user;
-
-      return {
-        user: userWithoutPassword,
-        tokens,
-      };
+      return { otpRequired: true, email: found.email, devCode };
     } catch (error) {
       if (isDatabaseConnectionError(error)) {
         logError('Authentication failed because the database is unavailable', error, {
@@ -146,6 +147,158 @@ export class AuthService {
       }
 
       throw error;
+    }
+  }
+
+  /**
+   * Step 2 of login: verify the emailed OTP and issue session tokens.
+   */
+  async verifyLoginOtp(data: VerifyOtpInput): Promise<{ user: User; tokens: AuthTokens }> {
+    const normalizedEmail = data.email.trim().toLowerCase();
+
+    try {
+      const found = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (!found) {
+        // Avoid revealing whether the email exists.
+        throw new Error('Invalid or expired verification code');
+      }
+
+      const result = await verifyOtpCode(found.id, data.code.trim());
+      if (!result.ok) {
+        logWarn('OTP verification failed', { email: normalizedEmail, reason: result.reason });
+        if (result.reason === 'too_many_attempts') {
+          throw new Error('Too many incorrect codes. Please sign in again to get a new code.');
+        }
+        if (result.reason === 'expired' || result.reason === 'not_found') {
+          throw new Error('Your verification code has expired. Please sign in again to get a new code.');
+        }
+        throw new Error('Invalid or expired verification code');
+      }
+
+      this.assertRoleCanAuthenticate(found.role, found.email);
+      await this.assertBrokerAccountActive(found.email, found.role);
+
+      return this.issueSession(found);
+    } catch (error) {
+      if (isDatabaseConnectionError(error)) {
+        throw new Error('Database connection failed. Check backend DATABASE_URL and network access, then try again.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Re-send an OTP, but only when a login challenge is already pending for the
+   * user (i.e. they passed the password step). Silently no-ops otherwise so the
+   * endpoint cannot be used to trigger emails or enumerate accounts.
+   */
+  async resendLoginOtp(email: string): Promise<{ devCode?: string }> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const found = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!found || !hasPendingOtp(found.id)) {
+      return {};
+    }
+
+    const cooldown = getResendCooldownMs(found.id);
+    if (cooldown > 0) {
+      throw new Error(
+        `Please wait ${Math.ceil(cooldown / 1000)} seconds before requesting another code.`
+      );
+    }
+
+    return this.issueAndSendOtp({ id: found.id, email: found.email, name: found.name });
+  }
+
+  async changePassword(userId: string, data: ChangePasswordInput): Promise<void> {
+    const found = await prisma.user.findUnique({ where: { id: userId } });
+    if (!found) {
+      throw new Error('User not found');
+    }
+
+    const isCurrentValid = await verifyPassword(data.currentPassword, found.password);
+    if (!isCurrentValid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    if (data.currentPassword === data.newPassword) {
+      throw new Error('New password must be different from your current password');
+    }
+
+    const hashed = await hashPassword(data.newPassword);
+    await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+  }
+
+  /** Builds the full session (StoredUser + tokens) for an authenticated user row. */
+  private async issueSession(found: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    password: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }): Promise<{ user: User; tokens: AuthTokens }> {
+    const brokerId = await this.ensureBrokerProfileForUser({
+      userId: found.id,
+      email: found.email,
+      name: found.name,
+      role: found.role,
+    });
+    const department = await this.getBrokerDepartmentByEmail(found.email);
+
+    const user: StoredUser = {
+      id: found.id,
+      email: found.email,
+      name: found.name,
+      role: found.role as User['role'],
+      permissions: this.getPermissionsForRole(found.role),
+      brokerId,
+      department,
+      password: found.password,
+      createdAt: found.createdAt,
+      updatedAt: found.updatedAt,
+    };
+
+    const tokens = this.buildTokens(user);
+    await this.persistRefreshToken(user.id, tokens.refreshToken);
+    const { password, ...userWithoutPassword } = user;
+
+    return { user: userWithoutPassword, tokens };
+  }
+
+  /**
+   * Generates a one-time code, stores it hashed, and emails it. If email cannot
+   * be sent, the call fails closed in production; in development it logs the code
+   * to the server console and returns it so local sign-in still works.
+   */
+  private async issueAndSendOtp(found: {
+    id: string;
+    email: string;
+    name: string;
+  }): Promise<{ devCode?: string }> {
+    const code = generateOtpCode();
+    await saveOtp(found.id, code);
+
+    try {
+      await emailService.sendLoginOtpEmail({
+        to: found.email,
+        name: found.name,
+        code,
+        expiresInMinutes: Math.round(OTP_TTL_MS / 60000),
+      });
+      return {};
+    } catch (error) {
+      if (config.NODE_ENV === 'production') {
+        clearOtp(found.id);
+        logError('Failed to send login OTP email', error, { email: found.email });
+        throw new Error('Could not send your verification code. Please try again shortly.');
+      }
+
+      logInfo('SMTP unavailable — login OTP for development sign-in', {
+        email: found.email,
+        code,
+      });
+      return { devCode: code };
     }
   }
 

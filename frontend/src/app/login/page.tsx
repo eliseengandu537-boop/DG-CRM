@@ -26,13 +26,21 @@ const FEATURES = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, error: authError, clearError, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { login, verifyOtp, resendOtp, error: authError, clearError, isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [email, setEmail]           = useState("");
   const [password, setPassword]     = useState("");
   const [loading, setLoading]       = useState(false);
   const [activeImage, setActiveImage] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Two-step login: 'credentials' → email/password, 'otp' → email code.
+  const [step, setStep]             = useState<"credentials" | "otp">("credentials");
+  const [otp, setOtp]               = useState("");
+  const [info, setInfo]             = useState<string | null>(null);
+  const [devCode, setDevCode]       = useState<string | null>(null);
+  const [resendIn, setResendIn]     = useState(0);
+  const [idleNotice, setIdleNotice] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -45,17 +53,76 @@ export default function LoginPage() {
     if (!authLoading && isAuthenticated) router.replace("/");
   }, [authLoading, isAuthenticated, router]);
 
+  // Surface the "signed out for inactivity" notice when redirected here.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reason") === "idle") setIdleNotice(true);
+  }, []);
+
+  // Resend cooldown countdown.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const id = window.setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearInterval(id);
+  }, [resendIn]);
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     clearError();
+    setInfo(null);
+    setIdleNotice(false);
     setLoading(true);
     try {
-      await login(email.trim(), password);
+      const result = await login(email.trim(), password);
+      if (result.ok && result.otpRequired) {
+        setStep("otp");
+        setOtp("");
+        setResendIn(30);
+        setInfo(`We've sent a 6-digit verification code to ${result.email || email.trim()}.`);
+        setDevCode(result.devCode || null);
+      }
     } catch {
       // AuthContext exposes user-facing errors.
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerify = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    clearError();
+    setLoading(true);
+    try {
+      await verifyOtp(email.trim(), otp.trim());
+      // On success the AuthContext redirects to "/".
+    } catch {
+      // AuthContext exposes user-facing errors.
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendIn > 0) return;
+    clearError();
+    setInfo(null);
+    try {
+      const { devCode: code } = await resendOtp(email.trim());
+      setResendIn(30);
+      setInfo("A new verification code has been sent to your email.");
+      setDevCode(code || null);
+    } catch (err) {
+      setInfo(err instanceof Error ? err.message : "Failed to resend code.");
+    }
+  };
+
+  const handleBackToCredentials = () => {
+    clearError();
+    setInfo(null);
+    setDevCode(null);
+    setOtp("");
+    setStep("credentials");
   };
 
   return (
@@ -176,11 +243,40 @@ export default function LoginPage() {
 
           {/* Heading */}
           <div className="mb-8">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900">Welcome back</h2>
-            <p className="mt-2 text-sm text-slate-500">Sign in to your property workspace</p>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+              {step === "credentials" ? "Welcome back" : "Verify it's you"}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {step === "credentials"
+                ? "Sign in to your property workspace"
+                : "Enter the 6-digit code we emailed you"}
+            </p>
           </div>
 
-          {/* Form */}
+          {/* Idle sign-out notice */}
+          {idleNotice && step === "credentials" && (
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <FiShield className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <p className="text-sm text-amber-800">
+                You were signed out after 45 minutes of inactivity. Please sign in again.
+              </p>
+            </div>
+          )}
+
+          {/* Info message */}
+          {info && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <p className="text-sm text-emerald-800">{info}</p>
+              {devCode && (
+                <p className="mt-1 text-sm font-semibold text-emerald-900">
+                  Dev code (email unavailable): <span className="tracking-widest">{devCode}</span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Credentials form */}
+          {step === "credentials" && (
           <form onSubmit={handleSubmit} className="space-y-4">
 
             {/* Email */}
@@ -261,7 +357,83 @@ export default function LoginPage() {
             </button>
 
           </form>
-          {/* end form */}
+          )}
+          {/* end credentials form */}
+
+          {/* OTP verification form */}
+          {step === "otp" && (
+          <form onSubmit={handleVerify} className="space-y-4">
+            <div>
+              <label htmlFor="otp" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Verification code
+              </label>
+              <div className={`flex items-center gap-3 rounded-xl border bg-slate-50 px-4 py-3 transition-all focus-within:border-[#888e7d] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(136,142,125,0.12)] ${authError ? "border-red-300" : "border-slate-200"}`}>
+                <FiShield className="h-4 w-4 shrink-0 text-slate-400" />
+                <input
+                  id="otp"
+                  name="otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => { setOtp(e.target.value.replace(/\D/g, "").slice(0, 6)); clearError(); }}
+                  required
+                  placeholder="123456"
+                  className="w-full bg-transparent text-center text-lg font-semibold tracking-[0.5em] text-slate-900 outline-none placeholder:tracking-normal placeholder:text-slate-300"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Error message */}
+            {authError && (
+              <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-400 text-[10px] font-bold text-white">!</span>
+                <p className="text-sm text-red-700">{authError}</p>
+              </div>
+            )}
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={loading || authLoading || otp.length < 6}
+              className="group mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(15,23,42,0.25)] transition-all hover:bg-[#888e7d] hover:shadow-[0_4px_20px_rgba(136,142,125,0.4)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading || authLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Verifying…
+                </>
+              ) : (
+                <>
+                  Verify &amp; sign in
+                  <FiArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </>
+              )}
+            </button>
+
+            {/* Resend + back */}
+            <div className="flex items-center justify-between pt-1 text-sm">
+              <button
+                type="button"
+                onClick={handleBackToCredentials}
+                className="font-medium text-slate-500 hover:text-slate-700"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendIn > 0}
+                className="font-semibold text-[#888e7d] hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+              >
+                {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
+              </button>
+            </div>
+          </form>
+          )}
+          {/* end OTP form */}
 
           {/* Footer */}
           <div className="mt-10 border-t border-slate-100 pt-6">

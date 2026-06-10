@@ -174,6 +174,43 @@ export class EmailService {
     });
   }
 
+  async sendLoginOtpEmail(params: {
+    to: string;
+    name?: string;
+    code: string;
+    expiresInMinutes: number;
+  }): Promise<void> {
+    const { to, name, code, expiresInMinutes } = params;
+    const subject = 'Your DG Property verification code';
+    const text = [
+      `Hello ${name || 'there'},`,
+      '',
+      'Use this one-time verification code to finish signing in:',
+      code,
+      '',
+      `This code expires in ${expiresInMinutes} minutes. If you did not try to sign in, you can ignore this email and your account will remain secure.`,
+      '',
+      'DG Property CRM',
+    ].join('\n');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #111827;">
+        <p>Hello ${name || 'there'},</p>
+        <p>Use this one-time verification code to finish signing in:</p>
+        <p style="font-size: 30px; letter-spacing: 8px; font-weight: 700; margin: 16px 0; color: #4f46e5;">${code}</p>
+        <p>This code expires in ${expiresInMinutes} minutes.</p>
+        <p style="color: #6b7280; font-size: 13px;">If you did not try to sign in, you can ignore this email and your account will remain secure.</p>
+        <p>DG Property CRM</p>
+      </div>
+    `;
+
+    await this.sendMail({ to, subject, text, html });
+  }
+
+  isSmtpConfigured(): boolean {
+    return this.isConfigured();
+  }
+
   async sendTestEmail(to: string): Promise<void> {
     await this.sendMail({
       to,

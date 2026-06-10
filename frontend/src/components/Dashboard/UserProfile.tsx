@@ -73,12 +73,56 @@ const DEFAULT_PROFILE: UserProfileData = {
 };
 
 export const UserProfile: React.FC<UserProfileProps> = ({ onBack }) => {
-  const { user } = useAuth();
+  const { user, changePassword } = useAuth();
   const [managerBrokerProfile, setManagerBrokerProfile] = useState<BrokerDirectoryEntry | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfileData>(DEFAULT_PROFILE);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState(DEFAULT_PROFILE);
   const [newSpecialization, setNewSpecialization] = useState('');
+
+  // ── Change password ──────────────────────────────────────────────────────
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordFeedback, setPasswordFeedback] = useState<
+    { type: 'success' | 'error'; message: string } | null
+  >(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordFeedback(null);
+
+    if (newPassword.length < 8) {
+      setPasswordFeedback({ type: 'error', message: 'New password must be at least 8 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordFeedback({ type: 'error', message: 'New password and confirmation do not match.' });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setPasswordFeedback({ type: 'error', message: 'New password must be different from your current password.' });
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setPasswordFeedback({ type: 'success', message: 'Password changed successfully.' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      setPasswordFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to change password.',
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
 
   const formatRole = (role: string): string => {
     if (!role) return '';
@@ -611,6 +655,78 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onBack }) => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Change Password */}
+      <div className="bg-white rounded-lg p-6 border border-stone-200">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-bold text-stone-950">Change Password</h3>
+          <button
+            type="button"
+            onClick={() => setShowPasswords((v) => !v)}
+            className="text-xs font-semibold text-stone-500 hover:text-stone-700"
+          >
+            {showPasswords ? 'Hide' : 'Show'} passwords
+          </button>
+        </div>
+        <p className="text-sm text-stone-500 mb-4">
+          Choose a new password (at least 8 characters). You'll keep using email verification each time you sign in.
+        </p>
+
+        {passwordFeedback && (
+          <div
+            className={`mb-4 rounded-lg border px-4 py-3 text-sm font-medium ${
+              passwordFeedback.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-red-200 bg-red-50 text-red-700'
+            }`}
+          >
+            {passwordFeedback.message}
+          </div>
+        )}
+
+        <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Current Password</label>
+            <input
+              type={showPasswords ? 'text' : 'password'}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">New Password</label>
+            <input
+              type={showPasswords ? 'text' : 'password'}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Confirm New Password</label>
+            <input
+              type={showPasswords ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-500 text-white rounded-lg hover:bg-violet-600 transition-colors font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {passwordSaving ? 'Updating…' : 'Update Password'}
+          </button>
+        </form>
       </div>
     </div>
   );

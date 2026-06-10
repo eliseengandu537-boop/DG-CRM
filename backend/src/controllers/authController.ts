@@ -1,7 +1,14 @@
 import { CookieOptions, Request, Response } from 'express';
 import { AuthRequest } from '@/types';
 import { authService } from '@/services/authService';
-import { registerSchema, loginSchema, refreshTokenSchema } from '@/validators';
+import {
+  registerSchema,
+  loginSchema,
+  refreshTokenSchema,
+  verifyOtpSchema,
+  resendOtpSchema,
+  changePasswordSchema,
+} from '@/validators';
 import { config } from '@/config';
 import { isDatabaseConnectionError } from '@/lib/databaseErrors';
 import { logWarn } from '@/lib/logger';
@@ -100,12 +107,15 @@ export class AuthController {
     try {
       const validated = loginSchema.parse(req.body);
       const result = await authService.login(validated);
-      this.setRefreshCookie(res, result.tokens.refreshToken);
 
       res.json({
         success: true,
-        message: 'Login successful',
-        data: this.toPublicAuthPayload(result),
+        message: 'Verification code sent to your email',
+        data: {
+          otpRequired: true,
+          email: result.email,
+          ...(result.devCode ? { devCode: result.devCode } : {}),
+        },
         timestamp: new Date(),
       });
     } catch (error: any) {
@@ -122,6 +132,84 @@ export class AuthController {
         message: isDatabaseError
           ? 'Database connection failed. Check backend DATABASE_URL and network access, then try again.'
           : error.message,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  async verifyOtp(req: Request, res: Response) {
+    try {
+      const validated = verifyOtpSchema.parse(req.body);
+      const result = await authService.verifyLoginOtp(validated);
+      this.setRefreshCookie(res, result.tokens.refreshToken);
+
+      res.json({
+        success: true,
+        message: 'Login successful',
+        data: this.toPublicAuthPayload(result),
+        timestamp: new Date(),
+      });
+    } catch (error: any) {
+      const isDatabaseError = isDatabaseConnectionError(error);
+      const statusCode = isDatabaseError ? 503 : 401;
+      logWarn('OTP verification request failed', {
+        email: String(req.body?.email || '').trim().toLowerCase(),
+        statusCode,
+        reason: error?.message || 'unknown_error',
+      });
+
+      res.status(statusCode).json({
+        success: false,
+        message: isDatabaseError
+          ? 'Database connection failed. Check backend DATABASE_URL and network access, then try again.'
+          : error.message,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  async resendOtp(req: Request, res: Response) {
+    try {
+      const validated = resendOtpSchema.parse(req.body);
+      const result = await authService.resendLoginOtp(validated.email);
+
+      res.json({
+        success: true,
+        message: 'If a sign-in is in progress, a new code has been sent.',
+        data: result.devCode ? { devCode: result.devCode } : {},
+        timestamp: new Date(),
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error?.message || 'Failed to resend code',
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  async changePassword(req: AuthRequest, res: Response) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Not authenticated',
+          timestamp: new Date(),
+        });
+      }
+
+      const validated = changePasswordSchema.parse(req.body);
+      await authService.changePassword(req.userId, validated);
+
+      return res.json({
+        success: true,
+        message: 'Password changed successfully',
+        timestamp: new Date(),
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error?.message || 'Failed to change password',
         timestamp: new Date(),
       });
     }
