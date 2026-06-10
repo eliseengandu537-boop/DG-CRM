@@ -59,6 +59,11 @@ export interface PropertyFilters {
   includeDeleted?: boolean;
 }
 
+export interface GetPropertiesOptions {
+  /** Bypass the short-lived cache and fetch fresh from the server. */
+  force?: boolean;
+}
+
 export interface PaginatedProperties {
   data: PropertyRecord[];
   pagination: {
@@ -75,9 +80,36 @@ export interface ImportResult {
   errors: string[];
 }
 
+// Short-lived cache for property list fetches. The property list is large
+// (15k+ rows) and several screens request it on mount; caching + in-flight
+// de-duplication means switching screens reuses one response instead of
+// re-downloading everything each time. Any property mutation clears it.
+const LIST_CACHE_TTL_MS = 60_000;
+const listCache = new Map<string, { ts: number; data: PaginatedProperties }>();
+const listInflight = new Map<string, Promise<PaginatedProperties>>();
+
+export function clearPropertyCache(): void {
+  listCache.clear();
+  listInflight.clear();
+}
+
 class PropertyService {
-  async getAllProperties(filters?: PropertyFilters): Promise<PaginatedProperties> {
-    try {
+  async getAllProperties(
+    filters?: PropertyFilters,
+    options?: GetPropertiesOptions
+  ): Promise<PaginatedProperties> {
+    const cacheKey = JSON.stringify(filters || {});
+
+    if (!options?.force) {
+      const cached = listCache.get(cacheKey);
+      if (cached && Date.now() - cached.ts < LIST_CACHE_TTL_MS) {
+        return cached.data;
+      }
+      const pending = listInflight.get(cacheKey);
+      if (pending) return pending;
+    }
+
+    const request = (async () => {
       const params = new URLSearchParams();
       if (filters?.page) params.append('page', String(filters.page));
       if (filters?.limit) params.append('limit', String(filters.limit));
@@ -94,11 +126,20 @@ class PropertyService {
         data: PaginatedProperties;
       }>('/properties', { params: Object.fromEntries(params) });
 
-      return response.data.data;
-    } catch (error) {
-      const axiosError = error as AxiosError<any>;
-      throw new Error(axiosError.response?.data?.message || 'Failed to fetch properties');
-    }
+      const data = response.data.data;
+      listCache.set(cacheKey, { ts: Date.now(), data });
+      return data;
+    })()
+      .catch((error) => {
+        const axiosError = error as AxiosError<any>;
+        throw new Error(axiosError.response?.data?.message || 'Failed to fetch properties');
+      })
+      .finally(() => {
+        listInflight.delete(cacheKey);
+      });
+
+    listInflight.set(cacheKey, request);
+    return request;
   }
 
   async getPropertyById(id: string): Promise<PropertyRecord> {
@@ -119,6 +160,7 @@ class PropertyService {
         '/properties',
         data
       );
+      clearPropertyCache();
       return response.data.data;
     } catch (error) {
       const axiosError = error as AxiosError<any>;
@@ -132,6 +174,7 @@ class PropertyService {
         `/properties/${id}`,
         data
       );
+      clearPropertyCache();
       return response.data.data;
     } catch (error) {
       const axiosError = error as AxiosError<any>;
@@ -142,6 +185,7 @@ class PropertyService {
   async deleteProperty(id: string): Promise<void> {
     try {
       await apiClient.delete(`/properties/${id}`);
+      clearPropertyCache();
     } catch (error) {
       const axiosError = error as AxiosError<any>;
       throw new Error(axiosError.response?.data?.message || 'Failed to delete property');
@@ -163,6 +207,7 @@ class PropertyService {
         },
       });
 
+      clearPropertyCache();
       return response.data.data;
     } catch (error) {
       const axiosError = error as AxiosError<any>;
