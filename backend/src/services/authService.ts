@@ -195,11 +195,11 @@ export class AuthService {
   async resendLoginOtp(email: string): Promise<{ devCode?: string }> {
     const normalizedEmail = email.trim().toLowerCase();
     const found = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (!found || !hasPendingOtp(found.id)) {
+    if (!found || !(await hasPendingOtp(found.id))) {
       return {};
     }
 
-    const cooldown = getResendCooldownMs(found.id);
+    const cooldown = await getResendCooldownMs(found.id);
     if (cooldown > 0) {
       throw new Error(
         `Please wait ${Math.ceil(cooldown / 1000)} seconds before requesting another code.`
@@ -289,7 +289,7 @@ export class AuthService {
       return {};
     } catch (error) {
       if (config.NODE_ENV === 'production') {
-        clearOtp(found.id);
+        await clearOtp(found.id);
         logError('Failed to send login OTP email', error, { email: found.email });
         throw new Error('Could not send your verification code. Please try again shortly.');
       }
