@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { FiMapPin, FiHome, FiTag, FiEdit2, FiX, FiSearch, FiGrid, FiList, FiUsers, FiPlus } from 'react-icons/fi';
+import { FiMapPin, FiHome, FiTag, FiEdit2, FiX, FiSearch, FiGrid, FiList, FiUsers, FiPlus, FiPhone, FiMail, FiFileText } from 'react-icons/fi';
 import { propertyService, type PropertyRecord } from '@/services/propertyService';
 import { customRecordService } from '@/services/customRecordService';
+import { brochureService } from '@/services/brochureService';
 import { navigateToPage } from '@/lib/crmNavigation';
 import { PROPERTY_TYPE_OPTIONS } from '@/lib/propertyTypes';
 
@@ -16,6 +17,18 @@ type FundOption = {
 type TenantEntry = {
   name: string;
   leaseExpiry: string;
+};
+
+type CentreContact = {
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+};
+
+type LinkedBrochure = {
+  id: string;
+  name: string;
 };
 
 const getStatusColor = (status: string) => {
@@ -37,6 +50,19 @@ const parseTenants = (meta: Record<string, unknown>): TenantEntry[] => {
     .map((t) => ({
       name: String(t.name || ''),
       leaseExpiry: String(t.leaseExpiry || ''),
+    }));
+};
+
+const parseCentreContacts = (meta: Record<string, unknown>): CentreContact[] => {
+  const raw = meta.centreContacts;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+    .map((c) => ({
+      name: String(c.name || ''),
+      role: String(c.role || ''),
+      phone: String(c.phone || ''),
+      email: String(c.email || ''),
     }));
 };
 
@@ -69,6 +95,8 @@ export const AssetsManager: React.FC = () => {
   const [sizeFilter, setSizeFilter] = useState('');
   const [viewMode, setViewMode] = useState<'tiles' | 'list'>('tiles');
   const [tenants, setTenants] = useState<TenantEntry[]>([]);
+  const [centreContacts, setCentreContacts] = useState<CentreContact[]>([]);
+  const [brochuresByProperty, setBrochuresByProperty] = useState<Record<string, LinkedBrochure[]>>({});
   const [assetForm, setAssetForm] = useState({
     propertyType: '',
     companyName: '',
@@ -81,12 +109,15 @@ export const AssetsManager: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [propResult, fundResult] = await Promise.all([
+      const [propResult, fundResult, brochureResult] = await Promise.all([
         propertyService.getAllProperties({ limit: 100000 }),
         customRecordService.getAllCustomRecords<Record<string, unknown>>({
           entityType: 'fund',
           limit: 10000,
         }),
+        brochureService
+          .getAllBrochures<Record<string, unknown>>({ limit: 1000 })
+          .catch(() => ({ data: [], pagination: { page: 1, limit: 0, total: 0, pages: 0 } })),
       ]);
       setProperties(
         propResult.data.filter(p => {
@@ -94,6 +125,16 @@ export const AssetsManager: React.FC = () => {
           return true;
         })
       );
+
+      const brochureIndex: Record<string, LinkedBrochure[]> = {};
+      brochureResult.data.forEach((record) => {
+        const payload = (record.payload || {}) as Record<string, unknown>;
+        const propertyId = String(payload.linkedPropertyId || '');
+        if (!propertyId) return;
+        const entry = { id: record.id, name: String(record.name || payload.brochureName || 'Brochure') };
+        (brochureIndex[propertyId] ||= []).push(entry);
+      });
+      setBrochuresByProperty(brochureIndex);
       setFunds(
         fundResult.data.map((record) => ({
           id: record.id,
@@ -210,6 +251,7 @@ export const AssetsManager: React.FC = () => {
     const matchingFund = funds.find(f => f.name === currentFundName);
     setSelectedFundId(matchingFund?.id || '');
     setTenants(parseTenants(meta));
+    setCentreContacts(parseCentreContacts(meta));
     setAssetForm({
       propertyType: String(meta.propertyType || prop.type || ''),
       companyName: String(meta.linkedCompanyName || ''),
@@ -233,6 +275,20 @@ export const AssetsManager: React.FC = () => {
 
   const removeTenant = (index: number) => {
     setTenants((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateContact = (index: number, field: keyof CentreContact, value: string) => {
+    setCentreContacts((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c))
+    );
+  };
+
+  const addContact = () => {
+    setCentreContacts((prev) => [...prev, { name: '', role: 'Centre Manager', phone: '', email: '' }]);
+  };
+
+  const removeContact = (index: number) => {
+    setCentreContacts((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSave = async () => {
@@ -259,6 +315,14 @@ export const AssetsManager: React.FC = () => {
           tenants: tenants
             .map((t) => ({ name: t.name.trim(), leaseExpiry: t.leaseExpiry }))
             .filter((t) => t.name || t.leaseExpiry),
+          centreContacts: centreContacts
+            .map((c) => ({
+              name: c.name.trim(),
+              role: c.role.trim(),
+              phone: c.phone.trim(),
+              email: c.email.trim(),
+            }))
+            .filter((c) => c.name || c.role || c.phone || c.email),
         },
       });
 
@@ -414,7 +478,9 @@ export const AssetsManager: React.FC = () => {
                 <th className="px-4 py-3">Area</th>
                 <th className="px-4 py-3">Size</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Centre Contacts</th>
                 <th className="px-4 py-3">Tenants</th>
+                <th className="px-4 py-3">Brochures</th>
                 <th className="px-4 py-3">Fund</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -454,9 +520,45 @@ export const AssetsManager: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-stone-600">
+                      {(() => {
+                        const contacts = parseCentreContacts(meta);
+                        if (contacts.length === 0) return '—';
+                        return (
+                          <div className="space-y-1">
+                            {contacts.map((c, i) => (
+                              <div key={i} className="leading-tight">
+                                <span className="font-semibold text-stone-800">{c.name || '—'}</span>
+                                {c.role && <span className="text-stone-400"> · {c.role}</span>}
+                                {(c.phone || c.email) && (
+                                  <div className="text-xs text-stone-500">
+                                    {[c.phone, c.email].filter(Boolean).join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">
                       {propTenants.length === 0
                         ? 'No tenants'
                         : `${propTenants.length} • ${soonestExpiry ? formatLeaseDate(soonestExpiry) : 'no expiry'}`}
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">
+                      {(() => {
+                        const linked = brochuresByProperty[prop.id] || [];
+                        if (linked.length === 0) return '—';
+                        return (
+                          <div className="flex flex-col gap-1">
+                            {linked.map((b) => (
+                              <span key={b.id} className="inline-flex items-center gap-1 text-xs text-violet-700">
+                                <FiFileText size={11} />{b.name}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-stone-600">{linkedFundName || '—'}</td>
                     <td className="px-4 py-3">
@@ -614,6 +716,59 @@ export const AssetsManager: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Centre contacts */}
+                {(() => {
+                  const contacts = parseCentreContacts(meta);
+                  if (contacts.length === 0) return null;
+                  return (
+                    <div className="px-5 pb-1">
+                      <p className="text-stone-400 font-medium uppercase tracking-wide text-[11px] mb-1">Centre Contacts</p>
+                      <div className="space-y-1.5">
+                        {contacts.map((c, i) => (
+                          <div key={i} className="text-xs">
+                            <p className="text-stone-800 font-semibold">
+                              {c.name || '—'}
+                              {c.role && <span className="text-stone-400 font-normal"> · {c.role}</span>}
+                            </p>
+                            {(c.phone || c.email) && (
+                              <p className="text-stone-500 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                                {c.phone && (
+                                  <span className="inline-flex items-center gap-1"><FiPhone size={10} />{c.phone}</span>
+                                )}
+                                {c.email && (
+                                  <span className="inline-flex items-center gap-1 truncate"><FiMail size={10} />{c.email}</span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Linked brochures */}
+                {(() => {
+                  const linked = brochuresByProperty[prop.id] || [];
+                  if (linked.length === 0) return null;
+                  return (
+                    <div className="px-5 pb-1">
+                      <p className="text-stone-400 font-medium uppercase tracking-wide text-[11px] mb-1">Brochures</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {linked.map((b) => (
+                          <span
+                            key={b.id}
+                            className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium"
+                          >
+                            <FiFileText size={10} />
+                            {b.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Tenants summary */}
                 <div className="px-5 pb-2 flex items-center gap-1.5 text-xs text-stone-500">
@@ -783,6 +938,73 @@ export const AssetsManager: React.FC = () => {
                       className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wide mb-2">
+                    Centre Contacts
+                  </label>
+                  <p className="text-xs text-stone-400 mb-2">
+                    Centre manager &amp; other key contacts for this centre.
+                  </p>
+                  {centreContacts.length === 0 ? (
+                    <p className="text-xs text-stone-400 italic mb-2">No contacts recorded yet.</p>
+                  ) : (
+                    <div className="space-y-3 mb-2">
+                      {centreContacts.map((contact, index) => (
+                        <div key={index} className="rounded-lg border border-stone-200 p-3 space-y-2 bg-stone-50/60">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={contact.name}
+                              onChange={e => updateContact(index, 'name', e.target.value)}
+                              placeholder="Name & surname"
+                              className="flex-1 min-w-0 px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeContact(index)}
+                              title="Remove contact"
+                              className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            >
+                              <FiX size={16} />
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={contact.role}
+                            onChange={e => updateContact(index, 'role', e.target.value)}
+                            placeholder="Role (e.g. Centre Manager)"
+                            className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400"
+                          />
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="tel"
+                              value={contact.phone}
+                              onChange={e => updateContact(index, 'phone', e.target.value)}
+                              placeholder="Contact number"
+                              className="flex-1 min-w-0 px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400"
+                            />
+                            <input
+                              type="email"
+                              value={contact.email}
+                              onChange={e => updateContact(index, 'email', e.target.value)}
+                              placeholder="Email address"
+                              className="flex-1 min-w-0 px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={addContact}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-violet-600 hover:text-violet-700 transition-colors"
+                  >
+                    <FiPlus size={14} />
+                    Add contact
+                  </button>
                 </div>
 
                 <div>

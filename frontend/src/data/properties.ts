@@ -65,6 +65,10 @@ export interface Property {
   tenantContactNumber?: string;
   /** Tenants saved from the Assets editor (multi-tenant). */
   tenants?: Array<{ name: string; leaseExpiry?: string; contactNumber?: string }>;
+  /** Centre contacts (centre manager, etc.) saved from the Assets/Maps editors. */
+  centreContacts?: Array<{ name: string; role?: string; phone?: string; email?: string }>;
+  /** Original backend metadata, retained so edits don't drop unmapped fields. */
+  rawMetadata?: Record<string, unknown>;
   brokerName: string;
   brokerId?: string;
   brokerEmail?: string;

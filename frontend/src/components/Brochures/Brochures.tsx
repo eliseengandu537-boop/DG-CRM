@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { FiPlus, FiX, FiMapPin, FiHome, FiLink, FiEdit2 } from "react-icons/fi";
+import React, { useEffect, useMemo, useState } from "react";
+import { FiPlus, FiX, FiMapPin, FiHome, FiLink, FiEdit2, FiSearch } from "react-icons/fi";
 import { useAuth } from "@/context/AuthContext";
 import { brokerService } from "@/services/brokerService";
 import { brochureService, type BrochureRecord } from "@/services/brochureService";
+import { propertyService, type PropertyRecord } from "@/services/propertyService";
 import { BrochureTable } from "@/components/Brochures/BrochureTable";
 
 interface BrochureData {
@@ -33,6 +34,8 @@ interface BrochureData {
   brochureLink: string;
   commentChanges: string;
   postLink: string;
+  linkedPropertyId: string;
+  linkedPropertyName: string;
 }
 
 type BrochurePayload = Omit<BrochureData, 'id'>;
@@ -64,6 +67,13 @@ const initialFormData: Omit<BrochureData, "id"> = {
   brochureLink: "",
   commentChanges: "",
   postLink: "",
+  linkedPropertyId: "",
+  linkedPropertyName: "",
+};
+
+const getPropertyLabel = (prop: PropertyRecord): string => {
+  const meta = (prop.metadata && typeof prop.metadata === "object" ? prop.metadata : {}) as Record<string, unknown>;
+  return String(meta.displayName || prop.title || prop.address || "Untitled Property");
 };
 
 const toBrochureData = (record: BrochureRecord<Record<string, unknown>>): BrochureData => {
@@ -96,6 +106,8 @@ const toBrochureData = (record: BrochureRecord<Record<string, unknown>>): Brochu
     brochureLink: String(payload.brochureLink || ''),
     commentChanges: String(payload.commentChanges || ''),
     postLink: String(payload.postLink || ''),
+    linkedPropertyId: String(payload.linkedPropertyId || ''),
+    linkedPropertyName: String(payload.linkedPropertyName || ''),
   };
 };
 
@@ -103,6 +115,8 @@ export const Brochures: React.FC = () => {
   const { user } = useAuth();
   const [brochures, setBrochures] = useState<BrochureData[]>([]);
   const [brokers, setBrokers] = useState<Array<{ id: string; name: string; company?: string }>>([]);
+  const [properties, setProperties] = useState<PropertyRecord[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState<Omit<BrochureData, "id">>({
@@ -159,16 +173,21 @@ export const Brochures: React.FC = () => {
     const load = async () => {
       try {
         setIsLoading(true);
-        const [brochureResult, brokerResult] = await Promise.all([
+        const [brochureResult, brokerResult, propertyResult] = await Promise.all([
           brochureService.getAllBrochures<Record<string, unknown>>({
             limit: 1000,
           }),
           brokerService.getAllBrokers().catch(() => []),
+          propertyService
+            .getAllProperties({ limit: 100000 })
+            .then((res) => res.data.filter((p) => !p.deletedAt))
+            .catch(() => [] as PropertyRecord[]),
         ]);
 
         if (!mounted) return;
         setBrochures(brochureResult.data.map(toBrochureData));
         setBrokers(brokerResult);
+        setProperties(propertyResult);
         setFeedback(null);
       } catch (error) {
         if (!mounted) return;
@@ -211,6 +230,37 @@ export const Brochures: React.FC = () => {
       [name]: value,
     }));
   };
+
+  const handlePropertySelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const match = properties.find((p) => p.id === id);
+    setFormData((prev) => ({
+      ...prev,
+      linkedPropertyId: id,
+      linkedPropertyName: match ? getPropertyLabel(match) : "",
+    }));
+  };
+
+  const filteredBrochures = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return brochures;
+    return brochures.filter((b) =>
+      [
+        b.brochureName,
+        b.brokerName,
+        b.propertyType,
+        b.transactionType,
+        b.area,
+        b.address,
+        b.linkedPropertyName,
+        b.createdBy,
+        b.assignee,
+        b.emailTo,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query))
+    );
+  }, [brochures, searchQuery]);
 
   const handleAddBrochure = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -334,6 +384,8 @@ export const Brochures: React.FC = () => {
       brochureLink: brochure.brochureLink,
       commentChanges: brochure.commentChanges,
       postLink: brochure.postLink,
+      linkedPropertyId: brochure.linkedPropertyId,
+      linkedPropertyName: brochure.linkedPropertyName,
     });
     setShowForm(true);
   };
@@ -630,6 +682,29 @@ export const Brochures: React.FC = () => {
                 />
               </div>
 
+              <div className="lg:col-span-2">
+                <label className="block text-sm font-semibold text-stone-800 mb-2">
+                  Link to Property / Centre
+                </label>
+                <select
+                  name="linkedPropertyId"
+                  value={formData.linkedPropertyId}
+                  onChange={handlePropertySelect}
+                  className="w-full px-4 py-2 border-2 border-stone-200 rounded-lg focus:border-violet-500 focus:outline-none transition bg-white"
+                >
+                  <option value="">— Not linked to a property —</option>
+                  {properties.map((prop) => (
+                    <option key={prop.id} value={prop.id}>
+                      {getPropertyLabel(prop)}
+                      {prop.address ? ` — ${prop.address}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-stone-500 mt-1">
+                  Links this brochure to a property so it shows up on that centre.
+                </p>
+              </div>
+
               {/* Section: Property Details */}
               <div className="lg:col-span-3">
                 <h3 className="text-lg font-semibold text-stone-900 mb-4 pb-2 border-b-2 border-violet-200 mt-4">Property Details</h3>
@@ -874,28 +949,56 @@ export const Brochures: React.FC = () => {
 
             {/* Table View */}
             {!isLoading && brochures.length > 0 && (
-              <div className="mb-8 rounded-2xl border-2 border-stone-200 bg-white shadow-lg overflow-hidden">
-                <BrochureTable
-                  brochures={brochures.map((brochure) => ({
-                    id: brochure.id,
-                    brochureName: brochure.brochureName,
-                    brokerName: brochure.brokerName,
-                    date: brochure.date,
-                    propertyType: brochure.propertyType,
-                    priority: brochure.priority,
-                    createdBy: brochure.createdBy,
-                    assignee: brochure.assignee,
-                    address: brochure.address,
-                    emailTo: brochure.emailTo,
-                  }))}
-                  canDelete={canDelete}
-                  deletingId={deletingBrochureId}
-                  onEdit={handleEditBrochure}
-                  onDelete={(id) => {
-                    void handleDeleteBrochure(id);
-                  }}
-                />
-              </div>
+              <>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <div className="relative w-full max-w-md">
+                    <FiSearch
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
+                    />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search brochures by name, broker, property, area…"
+                      className="w-full rounded-lg border-2 border-stone-200 bg-white py-2.5 pl-10 pr-10 text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:border-violet-500 transition"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                        aria-label="Clear search"
+                      >
+                        <FiX size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-sm text-stone-500">
+                    {filteredBrochures.length} of {brochures.length} brochure
+                    {brochures.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="mb-8 rounded-2xl border-2 border-stone-200 bg-white shadow-lg overflow-hidden">
+                  <BrochureTable
+                    brochures={filteredBrochures.map((brochure) => ({
+                      id: brochure.id,
+                      brochureName: brochure.brochureName,
+                      brokerName: brochure.brokerName,
+                      date: brochure.date,
+                      propertyType: brochure.propertyType,
+                      linkedPropertyName: brochure.linkedPropertyName,
+                    }))}
+                    canDelete={canDelete}
+                    deletingId={deletingBrochureId}
+                    onEdit={handleEditBrochure}
+                    onDelete={(id) => {
+                      void handleDeleteBrochure(id);
+                    }}
+                  />
+                </div>
+              </>
             )}
 
             {/* Empty State */}

@@ -7,6 +7,7 @@ export interface BrochureTableRow {
   brokerName: string;
   date: string;
   propertyType: string;
+  linkedPropertyName?: string;
 }
 
 interface BrochureTableProps {
@@ -47,6 +48,7 @@ export const BrochureTable: React.FC<BrochureTableProps> = ({
               <th className="px-6 py-3 text-left text-sm font-semibold text-stone-700">Broker Name</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-stone-700">Created Date</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-stone-700">Property Type</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-stone-700">Linked Property</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-stone-700">Actions</th>
             </tr>
           </thead>
@@ -57,6 +59,15 @@ export const BrochureTable: React.FC<BrochureTableProps> = ({
                 <td className="px-6 py-4 text-sm text-stone-700">{row.brokerName || '-'}</td>
                 <td className="px-6 py-4 text-sm text-stone-700">{row.date || '-'}</td>
                 <td className="px-6 py-4 text-sm text-stone-700">{row.propertyType || '-'}</td>
+                <td className="px-6 py-4 text-sm">
+                  {row.linkedPropertyName ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 text-xs font-medium">
+                      {row.linkedPropertyName}
+                    </span>
+                  ) : (
+                    <span className="text-stone-400">—</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 text-sm">
                   <div className="flex items-center gap-2">
                     <button

@@ -166,6 +166,9 @@ const normalizeProperty = (raw: any): Property | null => {
     brokerName: String(raw.brokerName || 'Unassigned'),
     brokerId: raw.brokerId ? String(raw.brokerId) : undefined,
     brokerEmail: raw.brokerEmail ? String(raw.brokerEmail) : undefined,
+    centreContacts: Array.isArray(raw.centreContacts) ? raw.centreContacts : undefined,
+    rawMetadata:
+      raw.rawMetadata && typeof raw.rawMetadata === 'object' ? raw.rawMetadata : undefined,
   };
 };
 
@@ -208,6 +211,21 @@ const mapBackendPropertyToMapProperty = (
     ownerName: metadata.ownerName ? String(metadata.ownerName) : undefined,
     ownerEmail: metadata.ownerEmail ? String(metadata.ownerEmail) : undefined,
     ownerContactNumber: metadata.ownerContactNumber ? String(metadata.ownerContactNumber) : undefined,
+    rawMetadata: metadata as Record<string, unknown>,
+    centreContacts: Array.isArray(metadata.centreContacts)
+      ? (metadata.centreContacts as any[])
+          .map((c) =>
+            c && typeof c === 'object'
+              ? {
+                  name: String((c as any).name || '').trim(),
+                  role: (c as any).role ? String((c as any).role) : undefined,
+                  phone: (c as any).phone ? String((c as any).phone) : undefined,
+                  email: (c as any).email ? String((c as any).email) : undefined,
+                }
+              : null
+          )
+          .filter(Boolean) as Array<{ name: string; role?: string; phone?: string; email?: string }>
+      : undefined,
     tenantName: metadata.tenantName ? String(metadata.tenantName) : undefined,
     tenantContactNumber: metadata.tenantContactNumber ? String(metadata.tenantContactNumber) : undefined,
     tenants: Array.isArray(metadata.tenants)
@@ -311,6 +329,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     tenantEmail: "",
     tenantContactNumber: "",
   });
+  const [newCentreContacts, setNewCentreContacts] = useState<
+    Array<{ name: string; role: string; phone: string; email: string }>
+  >([]);
 
   // ── Google Maps-style search state ──────────────────────────────────────
   const [mapSearch, setMapSearch] = useState('');
@@ -539,7 +560,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     const gla = parseFloat(form.gla) || sqm;
 
     const updatedMetadata: Record<string, unknown> = {
-      ...(typeof (property as any).metadata === 'object' ? (property as any).metadata : {}),
+      ...(property.rawMetadata && typeof property.rawMetadata === 'object' ? property.rawMetadata : {}),
       squareFeet: sqm,
       gla,
       yearBuilt: parseInt(form.yearBuilt) || property.details.yearBuilt,
@@ -733,6 +754,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       tenantEmail: "",
       tenantContactNumber: "",
     });
+    setNewCentreContacts([]);
     setShowCompanySuggestions(false);
     setShowFundSuggestions(false);
   };
@@ -1312,6 +1334,23 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                                   {property.tenantContactNumber && <p className="text-xs text-stone-600">📞 {property.tenantContactNumber}</p>}
                                 </div>
                               )}
+                              {property.centreContacts && property.centreContacts.length > 0 && (
+                                <div className="border-t border-stone-100 pt-2">
+                                  <p className="text-xs font-bold text-stone-500 uppercase mb-1">Centre Contacts</p>
+                                  <div className="space-y-1.5">
+                                    {property.centreContacts.map((c, i) => (
+                                      <div key={i}>
+                                        <p className="text-sm text-stone-900">
+                                          {c.name || '—'}
+                                          {c.role && <span className="text-stone-500"> · {c.role}</span>}
+                                        </p>
+                                        {c.phone && <p className="text-xs text-stone-600">📞 {c.phone}</p>}
+                                        {c.email && <p className="text-xs text-stone-600">✉️ {c.email}</p>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                               {(property.linkedCompanyName || property.registrationNumber) && (
                                 <div className="border-t border-stone-100 pt-2">
                                   <p className="text-xs font-bold text-stone-500 uppercase mb-1">Registration</p>
@@ -1760,6 +1799,84 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                 </div>
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Centre Contacts</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNewCentreContacts((prev) => [...prev, { name: "", role: "Centre Manager", phone: "", email: "" }])
+                    }
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                  >
+                    + Add contact
+                  </button>
+                </div>
+                {newCentreContacts.length === 0 ? (
+                  <p className="text-xs text-stone-400 italic">Add the centre manager and other key contacts for this centre.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {newCentreContacts.map((contact, index) => (
+                      <div key={index} className="rounded-lg border border-stone-200 p-3 space-y-2 bg-stone-50/60">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Name & surname"
+                            value={contact.name}
+                            onChange={(e) =>
+                              setNewCentreContacts((prev) =>
+                                prev.map((c, i) => (i === index ? { ...c, name: e.target.value } : c))
+                              )
+                            }
+                            className="flex-1 min-w-0 border border-stone-200 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-400 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setNewCentreContacts((prev) => prev.filter((_, i) => i !== index))}
+                            title="Remove contact"
+                            className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Role (e.g. Centre Manager)"
+                          value={contact.role}
+                          onChange={(e) =>
+                            setNewCentreContacts((prev) =>
+                              prev.map((c, i) => (i === index ? { ...c, role: e.target.value } : c))
+                            )
+                          }
+                          className="w-full border border-stone-200 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-400 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="tel"
+                            placeholder="Contact number"
+                            value={contact.phone}
+                            onChange={(e) =>
+                              setNewCentreContacts((prev) =>
+                                prev.map((c, i) => (i === index ? { ...c, phone: e.target.value } : c))
+                              )
+                            }
+                            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-400 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            type="email"
+                            placeholder="Email address"
+                            value={contact.email}
+                            onChange={(e) =>
+                              setNewCentreContacts((prev) =>
+                                prev.map((c, i) => (i === index ? { ...c, email: e.target.value } : c))
+                              )
+                            }
+                            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-stone-900 placeholder-stone-400 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-stone-100" />
@@ -2008,6 +2125,14 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                         tenantName: newProperty.tenantName.trim() || undefined,
                         tenantEmail: newProperty.tenantEmail.trim() || undefined,
                         tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
+                        centreContacts: newCentreContacts
+                          .map((c) => ({
+                            name: c.name.trim(),
+                            role: c.role.trim(),
+                            phone: c.phone.trim(),
+                            email: c.email.trim(),
+                          }))
+                          .filter((c) => c.name || c.role || c.phone || c.email),
                       },
                     });
                   } catch (error) {
