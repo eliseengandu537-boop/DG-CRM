@@ -119,11 +119,25 @@ const main = async () => {
     let source = 'metadata';
 
     if (lat === null || lng === null) {
-      const geo = await geocode(p.address);
-      if (geo) {
-        lat = geo.lat;
-        lng = geo.lng;
-        source = 'geocode';
+      // Try the address, the centre name, and name+area — addresses are often
+      // just the centre name, so the extra candidates improve the hit rate.
+      const area = String(meta.areaName || '').trim();
+      const candidates = [
+        p.address,
+        meta.displayName,
+        area && meta.displayName ? `${meta.displayName}, ${area}` : '',
+      ]
+        .map((s) => String(s || '').trim())
+        .filter((s) => s.length > 2);
+
+      for (const c of Array.from(new Set(candidates))) {
+        const geo = await geocode(c);
+        if (geo) {
+          lat = geo.lat;
+          lng = geo.lng;
+          source = 'geocode';
+          break;
+        }
       }
     }
 

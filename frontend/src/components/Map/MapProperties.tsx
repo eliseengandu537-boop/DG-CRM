@@ -666,9 +666,30 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       }
 
       try {
-        const geo = await fetchAddressGeocode(property.address);
+        // No stored coordinates — try to geocode from the best available text.
+        // Centre names are often used as the address, so also try the name and a
+        // South-Africa-qualified variant to improve the chance of a match.
+        const candidates = Array.from(
+          new Set(
+            [property.address, property.name]
+              .map((s) => String(s || '').trim())
+              .filter((s) => s.length > 2)
+              .flatMap((s) => (/south africa/i.test(s) ? [s] : [s, `${s}, South Africa`]))
+          )
+        );
+
+        let geo: { formattedAddress: string; lat: number; lng: number } | null = null;
+        for (const candidate of candidates) {
+          geo = await fetchAddressGeocode(candidate);
+          if (geo) break;
+        }
+
         if (!geo) {
           console.warn(`Could not geocode "${property.name}" — address: ${property.address}`);
+          showNotification(
+            `Couldn't locate "${property.name}" on the map. Open it and add a street address or set its coordinates.`,
+            'error'
+          );
           return;
         }
 
