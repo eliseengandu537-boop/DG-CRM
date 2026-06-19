@@ -226,7 +226,7 @@ export const Stock: React.FC = () => {
         const [stockResult, brokerResult, propertyResult] = await Promise.all([
           stockService.getAllStockItems({ module: 'leasing', limit: 1000 }),
           brokerService.getAllBrokers(),
-          propertyService.getAllProperties({ limit: 1000 }).catch(() => ({ data: [] })),
+          propertyService.getAllProperties({ limit: 100000 }).catch(() => ({ data: [] })),
         ]);
 
         if (!mounted) return;
@@ -239,7 +239,7 @@ export const Stock: React.FC = () => {
         setExistingProperties(
           (Array.isArray(propertyResult.data) ? propertyResult.data : []).map((p: any) => ({
             id: p.id,
-            title: String(p.title || p.name || ''),
+            title: String(p.metadata?.displayName || p.title || p.address || p.name || ''),
             address: String(p.address || ''),
             latitude: typeof p.latitude === 'number' ? p.latitude : undefined,
             longitude: typeof p.longitude === 'number' ? p.longitude : undefined,

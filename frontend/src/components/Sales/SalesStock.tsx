@@ -102,7 +102,7 @@ export const SalesStock: React.FC = () => {
           contactService.getAllContacts({ limit: 1000 }),
           tenantService.getAllTenants({ limit: 1000 }),
           leadService.getAllLeads({ limit: 1000 }),
-          propertyService.getAllProperties({ limit: 1000 }),
+          propertyService.getAllProperties({ limit: 100000 }),
         ]);
 
       setBrokers(brokerResult);
@@ -123,8 +123,8 @@ export const SalesStock: React.FC = () => {
       setProperties(
         propertyResult.data.map((property) => ({
           id: property.id,
-          name: property.title || property.address || property.id,
-          title: property.title || property.address || property.id,
+          name: String(property.metadata?.displayName || property.title || property.address || property.id),
+          title: String(property.metadata?.displayName || property.title || property.address || property.id),
           address: property.address || '',
           latitude: typeof property.latitude === 'number' ? property.latitude : undefined,
           longitude: typeof property.longitude === 'number' ? property.longitude : undefined,

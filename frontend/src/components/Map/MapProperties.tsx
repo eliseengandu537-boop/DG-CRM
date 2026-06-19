@@ -175,11 +175,13 @@ const normalizeProperty = (raw: any): Property | null => {
 const mapBackendPropertyToMapProperty = (
   raw: any
 ): Property | null => {
-  const latitude = Number(raw?.latitude);
-  const longitude = Number(raw?.longitude);
   const metadata = raw?.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)
     ? (raw.metadata as Record<string, unknown>)
     : {};
+  // Prefer the top-level columns, but fall back to coordinates stored in
+  // metadata (some imports only populate metadata) so the pin still appears.
+  const latitude = Number(raw?.latitude ?? (metadata as Record<string, unknown>).latitude);
+  const longitude = Number(raw?.longitude ?? (metadata as Record<string, unknown>).longitude);
 
   return normalizeProperty({
     id: raw.id,
