@@ -666,17 +666,29 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       }
 
       try {
-        // No stored coordinates — try to geocode from the best available text.
-        // Centre names are often used as the address, so also try the name and a
-        // South-Africa-qualified variant to improve the chance of a match.
-        const candidates = Array.from(
-          new Set(
-            [property.address, property.name]
-              .map((s) => String(s || '').trim())
-              .filter((s) => s.length > 2)
-              .flatMap((s) => (/south africa/i.test(s) ? [s] : [s, `${s}, South Africa`]))
-          )
-        );
+        // No stored coordinates — geocode from the best available text. The exact
+        // street number is often missing from OpenStreetMap, so progressively
+        // broaden the address (drop the street number, then drop leading segments
+        // down to the suburb/city/postcode) and finally try the centre name. This
+        // lands the pin near the right place even when the precise address fails.
+        const candidates: string[] = [];
+        const pushCandidate = (value: string) => {
+          const trimmed = value.trim();
+          if (trimmed.length > 2 && !candidates.includes(trimmed)) candidates.push(trimmed);
+        };
+
+        const addr = String(property.address || '').trim();
+        if (addr) {
+          pushCandidate(addr);
+          pushCandidate(addr.replace(/^\s*\d+[a-zA-Z]?\s+/, '')); // drop a leading street number
+          const parts = addr.split(',').map((s) => s.trim()).filter(Boolean);
+          for (let i = 1; i < parts.length; i += 1) pushCandidate(parts.slice(i).join(', '));
+        }
+        const name = String(property.name || '').trim();
+        if (name && name !== addr) {
+          pushCandidate(name);
+          if (!/south africa/i.test(name)) pushCandidate(`${name}, South Africa`);
+        }
 
         let geo: { formattedAddress: string; lat: number; lng: number } | null = null;
         for (const candidate of candidates) {

@@ -79,11 +79,15 @@ async function geocode(address) {
   // Drop a leading street number ("154 Constantia St, ..." -> "Constantia St, ...")
   const noNumber = full.replace(/^\s*\d+[a-zA-Z]?\s+/, '').trim();
   if (noNumber && noNumber !== full) variants.push(noNumber);
-  // Drop the first segment entirely (street -> suburb, city ...)
+  // Progressively drop leading segments (street -> suburb -> city -> postcode)
+  // so an address whose exact street isn't in OSM still lands near the right place.
   const parts = full.split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length > 1) variants.push(parts.slice(1).join(', '));
+  for (let i = 1; i < parts.length; i += 1) variants.push(parts.slice(i).join(', '));
 
+  const seen = new Set();
   for (const v of variants) {
+    if (!v || v.length < 3 || seen.has(v)) continue;
+    seen.add(v);
     const hit = await geocodeOnce(v);
     if (hit) return hit;
   }
