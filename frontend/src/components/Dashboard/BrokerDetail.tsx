@@ -2,10 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   FiArrowLeft,
+  FiCalendar,
   FiCheckCircle,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronsLeft,
+  FiChevronsRight,
   FiClock,
   FiDownload,
-  FiEye,
+  FiEdit2,
   FiFileText,
   FiFilter,
   FiSearch,
@@ -141,18 +146,46 @@ function formatDealTypeLabel(type: string): string {
     .join(' ');
 }
 
-function formatCommentTimestamp(timestamp?: string): string | null {
-  if (!timestamp) return null;
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString('en-US', {
-    year: 'numeric',
+function formatWipDealType(type: string): string {
+  const normalized = canonicalDealType(type);
+  if (normalized === 'sales') return 'Sale';
+  if (normalized === 'leasing') return 'Lease';
+  if (normalized === 'auction') return 'Auction';
+  return formatDealTypeLabel(type);
+}
+
+function formatAddressText(address?: string): string {
+  const normalized = String(address || '').trim();
+  if (!normalized) return '-';
+  return normalized
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+
+
+function formatWipCloseDate(value?: string): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-ZA', {
+    day: '2-digit',
     month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    year: 'numeric',
   });
+}
+
+function getVisiblePageNumbers(currentPage: number, totalPages: number): number[] {
+  const maxVisible = 4;
+  const safeTotalPages = Math.max(1, totalPages);
+  const start = Math.max(
+    1,
+    Math.min(currentPage - 1, safeTotalPages - maxVisible + 1)
+  );
+  const end = Math.min(safeTotalPages, start + maxVisible - 1);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function toStatusValue(labelOrStatus: string): string {
@@ -394,6 +427,8 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedDealType, setSelectedDealType] = useState<string>('all');
   const [wipSearchQuery, setWipSearchQuery] = useState<string>('');
+  const [wipPage, setWipPage] = useState(1);
+  const [wipRowsPerPage, setWipRowsPerPage] = useState(10);
   const [rows, setRows] = useState<BrokerWipItem[]>(wipSheets);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
@@ -597,21 +632,51 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     [legalDocuments]
   );
 
+  const filteredProperties = useMemo(() => {
+    return properties
+      .filter(item => selectedStatus === 'all' || canonicalStatus(item.status) === selectedStatus)
+      .filter(
+        item => selectedDealType === 'all' || canonicalDealType(item.dealType) === selectedDealType
+      )
+      .filter(item => {
+        if (!wipSearchQuery.trim()) return true;
+        const q = wipSearchQuery.toLowerCase();
+        return (
+          item.dealName.toLowerCase().includes(q) ||
+          (item.leadName || '').toLowerCase().includes(q) ||
+          (item.address || '').toLowerCase().includes(q) ||
+          (item.comment || '').toLowerCase().includes(q)
+        );
+      });
+  }, [properties, selectedStatus, selectedDealType, wipSearchQuery]);
+
+  const wipTotalPages = Math.max(1, Math.ceil(filteredProperties.length / wipRowsPerPage));
+  const safeWipPage = Math.min(wipPage, wipTotalPages);
+  const wipRangeStart =
+    filteredProperties.length === 0 ? 0 : (safeWipPage - 1) * wipRowsPerPage + 1;
+  const wipRangeEnd =
+    filteredProperties.length === 0
+      ? 0
+      : Math.min(filteredProperties.length, safeWipPage * wipRowsPerPage);
+  const paginatedProperties = filteredProperties.slice(
+    (safeWipPage - 1) * wipRowsPerPage,
+    safeWipPage * wipRowsPerPage
+  );
+  const visibleWipPages = getVisiblePageNumbers(safeWipPage, wipTotalPages);
+
+  useEffect(() => {
+    setWipPage(1);
+  }, [selectedStatus, selectedDealType, wipSearchQuery, wipRowsPerPage]);
+
+  useEffect(() => {
+    if (wipPage > wipTotalPages) {
+      setWipPage(wipTotalPages);
+    }
+  }, [wipPage, wipTotalPages]);
+
   if (!broker) return null;
 
   const brokerType = resolveBrokerType(broker, properties);
-
-  const filteredProperties = properties
-    .filter(item => selectedStatus === 'all' || canonicalStatus(item.status) === selectedStatus)
-    .filter(item => selectedDealType === 'all' || canonicalDealType(item.dealType) === selectedDealType)
-    .filter(item => {
-      if (!wipSearchQuery.trim()) return true;
-      const q = wipSearchQuery.toLowerCase();
-      return (
-        item.dealName.toLowerCase().includes(q) ||
-        (item.address || '').toLowerCase().includes(q)
-      );
-    });
 
   const fromDataDealTypes = Array.from(
     new Set(properties.map(p => canonicalDealType(p.dealType)).filter(Boolean))
@@ -1178,136 +1243,229 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     }
   };
 
+  const getStatusBadgeColor = (status: string): string => {
+    const s = canonicalStatus(status);
+    if (s === 'new_lead' || s === 'new') return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (s === 'proposal') return 'bg-purple-100 text-purple-700 border-purple-200';
+    if (s === 'loi') return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (s === 'otp' || s === 'otl') return 'bg-amber-100 text-amber-700 border-amber-200';
+    if (s === 'due_diligence') return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+    if (s === 'finance') return 'bg-teal-100 text-teal-700 border-teal-200';
+    if (s === 'transfer') return 'bg-cyan-100 text-cyan-700 border-cyan-200';
+    if (s === 'invoice') return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (s === 'sale_agreement' || s === 'lease_agreement') return 'bg-violet-100 text-violet-700 border-violet-200';
+    if (isClosedStatus(status)) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    if (isLostStatus(status)) return 'bg-red-100 text-red-700 border-red-200';
+    if (s === 'awaiting_payment') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    return 'bg-stone-100 text-stone-600 border-stone-200';
+  };
+
+  const openLeadOrOwnerDetails = (item: BrokerWipItem) => {
+    if (item.leadId) {
+      setViewingLeadId(item.leadId);
+      return;
+    }
+
+    const property = allProperties.find(p => p.id === item.propertyId);
+    setOwnerPopup({
+      title: item.leadName || parseDealTitle(item.dealName).dealName,
+      ownerName: property?.ownerName,
+      ownerEmail: property?.ownerEmail,
+      ownerContactNumber: property?.ownerContactNumber,
+    });
+  };
+
+  const openCommentEditor = (item: BrokerWipItem) => {
+    setSelectedDealForCommentModal({
+      dealName: item.dealName,
+      comment: item.comment || '',
+      id: item.id,
+      updatedAt: item.updatedAt,
+    });
+  };
+
+  // KPI display-only computed values (UI only, no business logic)
+  const totalDeals = properties.length;
+  const totalExpectedValue = properties.reduce((sum, p) => sum + Number(p.expectedValue || 0), 0);
+  const totalGrossCommission = properties.reduce((sum, p) => sum + Number(p.brokerCommission || 0), 0);
+  const _nowDate = new Date();
+  const dealsClosingThisMonth = properties.filter(p => {
+    if (!p.forecastedClosureDate) return false;
+    const d = new Date(p.forecastedClosureDate);
+    return d.getFullYear() === _nowDate.getFullYear() && d.getMonth() === _nowDate.getMonth();
+  }).length;
+
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-[#F8FAFC] space-y-5 p-1">
+      {/* Page Header */}
       <div>
         <button
           onClick={onBack}
-          className="flex items-center gap-2 text-violet-600 hover:text-violet-700 mb-4 text-sm font-semibold transition-colors"
+          className="inline-flex items-center gap-1.5 text-[#2563EB] hover:text-blue-800 mb-4 text-sm font-medium transition-colors"
         >
-          <FiArrowLeft size={18} />
+          <FiArrowLeft size={15} />
           Back to Brokers
         </button>
 
-        <div className="flex items-center gap-5 bg-gradient-to-r from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-6">
-          <div className="relative">
+        <div className="flex items-center gap-4 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div className="flex-shrink-0">
             <img
               src={broker.profilePicture}
               alt={broker.name}
-              className="w-20 h-20 rounded-full object-cover border-3 border-violet-200 shadow-md"
+              className="w-14 h-14 rounded-full object-cover border-2 border-blue-100 shadow-sm"
             />
           </div>
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-stone-950">{broker.name}</h1>
-            <div className="flex items-center gap-3 mt-2">
-              <span className="text-sm text-stone-600">
-                {broker.department && (
-                  <>
-                    <span className="font-semibold text-stone-700">{broker.department}</span> •{' '}
-                  </>
-                )}
-                <span className="text-stone-500">{broker.segments.length} active segment(s)</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">{broker.name}</h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {broker.department && (
+                    <span className="font-medium text-gray-600">{broker.department} · </span>
+                  )}
+                  WIP Deals · {broker.segments.length} active segment(s)
+                </p>
+              </div>
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 text-[#2563EB] text-xs font-semibold border border-blue-100">
+                {totalDeals} Active Deal{totalDeals !== 1 ? 's' : ''}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
-          <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Current Billing</p>
-          <p className="text-2xl font-bold text-stone-950">{formatRand(currentBilling)}</p>
-          <p className="text-xs text-stone-500 mt-2">
-            Target: {formatRand(billingTarget)}
-          </p>
-        </div>
-        <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
-          <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Billing Target</p>
-          <p className="text-2xl font-bold text-violet-600">{formatRand(billingTarget)}</p>
-        </div>
-        <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
-          <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Progress</p>
-          <div className="flex items-center gap-2">
-            <p
-              className={`text-2xl font-bold ${
-                percentageAchieved >= 100 ? "text-green-600" : "text-violet-600"
-              }`}
-            >
-              {percentageAchieved}%
-            </p>
-            {percentageAchieved >= 100 && <span className="text-lg">✓</span>}
+      {/* KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {/* Total Deals */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-[#2563EB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
           </div>
-          <div className="mt-3 h-2 w-full rounded-full bg-stone-200 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                percentageAchieved >= 100 ? 'bg-green-500' : 'bg-violet-500'
-              }`}
-              style={{ width: `${Math.min(percentageAchieved, 100)}%` }}
-            />
+          <div className="min-w-0">
+            <p className="text-2xl font-bold text-gray-900">{totalDeals}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Total Deals</p>
           </div>
         </div>
-        <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
-          <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Won Deals</p>
-          <p className="text-2xl font-bold text-emerald-600">{wonDealsCount}</p>
+        {/* Total Expected Value */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-gray-900 truncate">{formatRand(totalExpectedValue)}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Total Expected Value</p>
+          </div>
         </div>
-        <div className="bg-gradient-to-br from-white to-stone-50 rounded-xl shadow-sm border border-stone-200 p-5">
-          <p className="text-xs text-stone-600 font-semibold uppercase tracking-wide mb-2">Lost Deals</p>
-          <p className="text-2xl font-bold text-red-600">{lostDealsCount}</p>
+        {/* Total Gross Commission */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-purple-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-gray-900 truncate">{formatRand(totalGrossCommission)}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Total Gross Commission</p>
+          </div>
+        </div>
+        {/* Deals Closing This Month */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-orange-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+          </div>
+          <div className="min-w-0">
+            <p className="text-2xl font-bold text-gray-900">{dealsClosingThisMonth}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Closing This Month</p>
+          </div>
+        </div>
+        {/* Current Billing */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-sky-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-gray-900 truncate">{formatRand(currentBilling)}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Current Billing</p>
+          </div>
+        </div>
+        {/* Billing Target */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-green-50 flex-shrink-0">
+            <svg className="w-5 h-5 text-[#10B981]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-gray-900 truncate">{formatRand(billingTarget)}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-medium">Billing Target</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${percentageAchieved >= 100 ? 'bg-[#10B981]' : 'bg-[#2563EB]'}`}
+                style={{ width: `${Math.min(percentageAchieved, 100)}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">{percentageAchieved}% of target</p>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2 bg-violet-100 rounded-lg">
-            <FiFilter size={18} className="text-violet-600" />
-          </div>
-          <h3 className="font-semibold text-stone-950">Filter Deals</h3>
-        </div>
-
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="text-xs text-stone-600 mb-2 block font-semibold uppercase tracking-wide">Search</label>
+      {/* Modern Filter Bar */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Search */}
+          <div className="flex-1 min-w-[180px]">
+            <label className="text-[11px] text-gray-500 mb-1.5 block font-medium uppercase tracking-wide">Search Deals</label>
             <div className="relative">
-              <FiSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <FiSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 value={wipSearchQuery}
                 onChange={e => setWipSearchQuery(e.target.value)}
-                placeholder="Search deals or address..."
-                className="w-full pl-8 pr-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 hover:border-stone-400 transition-colors bg-white"
+                placeholder="Search leads, addresses..."
+                className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent hover:border-gray-300 transition-colors bg-white"
               />
             </div>
           </div>
-          <div>
-            <label className="text-xs text-stone-600 mb-2 block font-semibold uppercase tracking-wide">Status</label>
+          {/* Status */}
+          <div className="min-w-[150px]">
+            <label className="text-[11px] text-gray-500 mb-1.5 block font-medium uppercase tracking-wide">Status</label>
             <select
               value={selectedStatus}
               onChange={e => setSelectedStatus(e.target.value)}
-              className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 hover:border-stone-400 transition-colors bg-white"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent hover:border-gray-300 transition-colors bg-white"
             >
               <option value="all">All Statuses</option>
               {statuses.map(status => (
-                <option key={status} value={status}>
-                  {formatStatusLabel(status)}
-                </option>
+                <option key={status} value={status}>{formatStatusLabel(status)}</option>
               ))}
             </select>
           </div>
-
-          <div>
-            <label className="text-xs text-stone-600 mb-2 block font-semibold uppercase tracking-wide">Deal Type</label>
+          {/* Deal Type */}
+          <div className="min-w-[150px]">
+            <label className="text-[11px] text-gray-500 mb-1.5 block font-medium uppercase tracking-wide">Deal Type</label>
             <select
               value={selectedDealType}
               onChange={e => setSelectedDealType(e.target.value)}
-              className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 hover:border-stone-400 transition-colors bg-white"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent hover:border-gray-300 transition-colors bg-white"
             >
-              <option value="all">All Deal Types</option>
+              <option value="all">All Types</option>
               {dealTypes.map(dealType => (
-                <option key={dealType} value={dealType}>
-                  {formatDealTypeLabel(dealType)}
-                </option>
+                <option key={dealType} value={dealType}>{formatDealTypeLabel(dealType)}</option>
               ))}
             </select>
+          </div>
+          {/* Action buttons */}
+          <div className="flex items-end gap-2 ml-auto">
+            <button
+              type="button"
+              onClick={() => { setWipSearchQuery(''); setSelectedStatus('all'); setSelectedDealType('all'); }}
+              className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FiFilter size={13} />
+              Filter
+            </button>
           </div>
         </div>
       </div>
@@ -1377,22 +1535,18 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           );
         })}
 
-      <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
-        <div className="px-6 py-5 border-b border-stone-200 bg-gradient-to-r from-violet-50 via-white to-white flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-violet-100 rounded-lg">
-              <FiFileText size={18} className="text-violet-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-stone-950">WIP Sheet</h2>
-              <p className="text-sm text-stone-500">Manage deals, documents and progress</p>
-            </div>
+      {/* WIP Deals Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">WIP Deals</h2>
+            <p className="text-sm text-gray-500">Track and manage your Work In Progress deals</p>
           </div>
-          <div className="flex items-center gap-2 text-xs font-semibold">
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-violet-100 text-violet-700">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-blue-50 text-[#2563EB] text-xs font-semibold border border-blue-100">
               {filteredProperties.length} deal{filteredProperties.length === 1 ? '' : 's'}
             </span>
-            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-100">
               <FiCheckCircle size={12} />
               {filteredProperties.reduce(
                 (total, deal) =>
@@ -1402,38 +1556,45 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
               )}{' '}
               filled
             </span>
+            {loadingLegalDocuments && (
+              <span className="text-xs font-medium text-stone-400">Syncing docs...</span>
+            )}
           </div>
         </div>
 
+        {legalDocumentsError && (
+          <div className="mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Legal documents could not be loaded: {legalDocumentsError}
+          </div>
+        )}
+
         {filteredProperties.length === 0 ? (
-          <div className="p-14 text-center">
-            <div className="mx-auto w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center mb-3">
-              <FiSearch size={20} className="text-stone-400" />
+          <div className="py-16 text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+              <FiSearch size={20} className="text-gray-400" />
             </div>
-            <p className="text-stone-700 font-semibold">No deals found</p>
-            <p className="text-sm text-stone-500 mt-1">Adjust your filters to see more deals.</p>
+            <p className="text-gray-700 font-semibold">No deals found</p>
+            <p className="text-sm text-gray-400 mt-1">Adjust your filters to see more deals.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-stone-100 border-b-2 border-stone-200">
+            <table className="w-full table-fixed border-separate border-spacing-0 [&_th]:border-b [&_th]:border-stone-200 [&_th]:border-r [&_th:first-child]:border-l [&_td]:border-b [&_td]:border-stone-200 [&_td]:border-r [&_td:first-child]:border-l">
+              <thead className="bg-stone-50/80 border-b border-stone-200">
                 <tr>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Lead Name</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Address</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Deal Type</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3.5 text-right text-[11px] font-bold text-stone-600 uppercase tracking-wider">Expected Value</th>
-                  <th className="px-6 py-3.5 text-right text-[11px] font-bold text-stone-600 uppercase tracking-wider">Gross Comm</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Closure Date</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Documents</th>
-                  <th className="px-6 py-3.5 text-left text-[11px] font-bold text-stone-600 uppercase tracking-wider">Comment</th>
-                  {isAdmin && (
-                    <th className="px-6 py-3.5 text-center text-[11px] font-bold text-stone-600 uppercase tracking-wider">Actions</th>
-                  )}
+                  <th className="w-[16%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Lead Name</th>
+                  <th className="w-[19%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Address</th>
+                  <th className="w-[5%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Deal Type</th>
+                  <th className="w-[10%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Status</th>
+                  <th className="w-[8%] px-5 py-3 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">Expected Value</th>
+                  <th className="w-[7%] px-4 py-3 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">Gross Comm</th>
+                  <th className="w-[11%] px-4 py-3 text-left text-xs font-semibold text-stone-700 whitespace-nowrap">Closure Date</th>
+                  <th className="w-[5%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Doc</th>
+                  <th className="w-[10%] px-5 py-3 text-left text-xs font-semibold text-stone-700">Comment</th>
+                  <th className="w-[8%] px-5 py-3 text-center text-xs font-semibold text-stone-700">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100">
-                {filteredProperties.map((item, index) => {
+              <tbody className="divide-y divide-stone-200">
+                {paginatedProperties.map((item, index) => {
                   const normalizedLegalDocument = String(item.legalDocument || '').trim();
                   const normalizedComment = String(item.comment || '').trim();
                   const statusDocuments = dedupeStatusDocumentsByStatus(item);
@@ -1445,96 +1606,86 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                   const fallbackLegalDocument = legalDocumentById.get(resolvedLegalDocumentId);
                   const isMissingComment = requiresComment && !normalizedComment;
                   const rowError = rowErrors[item.id];
+                  const documentCount =
+                    statusDocuments.length > 0 ? statusDocuments.length : resolvedLegalDocumentId ? 1 : 0;
+                  const primaryDocument =
+                    statusDocuments[0] ||
+                    (preferredStatusDocument
+                      ? preferredStatusDocument
+                      : resolvedLegalDocumentId
+                      ? ({
+                          id: `legal-${item.id}`,
+                          status: item.status,
+                          documentType: '',
+                          legalDocumentId: resolvedLegalDocumentId,
+                          legalDocumentName: fallbackLegalDocument?.documentName || '',
+                          version: 1,
+                          uploadedAt: item.updatedAt,
+                          lastModifiedAt: item.updatedAt,
+                        } as WipStatusDocument)
+                      : null);
+                  const rowTone = index % 2 === 0 ? 'bg-white' : 'bg-stone-50/40';
+                  const actionButtonClass =
+                    'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-stone-500 transition-colors hover:border-blue-100 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40';
 
                   return (
-                    <tr
-                      key={item.id}
-                      className={`transition-colors ${
-                        index % 2 === 0 ? "bg-white" : "bg-stone-50/40"
-                      } hover:bg-violet-50/50`}
-                    >
-                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 whitespace-nowrap align-top">
-                        {item.leadId ? (
-                          <button
-                            type="button"
-                            onClick={() => setViewingLeadId(item.leadId!)}
-                            className="text-blue-700 hover:text-blue-900 hover:underline font-semibold text-left"
-                          >
-                            {item.leadName || parseDealTitle(item.dealName).dealName}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const prop = allProperties.find((p) => p.id === item.propertyId);
-                              setOwnerPopup({
-                                title: item.leadName || parseDealTitle(item.dealName).dealName,
-                                ownerName: prop?.ownerName,
-                                ownerEmail: prop?.ownerEmail,
-                                ownerContactNumber: prop?.ownerContactNumber,
-                              });
-                            }}
-                            className="text-left hover:text-violet-600 hover:underline transition-colors font-semibold"
-                          >
-                            {item.leadName || parseDealTitle(item.dealName).dealName}
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-stone-600 align-top">
+                    <tr key={item.id} className={`${rowTone} transition-colors hover:bg-blue-50/40`}>
+                      <td className="px-5 py-4 text-sm font-semibold text-stone-900 align-top whitespace-normal break-words">
                         <button
                           type="button"
-                          onClick={() => {
-                            const prop = allProperties.find((p) => p.id === item.propertyId);
-                            setOwnerPopup({
-                              title: item.leadName || parseDealTitle(item.dealName).dealName,
-                              ownerName: prop?.ownerName,
-                              ownerEmail: prop?.ownerEmail,
-                              ownerContactNumber: prop?.ownerContactNumber,
-                            });
-                          }}
-                          className="text-left hover:text-violet-600 hover:underline transition-colors"
+                          onClick={() => openLeadOrOwnerDetails(item)}
+                          className="block w-full text-left leading-6 text-stone-900 transition-colors hover:text-blue-700 whitespace-normal break-words"
                         >
-                          {item.address || "-"}
+                          {item.leadName || parseDealTitle(item.dealName).dealName}
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-sm align-top">
-                        <span
-                          className={`inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold ${getDealTypeColor(item.dealType)}`}
+                      <td className="px-5 py-4 text-sm text-stone-600 align-top whitespace-normal break-words">
+                        <button
+                          type="button"
+                          onClick={() => openLeadOrOwnerDetails(item)}
+                          className="block w-full text-left leading-5 transition-colors hover:text-blue-700 whitespace-normal break-words"
                         >
-                          {item.dealType}
-                        </span>
+                          {formatAddressText(item.address)}
+                        </button>
                       </td>
-                      <td className="px-6 py-4 text-sm align-top">
-                        <select
-                          value={toStatusValue(item.status)}
-                          onChange={event => {
-                            void handleStatusChange(item, event.target.value);
-                          }}
-                          disabled={updatingStatusId === item.id}
-                          className={`w-full max-w-xs px-3 py-1.5 rounded-lg text-xs font-semibold border focus:outline-none focus:ring-2 transition-all ${
-                            getStatusColor(item.status)
-                          } ${
-                            updatingStatusId === item.id ? "opacity-60 cursor-not-allowed" : ""
-                          }`}
+                      <td className="px-5 py-4 text-sm font-medium text-stone-700 align-top whitespace-nowrap">
+                        {formatWipDealType(item.dealType)}
+                      </td>
+                      <td className="px-3 py-4 text-sm align-top overflow-hidden">
+                        <div
+                          className={`flex w-full min-w-0 max-w-full overflow-hidden rounded-md border px-2 py-1 ${getStatusBadgeColor(
+                            item.status
+                          )}`}
                         >
-                          {Array.from(
-                            new Set([
-                              toStatusValue(item.status),
-                              ...statusOptionsForRow(item.dealType, brokerType).map(option =>
-                                toStatusValue(option)
-                              ),
-                            ])
-                          ).map(statusOption => (
-                            <option key={statusOption} value={statusOption}>
-                              {formatStatusLabel(statusOption)}
-                            </option>
-                          ))}
-                        </select>
+                          <select
+                            value={toStatusValue(item.status)}
+                            onChange={event => {
+                              void handleStatusChange(item, event.target.value);
+                            }}
+                            disabled={updatingStatusId === item.id}
+                            className={`block w-full min-w-0 truncate bg-transparent pr-5 text-xs font-semibold focus:outline-none ${
+                              updatingStatusId === item.id ? 'cursor-not-allowed' : 'cursor-pointer'
+                            }`}
+                          >
+                            {Array.from(
+                              new Set([
+                                toStatusValue(item.status),
+                                ...statusOptionsForRow(item.dealType, brokerType).map(option =>
+                                  toStatusValue(option)
+                                ),
+                              ])
+                            ).map(statusOption => (
+                              <option key={statusOption} value={statusOption}>
+                                {formatStatusLabel(statusOption)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-sm font-semibold text-stone-950 text-right align-top whitespace-nowrap">
+                      <td className="px-4 py-4 text-sm font-semibold text-stone-900 text-right align-top whitespace-nowrap">
                         {formatRand(item.expectedValue)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-right align-top whitespace-nowrap">
+                      <td className="px-4 py-4 text-sm text-right align-top whitespace-nowrap">
                         {editingCommissionId === item.id ? (
                           <div className="flex items-center gap-1 justify-end">
                             <input
@@ -1543,289 +1694,206 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                               step="1"
                               value={editingCommissionValue}
                               onChange={e => setEditingCommissionValue(e.target.value)}
-                              onBlur={() => { void handleSaveCommission(item); }}
+                              onBlur={() => {
+                                void handleSaveCommission(item);
+                              }}
                               onKeyDown={e => {
-                                if (e.key === 'Enter') { void handleSaveCommission(item); }
-                                if (e.key === 'Escape') { setEditingCommissionId(null); }
+                                if (e.key === 'Enter') {
+                                  void handleSaveCommission(item);
+                                }
+                                if (e.key === 'Escape') {
+                                  setEditingCommissionId(null);
+                                }
                               }}
                               disabled={savingCommissionId === item.id}
                               autoFocus
-                              className="w-28 px-2 py-1 text-xs border border-violet-400 rounded focus:outline-none focus:ring-2 focus:ring-violet-400 text-right"
+                              className="w-28 rounded-lg border border-blue-200 px-2 py-1 text-right text-xs text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
                         ) : (
                           <button
                             type="button"
-                            title="Click to edit gross commission"
                             onClick={() => {
                               setEditingCommissionId(item.id);
                               setEditingCommissionValue(String(item.brokerCommission ?? 0));
                             }}
-                            className="font-bold text-violet-600 hover:underline cursor-pointer"
+                            title="Edit gross commission"
+                            className="font-semibold text-stone-900 transition-colors hover:text-blue-700"
                           >
                             {formatRand(item.brokerCommission)}
                           </button>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm align-top whitespace-nowrap">
-                        {/* Clickable created date — opens timeline modal */}
+                      <td className="px-4 py-4 text-sm align-top whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => setTimelineItemId(item.id)}
-                          className="group flex items-center gap-1.5 text-left"
-                          title="Click to view status timeline"
+                          onClick={() => setSelectedDealForDateModal(item)}
+                          className="inline-flex items-center gap-2 text-left transition-colors hover:text-amber-700"
+                          title="View deal dates"
                         >
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                          <span className="text-xs font-semibold text-stone-700 group-hover:text-emerald-700 group-hover:underline transition-colors">
-                            {new Date(item.createdAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          <FiCalendar size={14} className="text-stone-400" />
+                          <span className="font-medium text-amber-700">
+                            {formatWipCloseDate(item.forecastedClosureDate || item.createdAt)}
                           </span>
                         </button>
                       </td>
-                      <td className="px-6 py-4 align-top">
-                        <div className="min-w-[230px] max-w-[280px] space-y-2">
-                          {statusDocuments.length > 0 ? (
-                            statusDocuments.map(statusDoc => {
-                              const isFilled = isStatusDocumentFilled(statusDoc);
-                              const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
-                              const isOpening =
-                                loadingViewDocumentId === statusDoc.id ||
-                                loadingViewDocumentId ===
-                                  String(statusDoc.filledDocumentRecordId || '').trim() ||
-                                loadingViewDocumentId ===
-                                  String(statusDoc.legalDocumentId || '').trim();
-                              const isDownloading = downloadingDocumentId === statusDoc.id;
-                              return (
-                                <div
-                                  key={statusDoc.id}
-                                  className={`rounded-lg border px-2.5 py-2 ${
-                                    isFilled
-                                      ? 'border-emerald-200 bg-emerald-50'
-                                      : 'border-amber-200 bg-amber-50'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span
-                                      className={`inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide ${
-                                        isFilled ? 'text-emerald-700' : 'text-amber-700'
-                                      }`}
-                                    >
-                                      {isFilled ? (
-                                        <FiCheckCircle size={12} />
-                                      ) : (
-                                        <FiClock size={12} />
-                                      )}
-                                      {stepLabel}
-                                    </span>
-                                    <span
-                                      className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                        isFilled
-                                          ? 'bg-emerald-600 text-white'
-                                          : 'bg-amber-500 text-white'
-                                      }`}
-                                    >
-                                      {isFilled ? 'Filled' : 'Pending'}
-                                    </span>
-                                  </div>
-                                  {statusDoc.filledDocumentName || statusDoc.legalDocumentName ? (
-                                    <p className="mt-1 text-[11px] text-stone-500 truncate">
-                                      {statusDoc.filledDocumentName ||
-                                        statusDoc.legalDocumentName}
-                                    </p>
-                                  ) : null}
-                                  <div className="mt-1.5 flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleOpenStatusDocument(item, statusDoc)
-                                      }
-                                      disabled={isOpening}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-60 transition-colors"
-                                    >
-                                      <FiEye size={11} />
-                                      {isOpening ? 'Opening…' : 'View'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleDownloadStatusDocument(item, statusDoc)
-                                      }
-                                      disabled={isDownloading}
-                                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold disabled:opacity-60 transition-colors ${
-                                        isFilled
-                                          ? 'bg-violet-600 text-white hover:bg-violet-700'
-                                          : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-100'
-                                      }`}
-                                      title={
-                                        isFilled
-                                          ? 'Download the filled document'
-                                          : 'Download the document template'
-                                      }
-                                    >
-                                      <FiDownload size={11} />
-                                      {isDownloading ? 'Downloading…' : 'Download'}
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })
-                          ) : preferredStatusDocument || resolvedLegalDocumentId ? (
-                            (() => {
-                              const syntheticDoc: WipStatusDocument =
-                                preferredStatusDocument || ({
-                                  id: `legal-${item.id}`,
-                                  status: item.status,
-                                  documentType: '',
-                                  legalDocumentId: resolvedLegalDocumentId,
-                                  legalDocumentName:
-                                    fallbackLegalDocument?.documentName || '',
-                                  version: 1,
-                                  uploadedAt: item.updatedAt,
-                                  lastModifiedAt: item.updatedAt,
-                                } as WipStatusDocument);
-                              const isFilled = isStatusDocumentFilled(syntheticDoc);
-                              const stepLabel = getStatusDocStepLabel(String(syntheticDoc.status));
-                              const isOpening =
-                                loadingViewDocumentId === syntheticDoc.id ||
-                                loadingViewDocumentId === resolvedLegalDocumentId;
-                              const isDownloading = downloadingDocumentId === syntheticDoc.id;
-                              return (
-                                <div
-                                  className={`rounded-lg border px-2.5 py-2 ${
-                                    isFilled
-                                      ? 'border-emerald-200 bg-emerald-50'
-                                      : 'border-blue-200 bg-blue-50'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-stone-700">
-                                      <FiFileText size={12} />
-                                      {stepLabel}
-                                    </span>
-                                  </div>
-                                  {fallbackLegalDocument?.documentName && (
-                                    <p className="mt-1 text-[11px] text-stone-500 truncate">
-                                      {fallbackLegalDocument.documentName}
-                                    </p>
-                                  )}
-                                  <div className="mt-1.5 flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleOpenStatusDocument(item, syntheticDoc)
-                                      }
-                                      disabled={isOpening}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-60 transition-colors"
-                                    >
-                                      <FiEye size={11} />
-                                      {isOpening ? 'Opening…' : 'View'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleDownloadStatusDocument(item, syntheticDoc)
-                                      }
-                                      disabled={isDownloading}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60 transition-colors"
-                                    >
-                                      <FiDownload size={11} />
-                                      {isDownloading ? 'Downloading…' : 'Download'}
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })()
-                          ) : (
-                            <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-2.5 text-center">
-                              <FiFileText
-                                size={14}
-                                className="mx-auto text-stone-400 mb-1"
-                              />
-                              <p className="text-[11px] text-stone-500 font-medium">
-                                No documents yet
-                              </p>
-                              <p className="text-[10px] text-stone-400">
-                                Move to LOI/OTP/OTL to add one
-                              </p>
-                            </div>
+                      <td className="px-4 py-4 align-top">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (primaryDocument) {
+                              void handleOpenStatusDocument(item, primaryDocument);
+                            }
+                          }}
+                          disabled={!primaryDocument}
+                          className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:text-stone-400"
+                          title={primaryDocument ? 'Open linked documents' : 'No documents linked'}
+                        >
+                          <FiFileText
+                            size={15}
+                            className={documentCount > 0 ? 'text-stone-500' : 'text-stone-300'}
+                          />
+                          <span>{documentCount}</span>
+                        </button>
+                      </td>
+                      <td className="px-5 py-4 text-sm text-stone-600 align-top whitespace-normal break-words">
+                        <div className="w-full">
+                          <button
+                            type="button"
+                            onClick={() => openCommentEditor(item)}
+                            className={`w-full text-left leading-5 transition-colors ${
+                              item.comment ? 'text-stone-700 hover:text-blue-700' : 'text-stone-400 hover:text-blue-700'
+                            }`}
+                            title="View or edit comment"
+                          >
+                            <span className="line-clamp-2">
+                              {item.comment || 'Add comment'}
+                            </span>
+                          </button>
+                          {isMissingComment && (
+                            <p className="mt-1 text-[11px] font-medium text-red-600">
+                              Comment required for this status
+                            </p>
                           )}
                           {rowError && (
-                            <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded font-medium">
+                            <p className="mt-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700">
                               {rowError}
                             </p>
                           )}
-                          {legalDocumentsError && (
-                            <p className="text-[11px] text-red-600 bg-red-50 px-2 py-1 rounded">
-                              Legal Docs load error: {legalDocumentsError}
-                            </p>
-                          )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-stone-600 align-top">
-                        <div className="min-w-[180px]">
-                          {item.comment ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedDealForCommentModal({
-                                    dealName: item.dealName,
-                                    comment: item.comment || '',
-                                    id: item.id,
-                                    updatedAt: item.updatedAt,
-                                  })
-                                }
-                                className="w-full text-left px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer line-clamp-2"
-                                title="Click to view and edit full comment"
-                              >
-                                {item.comment}
-                              </button>
-                              {formatCommentTimestamp(item.updatedAt) && (
-                                <p className="text-xs text-stone-500 mt-1">
-                                  Updated {formatCommentTimestamp(item.updatedAt)}
-                                </p>
-                              )}
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelectedDealForCommentModal({
-                                  dealName: item.dealName,
-                                  comment: '',
-                                  id: item.id,
-                                  updatedAt: item.updatedAt,
-                                })
-                              }
-                              className="text-xs text-violet-600 hover:text-violet-700 font-semibold hover:underline transition-colors"
-                            >
-                              + Add Comment
-                            </button>
-                          )}
-                          {isMissingComment && (
-                            <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded font-medium mt-1">
-                              ❌ Comment required for this status
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      {isAdmin && (
-                        <td className="px-6 py-4 text-center align-top">
+                      <td className="px-4 py-4 align-top">
+                        <div className="flex items-center justify-center gap-1">
+
                           <button
                             type="button"
-                            onClick={() => { void handleDeleteDeal(item); }}
-                            disabled={deletingId === item.id}
-                            className="p-1.5 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50"
-                            title="Delete deal"
+                            onClick={() => {
+                              setEditingCommissionId(item.id);
+                              setEditingCommissionValue(String(item.brokerCommission ?? 0));
+                            }}
+                            className={actionButtonClass}
+                            title="Edit gross commission"
                           >
-                            <FiTrash2 size={15} className="text-red-500" />
+                            <FiEdit2 size={15} />
                           </button>
-                        </td>
-                      )}
+
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleDeleteDeal(item);
+                              }}
+                              disabled={deletingId === item.id}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-red-500 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                              title="Delete deal"
+                            >
+                              <FiTrash2 size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {filteredProperties.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-stone-200 px-6 py-4">
+            <p className="text-sm text-stone-500">
+              Showing {wipRangeStart} to {wipRangeEnd} of {filteredProperties.length} deals
+            </p>
+            <div className="ml-auto flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setWipPage(1)}
+                  disabled={safeWipPage === 1}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="First page"
+                >
+                  <FiChevronsLeft size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWipPage(current => Math.max(1, current - 1))}
+                  disabled={safeWipPage === 1}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Previous page"
+                >
+                  <FiChevronLeft size={14} />
+                </button>
+                {visibleWipPages.map(page => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setWipPage(page)}
+                    className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm font-semibold transition-colors ${
+                      page === safeWipPage
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setWipPage(current => Math.min(wipTotalPages, current + 1))}
+                  disabled={safeWipPage === wipTotalPages}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Next page"
+                >
+                  <FiChevronRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWipPage(wipTotalPages)}
+                  disabled={safeWipPage === wipTotalPages}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Last page"
+                >
+                  <FiChevronsRight size={14} />
+                </button>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-stone-500">
+                <span>Rows per page</span>
+                <select
+                  value={wipRowsPerPage}
+                  onChange={event => setWipRowsPerPage(Number(event.target.value))}
+                  className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[5, 10, 25, 50].map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         )}
       </div>

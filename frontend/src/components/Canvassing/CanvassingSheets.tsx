@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  FiPlus,
-  FiTrash2,
-  FiCheckCircle,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronsLeft,
+  FiChevronsRight,
   FiClipboard,
   FiDatabase,
   FiEdit2,
   FiExternalLink,
+  FiPlus,
+  FiTrash2,
 } from 'react-icons/fi';
 import { customRecordService, CustomRecord } from '@/services/customRecordService';
 import { contactService } from '@/services/contactService';
@@ -82,6 +85,34 @@ const emptyRow = (): CanvassingRow => ({
   synced: false,
 });
 
+function getVisiblePageNumbers(currentPage: number, totalPages: number): number[] {
+  const maxVisible = 4;
+  const safeTotalPages = Math.max(1, totalPages);
+  const start = Math.max(
+    1,
+    Math.min(currentPage - 1, safeTotalPages - maxVisible + 1)
+  );
+  const end = Math.min(safeTotalPages, start + maxVisible - 1);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function getCanvassingStatusMeta(status: CanvassingRow['status']): {
+  label: string;
+  classes: string;
+} {
+  if (status === 'contacted') {
+    return {
+      label: 'Contacted',
+      classes: 'border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-200',
+    };
+  }
+
+  return {
+    label: 'New',
+    classes: 'border-stone-200 bg-stone-100 text-stone-600 hover:bg-stone-200',
+  };
+}
+
 function normalizePayload(record: CustomRecord<Record<string, unknown>>): CanvassingSheetPayload {
   const payload =
     record.payload && typeof record.payload === 'object' && !Array.isArray(record.payload)
@@ -131,6 +162,8 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
   });
   const [savingSheetIds, setSavingSheetIds] = useState<Set<string>>(new Set());
   const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
+  const [sheetPage, setSheetPage] = useState(1);
+  const [sheetRowsPerPage, setSheetRowsPerPage] = useState(10);
 
   const setSheetSaving = useCallback((sheetId: string, saving: boolean) => {
     setSavingSheetIds(prev => {
@@ -427,34 +460,99 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
     [sheets, activeSheetId]
   );
 
+  const activeSheetRows = activeSheet?.payload.rows || [];
+  const canvassingTotalPages = Math.max(1, Math.ceil(activeSheetRows.length / sheetRowsPerPage));
+  const safeCanvassingPage = Math.min(sheetPage, canvassingTotalPages);
+  const canvassingRangeStart =
+    activeSheetRows.length === 0 ? 0 : (safeCanvassingPage - 1) * sheetRowsPerPage + 1;
+  const canvassingRangeEnd =
+    activeSheetRows.length === 0
+      ? 0
+      : Math.min(activeSheetRows.length, safeCanvassingPage * sheetRowsPerPage);
+  const paginatedActiveRows = activeSheetRows.slice(
+    (safeCanvassingPage - 1) * sheetRowsPerPage,
+    safeCanvassingPage * sheetRowsPerPage
+  );
+  const visibleCanvassingPages = getVisiblePageNumbers(
+    safeCanvassingPage,
+    canvassingTotalPages
+  );
+
+  useEffect(() => {
+    setSheetPage(1);
+  }, [activeSheetId, sheetRowsPerPage]);
+
+  useEffect(() => {
+    if (sheetPage > canvassingTotalPages) {
+      setSheetPage(canvassingTotalPages);
+    }
+  }, [sheetPage, canvassingTotalPages]);
+
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-stone-200 overflow-hidden">
-      <div className="p-6 border-b border-stone-200 bg-gradient-to-r from-stone-50 to-white">
+    <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+      <div className="flex items-center justify-between gap-4 border-b border-stone-200 bg-gradient-to-r from-stone-50 via-white to-stone-50 px-6 py-5">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-violet-100 rounded-lg">
-            <FiClipboard size={18} className="text-violet-600" />
+          <div className="rounded-xl bg-blue-100 p-2.5">
+            <FiClipboard size={18} className="text-blue-600" />
           </div>
           <div>
             <h2 className="text-xl font-bold text-stone-950">Canvassing Sheets</h2>
-            <p className="text-sm text-stone-500 mt-0.5">
-              Per-area / per-asset-type prospect lists for {broker.name}
+            <p className="mt-0.5 text-sm text-stone-500">
+              Track your canvassing activities and potential opportunities
             </p>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {activeSheet && sheets.length > 1 && (
+            <select
+              value={activeSheetId || ''}
+              onChange={event => setActiveSheetId(event.target.value)}
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {sheets.map(sheet => (
+                <option key={sheet.id} value={sheet.id}>
+                  {sheet.title}
+                </option>
+              ))}
+            </select>
+          )}
+          {activeSheet && (
+            <button
+              type="button"
+              onClick={() => handleAddRow(activeSheet.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              <FiPlus size={16} />
+              Add Row
+            </button>
+          )}
+          {activeSheet && (
+            <button
+              type="button"
+              onClick={() => void handleDeleteSheet(activeSheet.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+            >
+              <FiTrash2 size={16} />
+              Delete Sheet
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            <FiPlus size={16} />
+            New Canvassing
+          </button>
         </div>
       </div>
 
       <div className="p-6 space-y-5">
-        {/* Create-sheet trigger */}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex items-center justify-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-violet-700 transition-colors"
-          >
-            <FiPlus size={16} />
-            New Canvassing Sheet
-          </button>
-        </div>
+        {error && !showCreateModal && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
         {isLoading ? (
           <p className="text-sm text-stone-400 animate-pulse">Loading canvassing sheets…</p>
@@ -464,79 +562,28 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
           </p>
         ) : (
           <>
-            {/* Sheet tabs */}
-            <div className="flex flex-wrap gap-2">
-              {sheets.map(sheet => {
-                const isActive = sheet.id === activeSheetId;
-                return (
-                  <button
-                    key={sheet.id}
-                    type="button"
-                    onClick={() => setActiveSheetId(sheet.id)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                      isActive
-                        ? 'bg-violet-600 text-white border-violet-600'
-                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-                    }`}
-                  >
-                    {sheet.title}
-                    <span
-                      className={`ml-2 text-xs ${isActive ? 'text-violet-200' : 'text-stone-400'}`}
-                    >
-                      {sheet.payload.rows.length}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
 
             {activeSheet && (
-              <div className="rounded-lg border border-stone-200 overflow-hidden">
-                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-stone-50 border-b border-stone-200">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-stone-900">{activeSheet.title}</h3>
-                    {savingSheetIds.has(activeSheet.id) && (
-                      <span className="text-xs text-stone-400">Saving…</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleAddRow(activeSheet.id)}
-                      className="inline-flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-violet-700 transition-colors"
-                    >
-                      <FiPlus size={14} />
-                      Add Row
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteSheet(activeSheet.id)}
-                      className="inline-flex items-center gap-1.5 border border-red-200 text-red-600 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors"
-                    >
-                      <FiTrash2 size={14} />
-                      Delete Sheet
-                    </button>
-                  </div>
-                </div>
+              <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead className="bg-stone-50 border-b border-stone-200">
-                      <tr className="text-left text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
-                        <th className="px-3 py-2 w-44">Name</th>
-                        <th className="px-2 py-2 w-32">Phone</th>
-                        <th className="px-2 py-2 w-48">Email</th>
-                        <th className="px-2 py-2 w-40">Company</th>
-                        <th className="px-2 py-2 w-40">Property</th>
-                        <th className="px-2 py-2 w-48">Address</th>
-                        <th className="px-2 py-2 w-32 text-center">Status</th>
-                        <th className="px-2 py-2 w-12 text-center"></th>
+                <div className="overflow-hidden">
+                  <table className="w-full table-fixed border-separate border-spacing-0 [&_th]:border-b [&_th]:border-stone-200 [&_th]:border-r [&_th:first-child]:border-l [&_td]:border-b [&_td]:border-stone-200 [&_td]:border-r [&_td:first-child]:border-l">
+                    <thead className="bg-stone-50/80">
+                      <tr>
+                        <th className="w-[14%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Name</th>
+                        <th className="w-[11%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Phone</th>
+                        <th className="w-[17%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Email</th>
+                        <th className="w-[14%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Company</th>
+                        <th className="w-[13%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Property</th>
+                        <th className="w-[19%] px-4 py-3 text-left text-xs font-semibold text-stone-700">Address</th>
+                        <th className="w-[8%] px-4 py-3 text-center text-xs font-semibold text-stone-700">Status</th>
+                        <th className="w-[4%] px-4 py-3 text-center text-xs font-semibold text-stone-700">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {activeSheet.payload.rows.length === 0 && (
+                    <tbody>
+                      {activeSheetRows.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center">
+                          <td colSpan={8} className="px-4 py-10 text-center">
                             <div className="flex flex-col items-center gap-3">
                               <p className="text-sm text-stone-500">
                                 This sheet has no prospects yet.
@@ -544,7 +591,7 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                               <button
                                 type="button"
                                 onClick={() => handleAddRow(activeSheet.id)}
-                                className="inline-flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-violet-700 transition-colors"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
                               >
                                 <FiPlus size={14} />
                                 Add First Row
@@ -553,14 +600,12 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                           </td>
                         </tr>
                       )}
-                      {activeSheet.payload.rows.map((row) => {
-                        const isContacted = row.status === 'contacted';
+                      {paginatedActiveRows.map((row, index) => {
+                        const statusMeta = getCanvassingStatusMeta(row.status);
+                        const rowTone = index % 2 === 0 ? 'bg-white' : 'bg-stone-50/40';
                         return (
-                          <tr
-                            key={row.id}
-                            className={isContacted ? 'bg-emerald-50/40' : 'bg-white hover:bg-stone-50/60'}
-                          >
-                            <td className="px-3 py-1.5">
+                          <tr key={row.id} className={`${rowTone} transition-colors hover:bg-blue-50/30`}>
+                            <td className="px-4 py-2.5 align-top">
                               <LinkOrInputCell
                                 value={row.contactName}
                                 onChange={(v) =>
@@ -583,7 +628,7 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                                 }
                               />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="px-4 py-2.5 align-top">
                               <CellInput
                                 value={row.phone}
                                 onChange={(v) => handleRowFieldChange(activeSheet.id, row.id, 'phone', v)}
@@ -591,7 +636,7 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                                 type="tel"
                               />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="px-4 py-2.5 align-top">
                               <CellInput
                                 value={row.email}
                                 onChange={(v) => handleRowFieldChange(activeSheet.id, row.id, 'email', v)}
@@ -599,14 +644,14 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                                 type="email"
                               />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="px-4 py-2.5 align-top">
                               <CellInput
                                 value={row.company}
                                 onChange={(v) => handleRowFieldChange(activeSheet.id, row.id, 'company', v)}
                                 placeholder="Company"
                               />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="px-4 py-2.5 align-top">
                               <LinkOrInputCell
                                 value={row.propertyName}
                                 onChange={(v) =>
@@ -625,40 +670,37 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                                 }
                               />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="px-4 py-2.5 align-top">
                               <CellInput
                                 value={row.propertyAddress}
-                                onChange={(v) => handleRowFieldChange(activeSheet.id, row.id, 'propertyAddress', v)}
+                                onChange={(v) =>
+                                  handleRowFieldChange(activeSheet.id, row.id, 'propertyAddress', v)
+                                }
                                 placeholder="Address"
                               />
                             </td>
-                            <td className="px-2 py-1.5 text-center">
+                            <td className="px-4 py-2.5 text-center align-top">
                               <button
                                 type="button"
                                 onClick={() => void handleToggleContacted(activeSheet.id, row.id)}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
-                                  isContacted
-                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                    : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                                }`}
+                                className={`flex w-full items-center justify-center rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-tight text-center whitespace-normal break-words transition-colors ${statusMeta.classes}`}
                                 title={
-                                  isContacted
-                                    ? 'Contacted — click to revert'
+                                  row.status === 'contacted'
+                                    ? 'Contacted — click to revert to new'
                                     : 'Mark as contacted'
                                 }
                               >
-                                <FiCheckCircle size={11} />
-                                {isContacted ? 'Contacted' : 'Pending'}
+                                {statusMeta.label}
                               </button>
                             </td>
-                            <td className="px-2 py-1.5 text-center">
+                            <td className="px-4 py-2.5 text-center align-top">
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRow(activeSheet.id, row.id)}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded-md text-red-500 hover:bg-red-50 transition-colors"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-red-500 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-600"
                                 title="Remove prospect"
                               >
-                                <FiTrash2 size={13} />
+                                <FiTrash2 size={14} />
                               </button>
                             </td>
                           </tr>
@@ -667,6 +709,80 @@ export const CanvassingSheets: React.FC<CanvassingSheetsProps> = ({ broker }) =>
                     </tbody>
                   </table>
                 </div>
+
+                {activeSheetRows.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-stone-200 px-5 py-4">
+                    <p className="text-sm text-stone-500">
+                      Showing {canvassingRangeStart} to {canvassingRangeEnd} of {activeSheetRows.length}{' '}
+                      canvassing records
+                    </p>
+                    <div className="ml-auto flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setSheetPage(1)}
+                          disabled={safeCanvassingPage === 1}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <FiChevronsLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSheetPage(current => Math.max(1, current - 1))}
+                          disabled={safeCanvassingPage === 1}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <FiChevronLeft size={14} />
+                        </button>
+                        {visibleCanvassingPages.map(page => (
+                          <button
+                            key={page}
+                            type="button"
+                            onClick={() => setSheetPage(page)}
+                            className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm font-semibold transition-colors ${
+                              page === safeCanvassingPage
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setSheetPage(current => Math.min(canvassingTotalPages, current + 1))}
+                          disabled={safeCanvassingPage === canvassingTotalPages}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <FiChevronRight size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSheetPage(canvassingTotalPages)}
+                          disabled={safeCanvassingPage === canvassingTotalPages}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <FiChevronsRight size={14} />
+                        </button>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-sm text-stone-500">
+                        <span>Rows per page</span>
+                        <select
+                          value={sheetRowsPerPage}
+                          onChange={event => setSheetRowsPerPage(Number(event.target.value))}
+                          className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {[5, 10, 25, 50].map(option => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -860,7 +976,7 @@ const CellInput: React.FC<{
     value={value}
     onChange={(e) => onChange(e.target.value)}
     placeholder={placeholder}
-    className="w-full px-2 py-1 border border-transparent rounded text-sm bg-transparent hover:border-stone-200 focus:border-violet-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 transition-colors"
+    className="w-full min-w-0 rounded-lg border border-transparent bg-transparent px-2.5 py-2 text-sm text-stone-700 transition-colors hover:border-stone-200 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
   />
 );
 
@@ -893,26 +1009,26 @@ const LinkOrInputCell: React.FC<{
           }
         }}
         placeholder={placeholder}
-        className="w-full px-2 py-1 border border-transparent rounded text-sm bg-transparent hover:border-stone-200 focus:border-violet-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 transition-colors"
+        className="w-full min-w-0 rounded-lg border border-transparent bg-transparent px-2.5 py-2 text-sm text-stone-700 transition-colors hover:border-stone-200 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
       />
     );
   }
 
   // Has value → show as link (or plain text if no handler).
   return (
-    <div className="group flex items-center gap-1.5 w-full px-2 py-1 rounded hover:bg-stone-100/60">
+    <div className="group flex w-full items-start gap-1.5 rounded-lg px-2.5 py-2 hover:bg-stone-100/60">
       {onLinkClick ? (
         <button
           type="button"
           onClick={onLinkClick}
           title={linkTitle}
-          className="flex items-center gap-1 text-sm font-medium text-violet-700 hover:text-violet-900 hover:underline truncate"
+          className="flex w-full items-start gap-1 text-left text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline whitespace-normal break-words"
         >
-          <span className="truncate">{trimmed}</span>
+          <span className="whitespace-normal break-words">{trimmed}</span>
           <FiExternalLink size={11} className="shrink-0 opacity-60" />
         </button>
       ) : (
-        <span className="text-sm text-stone-800 truncate" title={linkTitle}>
+        <span className="text-sm text-stone-800 whitespace-normal break-words" title={linkTitle}>
           {trimmed}
         </span>
       )}
@@ -920,7 +1036,7 @@ const LinkOrInputCell: React.FC<{
         type="button"
         onClick={() => setEditing(true)}
         title="Edit"
-        className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 text-stone-400 hover:text-stone-700 transition-opacity"
+        className="ml-auto shrink-0 opacity-0 transition-opacity group-hover:opacity-100 text-stone-400 hover:text-stone-700"
       >
         <FiEdit2 size={11} />
       </button>
@@ -929,3 +1045,5 @@ const LinkOrInputCell: React.FC<{
 };
 
 export default CanvassingSheets;
+
+
