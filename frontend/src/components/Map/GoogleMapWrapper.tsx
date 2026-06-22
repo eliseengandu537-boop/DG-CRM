@@ -263,12 +263,17 @@ const GoogleMapWrapper: React.FC<Props> = ({
   focusLocation,
 }) => {
   const mapRef = useRef<L.Map | null>(null);
+  const [canRenderMap, setCanRenderMap] = useState(false);
   const [activeMapType, setActiveMapType] = useState<SupportedMapType>(mapTypeId);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMarker, setSearchMarker] = useState<AnyObj | null>(null);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
 
   useEffect(() => setActiveMapType(mapTypeId), [mapTypeId]);
+
+  useEffect(() => {
+    setCanRenderMap(true);
+  }, []);
 
   const safeProperties = useMemo(
     () =>
@@ -382,131 +387,138 @@ const GoogleMapWrapper: React.FC<Props> = ({
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '500px' }}>
-      <MapContainer
-        center={initialCenter}
-        zoom={zoom}
-        maxZoom={MAP_MAX_ZOOM}
-        style={{ width: '100%', height: '100%', minHeight: '500px' }}
-        scrollWheelZoom
-        zoomControl={false}
-      >
-        {/* Move Leaflet's +/- buttons to bottom-left so they don't collide
-            with the persistent search bar at top-left. */}
-        <ZoomControl position="bottomleft" />
-        {isSatellite ? (
-          <>
+      {canRenderMap ? (
+        <MapContainer
+          center={initialCenter}
+          zoom={zoom}
+          maxZoom={MAP_MAX_ZOOM}
+          style={{ width: '100%', height: '100%', minHeight: '500px' }}
+          scrollWheelZoom
+          zoomControl={false}
+        >
+          {/* Move Leaflet's +/- buttons to bottom-left so they don't collide
+              with the persistent search bar at top-left. */}
+          <ZoomControl position="bottomleft" />
+          {isSatellite ? (
+            <>
+              <TileLayer
+                key="esri-imagery"
+                url={TILE_SATELLITE}
+                attribution={TILE_SATELLITE_ATTR}
+                maxZoom={MAP_MAX_ZOOM}
+                maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
+              />
+              <TileLayer
+                key="esri-labels"
+                url={TILE_SATELLITE_LABELS}
+                maxZoom={MAP_MAX_ZOOM}
+                maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
+                opacity={0.9}
+              />
+            </>
+          ) : isTerrain ? (
             <TileLayer
-              key="esri-imagery"
-              url={TILE_SATELLITE}
-              attribution={TILE_SATELLITE_ATTR}
+              key="opentopomap"
+              url={TILE_TERRAIN}
+              attribution={TILE_TERRAIN_ATTR}
               maxZoom={MAP_MAX_ZOOM}
-              maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
+              maxNativeZoom={TERRAIN_MAX_NATIVE_ZOOM}
             />
+          ) : (
             <TileLayer
-              key="esri-labels"
-              url={TILE_SATELLITE_LABELS}
+              key="osm"
+              url={TILE_ROADMAP}
+              attribution={TILE_ROADMAP_ATTR}
               maxZoom={MAP_MAX_ZOOM}
-              maxNativeZoom={SATELLITE_MAX_NATIVE_ZOOM}
-              opacity={0.9}
+              maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
             />
-          </>
-        ) : isTerrain ? (
-          <TileLayer
-            key="opentopomap"
-            url={TILE_TERRAIN}
-            attribution={TILE_TERRAIN_ATTR}
-            maxZoom={MAP_MAX_ZOOM}
-            maxNativeZoom={TERRAIN_MAX_NATIVE_ZOOM}
+          )}
+
+          <MapBridge
+            onReady={handleReady}
+            focusLocation={focusLocation || null}
+            selectedProperty={selectedProperty}
+            fitProperties={safeProperties}
           />
-        ) : (
-          <TileLayer
-            key="osm"
-            url={TILE_ROADMAP}
-            attribution={TILE_ROADMAP_ATTR}
-            maxZoom={MAP_MAX_ZOOM}
-            maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
+
+          {/* Property pins are rendered through a marker-cluster group so the
+              map stays responsive even with 15k+ pins. */}
+          <PropertyClusterLayer
+            properties={safeProperties}
+            selectedPropertyId={selectedProperty?.id ?? null}
+            onSelect={setSelectedProperty}
           />
-        )}
 
-        <MapBridge
-          onReady={handleReady}
-          focusLocation={focusLocation || null}
-          selectedProperty={selectedProperty}
-          fitProperties={safeProperties}
+          {searchResultMarkers?.map((m, index) => (
+            <Marker
+              key={`sr-${m.id}`}
+              position={[m.lat, m.lng]}
+              icon={searchResultDivIcon(index)}
+              eventHandlers={{ click: () => onSearchResultMarkerClick?.(m) }}
+            >
+              <Popup>
+                <div>
+                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{m.name}</h4>
+                  {m.address && (
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>{m.address}</p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {searchMarker && (
+            <Marker position={[searchMarker.lat, searchMarker.lng]} icon={searchMarkerIcon}>
+              <Popup eventHandlers={{ remove: () => setSearchMarker(null) }}>
+                <div>
+                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{searchMarker.name}</h4>
+                  {searchMarker.address && (
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                      {searchMarker.address}
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          )}
+
+          {myLocation && (
+            <Marker position={[myLocation.lat, myLocation.lng]} icon={myLocationDivIcon}>
+              <Popup eventHandlers={{ remove: () => setMyLocation(null) }}>
+                <div>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '12px' }}>Your Location</p>
+                  {myLocation.accuracy > 0 && (
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                      Accuracy: ±{Math.round(myLocation.accuracy)} m
+                    </p>
+                  )}
+                  <button
+                    onClick={() => openStreetViewAt(myLocation.lat, myLocation.lng)}
+                    style={{
+                      marginTop: '6px',
+                      background: '#2563eb',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Open Street View here
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          )}
+        </MapContainer>
+      ) : (
+        <div
+          aria-hidden="true"
+          style={{ width: '100%', height: '100%', minHeight: '500px', background: '#f5f5f4' }}
         />
-
-        {/* Property pins are rendered through a marker-cluster group so the
-            map stays responsive even with 15k+ pins. */}
-        <PropertyClusterLayer
-          properties={safeProperties}
-          selectedPropertyId={selectedProperty?.id ?? null}
-          onSelect={setSelectedProperty}
-        />
-
-        {searchResultMarkers?.map((m, index) => (
-          <Marker
-            key={`sr-${m.id}`}
-            position={[m.lat, m.lng]}
-            icon={searchResultDivIcon(index)}
-            eventHandlers={{ click: () => onSearchResultMarkerClick?.(m) }}
-          >
-            <Popup>
-              <div>
-                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{m.name}</h4>
-                {m.address && (
-                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>{m.address}</p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-
-        {searchMarker && (
-          <Marker position={[searchMarker.lat, searchMarker.lng]} icon={searchMarkerIcon}>
-            <Popup eventHandlers={{ remove: () => setSearchMarker(null) }}>
-              <div>
-                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '13px' }}>{searchMarker.name}</h4>
-                {searchMarker.address && (
-                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
-                    {searchMarker.address}
-                  </p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        )}
-
-        {myLocation && (
-          <Marker position={[myLocation.lat, myLocation.lng]} icon={myLocationDivIcon}>
-            <Popup eventHandlers={{ remove: () => setMyLocation(null) }}>
-              <div>
-                <p style={{ margin: 0, fontWeight: 600, fontSize: '12px' }}>Your Location</p>
-                {myLocation.accuracy > 0 && (
-                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
-                    Accuracy: ±{Math.round(myLocation.accuracy)} m
-                  </p>
-                )}
-                <button
-                  onClick={() => openStreetViewAt(myLocation.lat, myLocation.lng)}
-                  style={{
-                    marginTop: '6px',
-                    background: '#2563eb',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Open Street View here
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        )}
-      </MapContainer>
+      )}
 
       {enableMapSearch && (
         <div className="absolute top-3 left-3 z-[1100] w-[min(420px,calc(100%-1.5rem))]">

@@ -17,9 +17,9 @@ type StockItemRecord = Awaited<ReturnType<typeof prisma.stockItem.findFirst>>;
 type PropertyListingPayload = {
   name: string;
   address: string;
-  latitude: number;
-  longitude: number;
-  placeId: string;
+  latitude?: number;
+  longitude?: number;
+  placeId?: string;
   price: number;
   moduleScope: 'leasing' | 'sales' | 'auction';
   propertyType: string;
@@ -47,6 +47,14 @@ function normalizeNumber(value: unknown): number | undefined {
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
+}
+
+function normalizePlaceId(value: unknown): string | undefined {
+  const placeId = normalizeText(value);
+  if (!placeId || placeId.startsWith('existing:')) {
+    return undefined;
+  }
+  return placeId;
 }
 
 function detailString(details: Record<string, unknown>, keys: string[], fallback = ''): string {
@@ -128,16 +136,8 @@ function extractPropertyListingPayload(input: {
     normalizeNumber(input.latitude) ?? detailNumber(input.details, ['latitude', 'lat']);
   const longitude =
     normalizeNumber(input.longitude) ?? detailNumber(input.details, ['longitude', 'lng']);
-  const placeId = detailString(input.details, ['placeId', 'googlePlaceId']);
+  const placeId = normalizePlaceId(detailString(input.details, ['placeId', 'googlePlaceId']));
   const price = detailNumber(input.details, ['purchasePrice', 'value', 'price'], 0) || 0;
-
-  if (!placeId || !name || !address || latitude === undefined || longitude === undefined) {
-    throw new Error('Please select a valid property from the map');
-  }
-
-  if (price <= 0) {
-    throw new Error('Price is required and must be greater than 0');
-  }
 
   const normalizedModule = normalizeModuleScope(input.module) || 'sales';
   const moduleScope = normalizedModule === 'auction' ? 'auction' : normalizedModule;
@@ -229,53 +229,92 @@ async function resolvePropertyId(input: {
   longitude?: number;
 }> {
   const listing = extractPropertyListingPayload(input);
+  const existingById = input.propertyId
+    ? await prisma.property.findUnique({ where: { id: input.propertyId } })
+    : null;
+
   if (listing) {
-    const existingById = input.propertyId
-      ? await prisma.property.findUnique({ where: { id: input.propertyId } })
-      : null;
+    const resolvedName =
+      listing.name ||
+      existingById?.title ||
+      detailString(
+        input.details,
+        ['itemName', 'propertyName', 'centreItemName', 'name'],
+        normalizeText(input.name) || input.module || 'Stock Item'
+      );
+    const resolvedAddress =
+      listing.address || existingById?.address || normalizeText(input.address) || resolvedName;
+    const resolvedLatitude =
+      listing.latitude ?? existingById?.latitude ?? normalizeNumber(input.latitude);
+    const resolvedLongitude =
+      listing.longitude ?? existingById?.longitude ?? normalizeNumber(input.longitude);
     const existingByLocation = existingById
       ? null
-      : await prisma.property.findFirst({
+      : resolvedAddress && resolvedLatitude !== undefined && resolvedLongitude !== undefined
+        ? await prisma.property.findFirst({
           where: {
-            address: listing.address,
-            latitude: listing.latitude,
-            longitude: listing.longitude,
+            address: resolvedAddress,
+            latitude: resolvedLatitude,
+            longitude: resolvedLongitude,
           },
-        });
+          })
+        : null;
     const existingProperty = existingById || existingByLocation;
+    const existingMetadata = toDetailsObject(existingProperty?.metadata);
+    const resolvedCity = listing.city || existingProperty?.city || 'Unknown';
+    const resolvedProvince = listing.province || existingProperty?.province || 'Unknown';
+    const resolvedPostalCode = listing.postalCode || existingProperty?.postalCode || 'Unknown';
+    const resolvedArea = listing.area || existingProperty?.area || 0;
+    const resolvedPrice = listing.price > 0 ? listing.price : existingProperty?.price || 0;
+    const selectedFromMap =
+      input.details.selectedFromMap === true ||
+      String(input.details.selectedFromMap || '').trim().toLowerCase() === 'true' ||
+      Boolean(listing.placeId);
     const metadata = {
-      ...toDetailsObject(existingProperty?.metadata),
+      ...existingMetadata,
       ...input.details,
       stockKind: 'property_listing',
-      stockSource: 'google_places',
-      googlePlaceId: listing.placeId,
+      stockSource: detailString(
+        input.details,
+        ['stockSource'],
+        existingProperty ? 'properties' : listing.placeId ? 'google_places' : 'stock_items'
+      ),
+      googlePlaceId:
+        listing.placeId ||
+        normalizePlaceId(existingMetadata.googlePlaceId) ||
+        normalizePlaceId(existingMetadata.placeId),
       moduleScope: listing.moduleScope,
-      displayName: listing.name,
-      propertyName: listing.name,
-      propertyAddress: listing.address,
-      formatted_address: listing.address,
-      address: listing.address,
-      latitude: listing.latitude,
-      longitude: listing.longitude,
-      city: listing.city,
-      area: listing.area,
+      displayName: resolvedName,
+      propertyName: resolvedName,
+      propertyAddress: resolvedAddress,
+      formatted_address: resolvedAddress,
+      address: resolvedAddress,
+      latitude: resolvedLatitude,
+      longitude: resolvedLongitude,
+      city: resolvedCity,
+      area: resolvedArea,
+      placeId:
+        listing.placeId ||
+        normalizePlaceId(existingMetadata.placeId) ||
+        normalizePlaceId(existingMetadata.googlePlaceId),
+      selectedFromMap,
     };
 
     const nextBrokerId = input.createdByBrokerId || existingProperty?.brokerId || undefined;
     const payload = {
-      title: listing.name,
+      title: resolvedName,
       description: listing.description || existingProperty?.description || '',
-      address: listing.address,
-      city: listing.city || existingProperty?.city || 'Unknown',
-      province: listing.province || existingProperty?.province || 'Unknown',
-      postalCode: listing.postalCode || existingProperty?.postalCode || 'Unknown',
+      address: resolvedAddress,
+      city: resolvedCity,
+      province: resolvedProvince,
+      postalCode: resolvedPostalCode,
       type: listing.propertyType || existingProperty?.type || listing.moduleScope,
       status: listing.propertyStatus || existingProperty?.status || 'for_sale',
       moduleType: listing.moduleScope,
-      price: listing.price,
-      area: listing.area,
-      latitude: listing.latitude,
-      longitude: listing.longitude,
+      price: resolvedPrice,
+      area: resolvedArea,
+      latitude: resolvedLatitude,
+      longitude: resolvedLongitude,
       brokerId: nextBrokerId,
       metadata,
     };
@@ -292,34 +331,31 @@ async function resolvePropertyId(input: {
 
     return {
       propertyId: property.id,
-      name: listing.name,
-      address: listing.address,
+      name: resolvedName,
+      address: resolvedAddress,
       city: property.city,
       area: property.area,
-      latitude: listing.latitude,
-      longitude: listing.longitude,
+      latitude: property.latitude ?? resolvedLatitude,
+      longitude: property.longitude ?? resolvedLongitude,
     };
   }
 
-  if (input.propertyId) {
-    const existing = await prisma.property.findUnique({ where: { id: input.propertyId } });
-    if (existing) {
-      return {
-        propertyId: existing.id,
-        name:
-          normalizeText(input.name) ||
-          existing.title ||
-          detailString(input.details, ['itemName', 'propertyName', 'centreItemName', 'name']),
-        address:
-          normalizeText(input.address) ||
-          existing.address ||
-          detailString(input.details, ['formatted_address', 'location', 'address', 'propertyAddress']),
-        city: existing.city,
-        area: existing.area,
-        latitude: existing.latitude ?? normalizeNumber(input.latitude),
-        longitude: existing.longitude ?? normalizeNumber(input.longitude),
-      };
-    }
+  if (existingById) {
+    return {
+      propertyId: existingById.id,
+      name:
+        normalizeText(input.name) ||
+        existingById.title ||
+        detailString(input.details, ['itemName', 'propertyName', 'centreItemName', 'name']),
+      address:
+        normalizeText(input.address) ||
+        existingById.address ||
+        detailString(input.details, ['formatted_address', 'location', 'address', 'propertyAddress']),
+      city: existingById.city,
+      area: existingById.area,
+      latitude: existingById.latitude ?? normalizeNumber(input.latitude),
+      longitude: existingById.longitude ?? normalizeNumber(input.longitude),
+    };
   }
 
   const itemName = detailString(

@@ -24,6 +24,7 @@ interface MapPropertiesProps {
 }
 
 const OWNERSHIP_STATUS_OPTIONS = ['Owned', 'For Lease', 'For Sale', 'Auction'] as const;
+const DEFAULT_OWNERSHIP_STATUS = OWNERSHIP_STATUS_OPTIONS[0];
 
 const isForSaleStatus = (status?: string): boolean =>
   ['for sale', 'for_sale'].includes(String(status || '').trim().toLowerCase());
@@ -55,6 +56,13 @@ const normalizeMapPropertyType = (typeValue: unknown): string => {
   }
 
   return rawType;
+};
+
+const parseNumberInput = (value: unknown): number | undefined => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const toPropertyRecordStatus = (status?: string): string => {
@@ -313,7 +321,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     gla: "",
     yearBuilt: "",
     condition: "",
-    ownershipStatus: "",
+    ownershipStatus: DEFAULT_OWNERSHIP_STATUS,
     latitude: "",
     longitude: "",
     areaName: "",
@@ -771,7 +779,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       gla: "",
       yearBuilt: "",
       condition: "",
-      ownershipStatus: "",
+      ownershipStatus: DEFAULT_OWNERSHIP_STATUS,
       latitude: "",
       longitude: "",
       areaName: "",
@@ -792,6 +800,185 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     setNewCentreContacts([]);
     setShowCompanySuggestions(false);
     setShowFundSuggestions(false);
+  };
+
+  const handleCreateProperty = async () => {
+    const trimmedName = newProperty.name.trim();
+    const trimmedAddress = newProperty.address.trim();
+
+    if (!trimmedName) {
+      showNotification('Please enter property name', 'error');
+      return;
+    }
+
+    if (!trimmedAddress) {
+      showNotification('Please enter property address', 'error');
+      return;
+    }
+
+    const linkedCompanyQuery = newProperty.linkedCompanyName.trim();
+    const linkedFundQuery = newProperty.linkedFundName.trim();
+    const selectedCompany = newProperty.linkedCompanyId
+      ? companyOptions.find((company) => company.id === newProperty.linkedCompanyId)
+      : companyOptions.find(
+          (company) => company.name.toLowerCase() === linkedCompanyQuery.toLowerCase()
+        );
+    const selectedFund = newProperty.linkedFundId
+      ? fundOptions.find((fund) => fund.id === newProperty.linkedFundId)
+      : fundOptions.find(
+          (fund) => fund.name.toLowerCase() === linkedFundQuery.toLowerCase()
+        );
+
+    if (linkedCompanyQuery && !selectedCompany) {
+      showNotification('Please select a valid linked company from CRM suggestions.', 'error');
+      return;
+    }
+
+    if (linkedFundQuery && !selectedFund) {
+      showNotification('Please select a valid linked fund from CRM Property Funds suggestions.', 'error');
+      return;
+    }
+
+    const linkedCompanyId = selectedCompany?.id || undefined;
+    const linkedCompanyName = selectedCompany?.name || undefined;
+    const linkedFundId = selectedFund?.id || undefined;
+    const linkedFundName = selectedFund?.name || undefined;
+
+    let resolvedLat = parseNumberInput(newProperty.latitude);
+    let resolvedLng = parseNumberInput(newProperty.longitude);
+    let resolvedAddress = trimmedAddress;
+
+    if (resolvedLat === undefined || resolvedLng === undefined) {
+      try {
+        const geo = await fetchAddressGeocode(trimmedAddress);
+        if (geo) {
+          resolvedLat = geo.lat;
+          resolvedLng = geo.lng;
+          resolvedAddress = geo.formattedAddress;
+        }
+      } catch (error) {
+        console.warn('Address geocode during add failed:', error);
+      }
+    }
+
+    const squareFeet = parseNumberInput(newProperty.squareFeet) ?? 0;
+    const gla = parseNumberInput(newProperty.gla) ?? squareFeet;
+    const yearBuilt = Math.round(
+      parseNumberInput(newProperty.yearBuilt) ?? new Date().getFullYear()
+    );
+    const resolvedOwnershipStatus = newProperty.ownershipStatus || DEFAULT_OWNERSHIP_STATUS;
+    const resolvedType = newProperty.type.trim() || 'Unknown';
+    const resolvedCondition = newProperty.condition || 'Unknown';
+
+    let createdProperty;
+    try {
+      createdProperty = await propertyService.createProperty({
+        title: trimmedName,
+        description: 'Property added from the map screen.',
+        address: resolvedAddress,
+        city: '',
+        province: '',
+        postalCode: '',
+        type: resolvedType,
+        moduleType: inferModuleTypeFromOwnershipStatus(resolvedOwnershipStatus),
+        status: toPropertyRecordStatus(resolvedOwnershipStatus),
+        price: 0,
+        area: squareFeet,
+        latitude: resolvedLat,
+        longitude: resolvedLng,
+        metadata: {
+          displayName: trimmedName,
+          ownershipStatus: resolvedOwnershipStatus,
+          linkedCompanyId,
+          linkedCompanyName,
+          linkedFundId,
+          linkedFundName,
+          propertyType: resolvedType,
+          squareFeet,
+          gla,
+          yearBuilt,
+          condition: resolvedCondition,
+          areaName: newProperty.areaName.trim() || undefined,
+          anchor: newProperty.anchor.trim() || undefined,
+          registrationNumber: newProperty.registrationNumber.trim() || undefined,
+          registrationName: newProperty.registrationName.trim() || undefined,
+          ownerName: newProperty.ownerName.trim() || undefined,
+          ownerEmail: newProperty.ownerEmail.trim() || undefined,
+          ownerContactNumber: newProperty.ownerContactNumber.trim() || undefined,
+          tenantName: newProperty.tenantName.trim() || undefined,
+          tenantEmail: newProperty.tenantEmail.trim() || undefined,
+          tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
+          centreContacts: newCentreContacts
+            .map((c) => ({
+              name: c.name.trim(),
+              role: c.role.trim(),
+              phone: c.phone.trim(),
+              email: c.email.trim(),
+            }))
+            .filter((c) => c.name || c.role || c.phone || c.email),
+        },
+      });
+    } catch (error) {
+      showNotification(
+        `Failed to save property: ${error instanceof Error ? error.message : String(error)}`,
+        'error'
+      );
+      return;
+    }
+
+    const remappedProperty =
+      mapBackendPropertyToMapProperty(createdProperty) ||
+      normalizeProperty({
+        ...createdProperty,
+        title: createdProperty.title || trimmedName,
+        address: createdProperty.address || resolvedAddress,
+        latitude: createdProperty.latitude ?? resolvedLat,
+        longitude: createdProperty.longitude ?? resolvedLng,
+        assignedBrokerName: createdProperty.assignedBrokerName || 'Unassigned',
+        assignedBrokerId: createdProperty.assignedBrokerId || createdProperty.brokerId,
+        metadata: {
+          ...(createdProperty.metadata && typeof createdProperty.metadata === 'object'
+            ? createdProperty.metadata
+            : {}),
+          displayName: trimmedName,
+          ownershipStatus: resolvedOwnershipStatus,
+          linkedCompanyId,
+          linkedCompanyName,
+          linkedFundId,
+          linkedFundName,
+          propertyType: resolvedType,
+          squareFeet,
+          gla,
+          yearBuilt,
+          condition: resolvedCondition,
+        },
+      });
+
+    if (!remappedProperty) {
+      showNotification('Property was saved but could not be shown on the map.', 'error');
+      setShowAddPropertyModal(false);
+      resetForm();
+      return;
+    }
+
+    const next = [remappedProperty, ...properties];
+    persistProperties(next);
+    setSelectedProperty(remappedProperty);
+    if (hasPropertyCoordinates(remappedProperty)) {
+      setFocusLocation({
+        lat: remappedProperty.latitude!,
+        lng: remappedProperty.longitude!,
+        zoom: 16,
+      });
+    }
+    syncPropertyToStockIfForSale(remappedProperty);
+    setShowAddPropertyModal(false);
+    resetForm();
+    showNotification(
+      hasPropertyCoordinates(remappedProperty)
+        ? `Property "${remappedProperty.name}" added successfully.`
+        : `Property "${remappedProperty.name}" saved. Coordinates will be resolved when available.`
+    );
   };
 
   // Auto-geocode any properties that have an address but no coordinates.
@@ -1526,7 +1713,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       </div>
 
       {showAddPropertyModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1400] p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
@@ -1608,7 +1795,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Location</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Latitude <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Latitude</label>
                     <input
                       type="number"
                       step="0.0001"
@@ -1621,7 +1808,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Longitude <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Longitude</label>
                     <input
                       type="number"
                       step="0.0001"
@@ -1634,6 +1821,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                 </div>
+                <p className="text-xs text-stone-400">
+                  Coordinates are optional. We&apos;ll try to resolve them automatically from the address.
+                </p>
               </div>
 
               <div className="border-t border-stone-100" />
@@ -1643,7 +1833,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Property Details</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Type <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Type</label>
                     <select
                       value={newProperty.type}
                       onChange={(e) =>
@@ -1663,7 +1853,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Size (sqm) <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Size (sqm)</label>
                     <input
                       type="number"
                       placeholder="e.g., 50000"
@@ -1675,7 +1865,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">GLA (sqm) <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">GLA (sqm)</label>
                     <input
                       type="number"
                       placeholder="e.g., 42000"
@@ -1699,7 +1889,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Condition <span className="text-red-400">*</span></label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Condition</label>
                     <select
                       value={newProperty.condition}
                       onChange={(e) =>
@@ -1712,6 +1902,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                       <option value="Good">Good</option>
                       <option value="Fair">Fair</option>
                       <option value="Poor">Poor</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Ownership Status</label>
+                    <select
+                      value={newProperty.ownershipStatus}
+                      onChange={(e) =>
+                        setNewProperty({ ...newProperty, ownershipStatus: e.target.value })
+                      }
+                      className="w-full border border-stone-200 rounded-lg px-3 py-2.5 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                    >
+                      {OWNERSHIP_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -2040,191 +2246,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                 Cancel
               </button>
               <button
-                onClick={async () => {
-                  if (!newProperty.name.trim()) {
-                    showNotification('Please enter property name', 'error');
-                    return;
-                  }
-                  if (!newProperty.address.trim()) {
-                    showNotification('Please enter property address', 'error');
-                    return;
-                  }
-                  if (!newProperty.type) {
-                    showNotification('Please select property type', 'error');
-                    return;
-                  }
-                  if (!newProperty.squareFeet) {
-                    showNotification('Please enter property size', 'error');
-                    return;
-                  }
-                  if (!newProperty.gla) {
-                    showNotification('Please enter GLA', 'error');
-                    return;
-                  }
-                  if (!newProperty.condition) {
-                    showNotification('Please select condition', 'error');
-                    return;
-                  }
-                  const linkedCompanyQuery = newProperty.linkedCompanyName.trim();
-                  const linkedFundQuery = newProperty.linkedFundName.trim();
-                  const selectedCompany = newProperty.linkedCompanyId
-                    ? companyOptions.find((company) => company.id === newProperty.linkedCompanyId)
-                    : companyOptions.find(
-                        (company) => company.name.toLowerCase() === linkedCompanyQuery.toLowerCase()
-                      );
-                  const selectedFund = newProperty.linkedFundId
-                    ? fundOptions.find((fund) => fund.id === newProperty.linkedFundId)
-                    : fundOptions.find(
-                        (fund) => fund.name.toLowerCase() === linkedFundQuery.toLowerCase()
-                      );
-
-                  if (linkedCompanyQuery && !selectedCompany) {
-                    showNotification('Please select a valid linked company from CRM suggestions.', 'error');
-                    return;
-                  }
-
-                  if (linkedFundQuery && !selectedFund) {
-                    showNotification('Please select a valid linked fund from CRM Property Funds suggestions.', 'error');
-                    return;
-                  }
-
-                  const linkedCompanyId = selectedCompany?.id || undefined;
-                  const linkedCompanyName = selectedCompany?.name || undefined;
-                  const linkedFundId = selectedFund?.id || undefined;
-                  const linkedFundName = selectedFund?.name || undefined;
-
-                  let resolvedLat: number | null = null;
-                  let resolvedLng: number | null = null;
-                  let resolvedAddress = newProperty.address.trim();
-
-                  try {
-                    const geo = await fetchAddressGeocode(newProperty.address.trim());
-                    if (geo) {
-                      resolvedLat = geo.lat;
-                      resolvedLng = geo.lng;
-                      resolvedAddress = geo.formattedAddress;
-                    }
-                  } catch (error) {
-                    console.warn('Address geocode during add failed:', error);
-                  }
-
-                  if (resolvedLat === null || resolvedLng === null) {
-                    if (!newProperty.latitude || !newProperty.longitude) {
-                      showNotification('Could not resolve address. Please enter valid coordinates.', 'error');
-                      return;
-                    }
-                    resolvedLat = parseFloat(newProperty.latitude);
-                    resolvedLng = parseFloat(newProperty.longitude);
-                  }
-
-                  if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLng)) {
-                    showNotification('Please enter valid latitude and longitude', 'error');
-                    return;
-                  }
-
-                  let createdProperty;
-                  try {
-                    createdProperty = await propertyService.createProperty({
-                      title: newProperty.name.trim(),
-                      description: 'Property added from the map screen.',
-                      address: resolvedAddress,
-                      city: '',
-                      province: '',
-                      postalCode: '',
-                      type: newProperty.type,
-                      moduleType: inferModuleTypeFromOwnershipStatus(newProperty.ownershipStatus),
-                      status: toPropertyRecordStatus(newProperty.ownershipStatus),
-                      price: 0,
-                      area: parseInt(newProperty.squareFeet),
-                      latitude: resolvedLat,
-                      longitude: resolvedLng,
-                      metadata: {
-                        displayName: newProperty.name.trim(),
-                        ownershipStatus: newProperty.ownershipStatus,
-                        linkedCompanyId,
-                        linkedCompanyName,
-                        linkedFundId,
-                        linkedFundName,
-                        propertyType: newProperty.type,
-                        squareFeet: parseInt(newProperty.squareFeet),
-                        gla: parseInt(newProperty.gla),
-                        yearBuilt: parseInt(newProperty.yearBuilt),
-                        condition: newProperty.condition,
-                        areaName: newProperty.areaName.trim() || undefined,
-                        anchor: newProperty.anchor.trim() || undefined,
-                        registrationNumber: newProperty.registrationNumber.trim() || undefined,
-                        registrationName: newProperty.registrationName.trim() || undefined,
-                        ownerName: newProperty.ownerName.trim() || undefined,
-                        ownerEmail: newProperty.ownerEmail.trim() || undefined,
-                        ownerContactNumber: newProperty.ownerContactNumber.trim() || undefined,
-                        tenantName: newProperty.tenantName.trim() || undefined,
-                        tenantEmail: newProperty.tenantEmail.trim() || undefined,
-                        tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
-                        centreContacts: newCentreContacts
-                          .map((c) => ({
-                            name: c.name.trim(),
-                            role: c.role.trim(),
-                            phone: c.phone.trim(),
-                            email: c.email.trim(),
-                          }))
-                          .filter((c) => c.name || c.role || c.phone || c.email),
-                      },
-                    });
-                  } catch (error) {
-                    showNotification(
-                      `Failed to save property: ${error instanceof Error ? error.message : String(error)}`,
-                      'error'
-                    );
-                    return;
-                  }
-
-                  const newProp: Property = {
-                    id: createdProperty.id,
-                    assetId: `AST-${String(createdProperty.id).slice(-6).toUpperCase()}`,
-                    name: newProperty.name,
-                    address: createdProperty.address || resolvedAddress,
-                    latitude: Number.isFinite(createdProperty.latitude)
-                      ? Number(createdProperty.latitude)
-                      : resolvedLat,
-                    longitude: Number.isFinite(createdProperty.longitude)
-                      ? Number(createdProperty.longitude)
-                      : resolvedLng,
-                    markerColor: "#16a34a",
-                    details: {
-                      type: createdProperty.type || newProperty.type,
-                      squareFeet: parseInt(newProperty.squareFeet),
-                      gla: parseInt(newProperty.gla),
-                      yearBuilt: parseInt(newProperty.yearBuilt),
-                      condition: newProperty.condition,
-                      ownershipStatus: newProperty.ownershipStatus,
-                    },
-                    linkedDeals: [],
-                    leasingSalesRecords: [],
-                    linkedContacts: [],
-                    linkedCompanyId,
-                    linkedCompanyName,
-                    linkedFundId,
-                    linkedFundName,
-                    brokerName: createdProperty.assignedBrokerName || "Unassigned",
-                    brokerId: createdProperty.assignedBrokerId || createdProperty.brokerId,
-                    registrationNumber: newProperty.registrationNumber.trim() || undefined,
-                    registrationName: newProperty.registrationName.trim() || undefined,
-                    ownerName: newProperty.ownerName.trim() || undefined,
-                    ownerEmail: newProperty.ownerEmail.trim() || undefined,
-                    ownerContactNumber: newProperty.ownerContactNumber.trim() || undefined,
-                    tenantName: newProperty.tenantName.trim() || undefined,
-                    tenantEmail: newProperty.tenantEmail.trim() || undefined,
-                    tenantContactNumber: newProperty.tenantContactNumber.trim() || undefined,
-                  };
-
-                  const next = [newProp, ...properties];
-                  persistProperties(next);
-                  setSelectedProperty(newProp);
-                  syncPropertyToStockIfForSale(newProp);
-                  setShowAddPropertyModal(false);
-                  resetForm();
-                  showNotification(`Property "${newProperty.name}" added successfully.`);
-                }}
+                onClick={() => void handleCreateProperty()}
                 className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
               >
                 <FiPlus size={16} />
@@ -2237,7 +2259,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
 
       {/* ─── Import Properties Modal ─────────────────────────────────────── */}
       {showImportModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[1400] p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[92vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
