@@ -349,6 +349,9 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [placesResults, setPlacesResults] = useState<Array<{
     id: string; name: string; address: string; lat: number; lng: number; rating?: number;
   }>>([]);
+  const [livePlaceMatches, setLivePlaceMatches] = useState<Array<{
+    id: string; name: string; address: string; lat: number; lng: number; rating?: number;
+  }>>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPlacesResult, setSelectedPlacesResult] = useState<{
     id: string; name: string; address: string; lat: number; lng: number;
@@ -359,6 +362,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
   const [focusLocation, setFocusLocation] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const mapSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const livePlacesQueryRef = useRef('');
   // ────────────────────────────────────────────────────────────────────────
 
   const loadData = React.useCallback(async () => {
@@ -1151,7 +1155,17 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     }
   };
 
-  // ── Google Maps-style search helpers ────────────────────────────────────
+  const mapSearchResultFromNominatim = React.useCallback(
+    (result: any) => ({
+      id: result.placeId,
+      name: result.name || result.displayName.split(',')[0] || '',
+      address: result.formattedAddress,
+      lat: result.latitude,
+      lng: result.longitude,
+    }),
+    []
+  );
+
   const crmMatches = React.useMemo(() => {
     if (!mapSearch.trim() || mapSearch.length < 2) return [];
     const q = mapSearch.toLowerCase();
@@ -1162,22 +1176,66 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
     ).slice(0, 5);
   }, [mapSearch, filteredProperties]);
 
+  useEffect(() => {
+    const q = mapSearch.trim();
+    livePlacesQueryRef.current = q;
+
+    if (q.length < 3) {
+      setLivePlaceMatches([]);
+      if (activePanel === 'search') {
+        setPlacesResults([]);
+        setShowResultsPanel(false);
+      }
+      setIsSearching(false);
+      return;
+    }
+
+    const handle = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await autocompleteAddress(q);
+        if (livePlacesQueryRef.current !== q) return;
+        const mapped = results.map(mapSearchResultFromNominatim);
+        setLivePlaceMatches(mapped);
+        setPlacesResults(mapped);
+        setActivePanel('search');
+        setShowResultsPanel(true);
+      } finally {
+        if (livePlacesQueryRef.current === q) {
+          setIsSearching(false);
+        }
+      }
+    }, 650);
+
+    return () => clearTimeout(handle);
+  }, [activePanel, mapSearch, mapSearchResultFromNominatim]);
+
+  const selectPlaceResult = React.useCallback(
+    (result: { id: string; name: string; address: string; lat: number; lng: number }) => {
+      setMapSearch(result.address || result.name);
+      setSelectedProperty(null);
+      setSelectedPlacesResult(result);
+      setActivePanel('search');
+      setShowResultsPanel(true);
+      setShowSearchDropdown(false);
+      setFocusLocation({ lat: result.lat, lng: result.lng, zoom: 16 });
+    },
+    [setSelectedProperty]
+  );
+
   const runTextSearch = React.useCallback(
     async (query: string) => {
       const q = query.trim();
       if (!q) return;
+      livePlacesQueryRef.current = q;
       setIsSearching(true);
       setShowSearchDropdown(false);
       try {
         const results = await searchPlaces(q, { limit: 10 });
-        const mapped = results.map((r) => ({
-          id: r.placeId,
-          name: r.name || r.displayName.split(',')[0] || '',
-          address: r.formattedAddress,
-          lat: r.latitude,
-          lng: r.longitude,
-        }));
+        const mapped = results.map(mapSearchResultFromNominatim);
+        setLivePlaceMatches(mapped);
         setPlacesResults(mapped);
+        setSelectedProperty(null);
         setActivePanel('search');
         setShowResultsPanel(true);
         if (mapInstance && mapped.length > 0) {
@@ -1189,18 +1247,22 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         setIsSearching(false);
       }
     },
-    [mapInstance]
+    [mapInstance, mapSearchResultFromNominatim, setSelectedProperty]
   );
 
   const clearSearch = React.useCallback(() => {
     setMapSearch('');
     setShowSearchDropdown(false);
+    setLivePlaceMatches([]);
     setPlacesResults([]);
     setSelectedPlacesResult(null);
+    setFocusLocation(null);
     setShowResultsPanel((prev) => (activePanel === 'search' ? false : prev));
   }, [activePanel]);
 
   const selectCrmProperty = React.useCallback((property: Property) => {
+    setSelectedPlacesResult(null);
+    setShowSearchDropdown(false);
     void focusPropertyOnMap(property);
   }, [focusPropertyOnMap]);
   // ────────────────────────────────────────────────────────────────────────
@@ -1268,8 +1330,15 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
               ref={mapSearchInputRef}
               value={mapSearch}
               onChange={(e) => {
-                setMapSearch(e.target.value);
-                setShowSearchDropdown(e.target.value.length > 1);
+                const nextValue = e.target.value;
+                setMapSearch(nextValue);
+                setSelectedPlacesResult(null);
+                setShowSearchDropdown(nextValue.length > 1);
+                if (!nextValue.trim()) {
+                  setLivePlaceMatches([]);
+                  setPlacesResults([]);
+                  setFocusLocation(null);
+                }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && mapSearch.trim()) runTextSearch(mapSearch);
@@ -1305,6 +1374,28 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium shrink-0">CRM</span>
                 </button>
               ))}
+              {livePlaceMatches.map((result) => (
+                <button
+                  key={result.id}
+                  onClick={() => selectPlaceResult(result)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-stone-50 text-left transition-colors border-t border-stone-100"
+                >
+                  <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-stone-900 truncate">{result.name}</p>
+                    <p className="text-xs text-stone-500 truncate">{result.address}</p>
+                  </div>
+                  <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-medium shrink-0">Address</span>
+                </button>
+              ))}
+              {!isSearching && crmMatches.length === 0 && livePlaceMatches.length === 0 && mapSearch.trim().length >= 3 && (
+                <div className="px-4 py-3 text-xs text-stone-500 border-t border-stone-100">
+                  No address suggestions yet. Press Enter to run a wider map search.
+                </div>
+              )}
               <button
                 onClick={() => runTextSearch(mapSearch)}
                 className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-t border-stone-100 transition-colors"
@@ -1313,7 +1404,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 <p className="text-sm text-blue-600">
-                  Search Google Maps for &ldquo;<span className="font-semibold">{mapSearch}</span>&rdquo;
+                  Search OpenStreetMap for &ldquo;<span className="font-semibold">{mapSearch}</span>&rdquo;
                 </p>
               </button>
             </div>
@@ -1350,8 +1441,15 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
             {activePanel === 'search' && (
               <>
                 {placesResults.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-32 text-stone-400">
-                    <p className="text-sm">No results found</p>
+                  <div className="flex flex-col items-center justify-center h-32 text-stone-400 gap-2">
+                    {isSearching ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm">Searching addresses...</p>
+                      </>
+                    ) : (
+                      <p className="text-sm">No results found</p>
+                    )}
                   </div>
                 ) : (
                   placesResults.map((result, index) => (

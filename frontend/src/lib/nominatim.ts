@@ -76,20 +76,78 @@ function mapRaw(raw: any): NominatimResult | null {
   };
 }
 
+function buildSearchUrl(
+  query: string,
+  options?: {
+    limit?: number;
+    viewbox?: [number, number, number, number];
+    includeNamedDetails?: boolean;
+    countryCode?: string;
+  }
+): string {
+  const limit = options?.limit ?? 8;
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    addressdetails: '1',
+    limit: String(limit),
+    q: query,
+  });
+
+  if (options?.includeNamedDetails) {
+    params.set('namedetails', '1');
+  }
+
+  if (options?.countryCode) {
+    params.set('countrycodes', options.countryCode);
+  }
+
+  if (options?.viewbox) {
+    const [west, south, east, north] = options.viewbox;
+    params.set('viewbox', `${west},${north},${east},${south}`);
+    params.set('bounded', '0');
+  }
+
+  return `${BASE}/search?${params.toString()}`;
+}
+
+async function fetchSearchJson(url: string): Promise<any[]> {
+  try {
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchWithSouthAfricaFallback(
+  query: string,
+  options?: { limit?: number; viewbox?: [number, number, number, number]; includeNamedDetails?: boolean }
+): Promise<any[]> {
+  const urls = [
+    buildSearchUrl(query, {
+      ...options,
+      countryCode: 'za',
+    }),
+    buildSearchUrl(query, options),
+  ];
+
+  for (let index = 0; index < urls.length; index += 1) {
+    await throttle();
+    const results = await fetchSearchJson(urls[index]);
+    if (results.length > 0) return results;
+  }
+
+  return [];
+}
+
 export async function geocodeAddress(address: string): Promise<NominatimResult | null> {
   const q = address.trim();
   if (!q) return null;
-  await throttle();
-  const url = `${BASE}/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=za&q=${encodeURIComponent(q)}`;
-  try {
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const first = Array.isArray(json) && json.length > 0 ? json[0] : null;
-    return first ? mapRaw(first) : null;
-  } catch {
-    return null;
-  }
+  const results = await fetchWithSouthAfricaFallback(q, { limit: 1 });
+  const first = results.length > 0 ? results[0] : null;
+  return first ? mapRaw(first) : null;
 }
 
 export async function searchPlaces(
@@ -98,22 +156,12 @@ export async function searchPlaces(
 ): Promise<NominatimResult[]> {
   const q = query.trim();
   if (!q) return [];
-  await throttle();
-  const limit = options?.limit ?? 8;
-  let url = `${BASE}/search?format=jsonv2&addressdetails=1&namedetails=1&limit=${limit}&countrycodes=za&q=${encodeURIComponent(q)}`;
-  if (options?.viewbox) {
-    const [west, south, east, north] = options.viewbox;
-    url += `&viewbox=${west},${north},${east},${south}&bounded=0`;
-  }
-  try {
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (!Array.isArray(json)) return [];
-    return json.map(mapRaw).filter((item): item is NominatimResult => Boolean(item));
-  } catch {
-    return [];
-  }
+  const json = await fetchWithSouthAfricaFallback(q, {
+    limit: options?.limit ?? 8,
+    viewbox: options?.viewbox,
+    includeNamedDetails: true,
+  });
+  return json.map(mapRaw).filter((item): item is NominatimResult => Boolean(item));
 }
 
 export async function autocompleteAddress(query: string): Promise<NominatimResult[]> {
