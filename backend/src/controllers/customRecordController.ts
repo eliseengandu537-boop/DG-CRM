@@ -106,6 +106,7 @@ export class CustomRecordController {
         status: req.query.status as string,
         category: req.query.category as string,
         search: req.query.search as string,
+        referenceId: req.query.referenceId as string,
         page: parseInt(req.query.page as string) || 1,
         limit: parseInt(req.query.limit as string) || 50,
       };
@@ -515,3 +516,4 @@ export class CustomRecordController {
 }
 
 export const customRecordController = new CustomRecordController();
+

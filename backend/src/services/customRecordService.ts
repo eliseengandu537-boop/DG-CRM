@@ -204,6 +204,7 @@ class CustomRecordService {
       status?: string;
       category?: string;
       search?: string;
+      referenceId?: string;
       page?: number;
       limit?: number;
     },
@@ -216,6 +217,7 @@ class CustomRecordService {
     if (filters?.entityType) where.entityType = filters.entityType;
     if (filters?.status) where.status = filters.status;
     if (filters?.category) where.category = filters.category;
+    if (filters?.referenceId) where.referenceId = filters.referenceId;
     if (filters?.search) {
       const search = filters.search.trim();
       if (search) {
@@ -611,3 +613,4 @@ class CustomRecordService {
 }
 
 export const customRecordService = new CustomRecordService();
+

@@ -28,6 +28,7 @@ export interface CustomRecordFilters {
   status?: string;
   category?: string;
   search?: string;
+  referenceId?: string;
   page?: number;
   limit?: number;
 }
@@ -52,6 +53,7 @@ class CustomRecordService {
       if (filters?.status) params.append('status', filters.status);
       if (filters?.category) params.append('category', filters.category);
       if (filters?.search) params.append('search', filters.search);
+      if (filters?.referenceId) params.append('referenceId', filters.referenceId);
       if (filters?.page) params.append('page', String(filters.page));
       if (filters?.limit) params.append('limit', String(filters.limit));
 
@@ -149,3 +151,4 @@ class CustomRecordService {
 
 export const customRecordService = new CustomRecordService();
 export default customRecordService;
+

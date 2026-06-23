@@ -29,6 +29,8 @@ import { reminderService, ReminderRecord } from '@/services/reminderService';
 import { LegalDocument } from '@/data/legaldocs';
 import { DealDateModal } from './DealDateModal';
 import { CommentModal } from './CommentModal';
+import { commentAuditService } from '@/services/commentAuditService';
+import { wipCommentService } from '@/services/wipCommentService';
 import { CanvassingSheets } from '@/components/Canvassing/CanvassingSheets';
 import { formatRand } from '@/lib/currency';
 import { playNotificationSound } from '@/lib/notificationAudio';
@@ -89,6 +91,23 @@ interface BrokerDetailProps {
 
 type WipStatusDocument = NonNullable<BrokerWipItem['statusDocuments']>[number];
 
+interface WipDocumentBrowserState {
+  dealName: string;
+  item: BrokerWipItem;
+  documents: WipStatusDocument[];
+}
+
+function getStatusDocumentDisplayName(document: WipStatusDocument): string {
+  return (
+    String(document.filledDocumentName || '').trim() ||
+    String(document.legalDocumentName || '').trim() ||
+    `${getStatusDocStepLabel(String(document.status))} Document`
+  );
+}
+
+function getStatusDocumentLoadingKey(document: WipStatusDocument): string {
+  return String(document.filledDocumentRecordId || document.legalDocumentId || document.id || '').trim();
+}
 function normalizeStatus(status: string): string {
   return String(status || '').trim().toLowerCase();
 }
@@ -437,14 +456,15 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [loadingLegalDocuments, setLoadingLegalDocuments] = useState(false);
   const [legalDocumentsError, setLegalDocumentsError] = useState<string | null>(null);
   const [selectedViewDocument, setSelectedViewDocument] = useState<LegalDocument | null>(null);
+  const [selectedDocumentBrowser, setSelectedDocumentBrowser] = useState<WipDocumentBrowserState | null>(null);
+  const [selectedBrowserDocument, setSelectedBrowserDocument] = useState<LegalDocument | null>(null);
+  const [documentBrowserError, setDocumentBrowserError] = useState<string | null>(null);
   const [loadingViewDocumentId, setLoadingViewDocumentId] = useState<string | null>(null);
   const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
   const [selectedDealForDateModal, setSelectedDealForDateModal] = useState<BrokerWipItem | null>(null);
   const [selectedDealForCommentModal, setSelectedDealForCommentModal] = useState<{
     dealName: string;
-    comment: string;
     id: string;
-    updatedAt?: string;
   } | null>(null);
   const [outcomeReminders, setOutcomeReminders] = useState<ReminderRecord[]>([]);
   const [dismissedReminderIds, setDismissedReminderIds] = useState<Set<string>>(new Set());
@@ -631,6 +651,30 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     () => new Map(legalDocuments.map(document => [document.id, document])),
     [legalDocuments]
   );
+  const getAvailableDocumentsForItem = useCallback(
+    (item: BrokerWipItem): WipStatusDocument[] => {
+      const statusDocuments = dedupeStatusDocumentsByStatus(item);
+      if (statusDocuments.length > 0) return statusDocuments;
+
+      const normalizedLegalDocument = String(item.legalDocument || '').trim();
+      if (!normalizedLegalDocument) return [];
+
+      const fallbackLegalDocument = legalDocumentById.get(normalizedLegalDocument);
+      return [
+        {
+          id: `legal-${item.id}`,
+          status: item.status,
+          documentType: '',
+          legalDocumentId: normalizedLegalDocument,
+          legalDocumentName: fallbackLegalDocument?.documentName || '',
+          version: 1,
+          uploadedAt: item.updatedAt,
+          lastModifiedAt: item.updatedAt,
+        } as WipStatusDocument,
+      ];
+    },
+    [legalDocumentById]
+  );
 
   const filteredProperties = useMemo(() => {
     return properties
@@ -708,13 +752,22 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     return String(item.dealId || '').trim();
   };
 
+  const fetchLegalDocumentById = async (documentId: string): Promise<LegalDocument> => {
+    const normalizedId = String(documentId || '').trim();
+    if (!normalizedId) {
+      throw new Error('No legal document linked');
+    }
+
+    return legalDocService.getDocumentById(normalizedId);
+  };
+
   const handleViewDocument = async (documentId: string) => {
     const normalizedId = String(documentId || '').trim();
     if (!normalizedId) return;
 
     setLoadingViewDocumentId(normalizedId);
     try {
-      const fullDocument = await legalDocService.getDocumentById(normalizedId);
+      const fullDocument = await fetchLegalDocumentById(normalizedId);
       setSelectedViewDocument(fullDocument);
     } catch (error) {
       setLegalDocumentsError(
@@ -859,11 +912,66 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     return { fileName, content, filledFields, fileType, filePath };
   };
 
-  /** Opens a filled or template document for a specific workflow status in the in-app viewer. */
-  const handleOpenStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
+  const buildStatusDocumentPreview = async (
+    statusDoc: WipStatusDocument
+  ): Promise<LegalDocument> => {
     const filledDocumentRecordId = String(statusDoc.filledDocumentRecordId || '').trim();
     const legalDocumentId = String(statusDoc.legalDocumentId || '').trim();
     const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
+    const isFilled = isStatusDocumentFilled(statusDoc);
+
+    if (isFilled || filledDocumentRecordId) {
+      const resolved = await resolveFilledDocument({
+        filledDocumentRecordId,
+        legalDocumentId,
+        fallbackName: statusDoc.filledDocumentName || `${stepLabel} Document`,
+      });
+
+      const displayContent =
+        resolved.fileType === 'pdf' && resolved.filePath
+          ? resolved.content
+          : buildFilledDocumentText({
+              documentName: resolved.fileName,
+              statusLabel: stepLabel,
+              content: resolved.content,
+              filledFields: resolved.filledFields,
+            });
+
+      const today = new Date().toISOString().split('T')[0];
+      return {
+        id: filledDocumentRecordId || statusDoc.id,
+        documentName: resolved.fileName || `${stepLabel} Document`,
+        documentType: 'Contract',
+        createdDate: today,
+        lastModifiedDate: today,
+        createdBy: 'Current User',
+        lastModifiedBy: 'Current User',
+        status: 'Executed',
+        fileSize: 0,
+        fileName: resolved.fileName,
+        description: `Filled ${stepLabel} document captured from the deal workflow`,
+        linkedAssets: [],
+        linkedDeals: [],
+        permissions: [],
+        tags: [],
+        version: 1,
+        content: displayContent,
+        fileType: resolved.fileType,
+        filePath: resolved.filePath,
+      };
+    }
+
+    if (!legalDocumentId) {
+      throw new Error(`No document linked for the ${stepLabel} step`);
+    }
+
+    return fetchLegalDocumentById(legalDocumentId);
+  };
+
+  /** Opens a filled or template document for a specific workflow status in the in-app viewer. */
+  const handleOpenStatusDocument = async (item: BrokerWipItem, statusDoc: WipStatusDocument) => {
+    const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
+    const loadingKey = getStatusDocumentLoadingKey(statusDoc) || statusDoc.id;
 
     setRowErrors(current => {
       const next = { ...current };
@@ -871,69 +979,54 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       return next;
     });
 
-    const isFilled = isStatusDocumentFilled(statusDoc);
-
-    if (isFilled || filledDocumentRecordId) {
-      setLoadingViewDocumentId(filledDocumentRecordId || legalDocumentId || statusDoc.id);
-      try {
-        const resolved = await resolveFilledDocument({
-          filledDocumentRecordId,
-          legalDocumentId,
-          fallbackName: statusDoc.filledDocumentName || `${stepLabel} Document`,
-        });
-
-        const displayContent =
-          resolved.fileType === 'pdf' && resolved.filePath
-            ? resolved.content
-            : buildFilledDocumentText({
-                documentName: resolved.fileName,
-                statusLabel: stepLabel,
-                content: resolved.content,
-                filledFields: resolved.filledFields,
-              });
-
-        const today = new Date().toISOString().split('T')[0];
-        setSelectedViewDocument({
-          id: filledDocumentRecordId || statusDoc.id,
-          documentName: resolved.fileName || `${stepLabel} Document`,
-          documentType: 'Contract',
-          createdDate: today,
-          lastModifiedDate: today,
-          createdBy: 'Current User',
-          lastModifiedBy: 'Current User',
-          status: 'Executed',
-          fileSize: 0,
-          fileName: resolved.fileName,
-          description: `Filled ${stepLabel} document captured from the deal workflow`,
-          linkedAssets: [],
-          linkedDeals: [],
-          permissions: [],
-          tags: [],
-          version: 1,
-          content: displayContent,
-          fileType: resolved.fileType,
-          filePath: resolved.filePath,
-        });
-      } catch (error) {
-        setRowErrors(current => ({
-          ...current,
-          [item.id]: error instanceof Error ? error.message : `Failed to open ${stepLabel} document`,
-        }));
-      } finally {
-        setLoadingViewDocumentId(null);
-      }
-      return;
-    }
-
-    if (!legalDocumentId) {
+    setLoadingViewDocumentId(loadingKey);
+    try {
+      const previewDocument = await buildStatusDocumentPreview(statusDoc);
+      setSelectedViewDocument(previewDocument);
+    } catch (error) {
       setRowErrors(current => ({
         ...current,
-        [item.id]: `No document linked for the ${stepLabel} step`,
+        [item.id]: error instanceof Error ? error.message : `Failed to open ${stepLabel} document`,
       }));
-      return;
+    } finally {
+      setLoadingViewDocumentId(null);
     }
+  };
 
-    await handleViewDocument(legalDocumentId);
+  const openDocumentBrowser = (item: BrokerWipItem) => {
+    const documents = getAvailableDocumentsForItem(item);
+    if (documents.length === 0) return;
+
+    setSelectedDocumentBrowser({
+      dealName: item.leadName || parseDealTitle(item.dealName).dealName,
+      item,
+      documents,
+    });
+    setSelectedBrowserDocument(null);
+    setDocumentBrowserError(null);
+  };
+
+  const closeDocumentBrowser = () => {
+    setSelectedDocumentBrowser(null);
+    setSelectedBrowserDocument(null);
+    setDocumentBrowserError(null);
+  };
+
+  const handleOpenDocumentFromBrowser = async (statusDoc: WipStatusDocument) => {
+    const loadingKey = getStatusDocumentLoadingKey(statusDoc) || statusDoc.id;
+    setDocumentBrowserError(null);
+    setLoadingViewDocumentId(loadingKey);
+
+    try {
+      const previewDocument = await buildStatusDocumentPreview(statusDoc);
+      setSelectedBrowserDocument(previewDocument);
+    } catch (error) {
+      setDocumentBrowserError(
+        error instanceof Error ? error.message : 'Failed to open document preview'
+      );
+    } finally {
+      setLoadingViewDocumentId(null);
+    }
   };
 
   /** Downloads the filled content of a workflow document as a .txt file. */
@@ -1125,9 +1218,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     const linkedDealId = resolveDealId(item);
     const linkedForecastId = String(item.forecastDealId || item.id || '').trim();
     const linkedLeadId = String(item.leadId || '').trim();
-    if (!linkedDealId && !linkedForecastId && !linkedLeadId) return;
     const normalizedComment = String(comment || '').trim();
     const currentStatusRequiresLegalDocument = statusRequiresLegalDocument(item.status);
+    let commentAddedToThread = false;
+
     if (statusRequiresComment(item.status) && !normalizedComment) {
       setRowErrors(current => ({
         ...current,
@@ -1146,6 +1240,23 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
 
     setSavingCommentId(item.id);
     try {
+      await wipCommentService.addComment({
+        item,
+        text: normalizedComment,
+        legacyComment: item.comment,
+        legacyCreatedAt: item.createdAt,
+        legacyUpdatedAt: item.updatedAt,
+        actor: user
+          ? {
+              id: user.id,
+              name: user.name,
+              role: user.role,
+              brokerId: user.brokerId,
+            }
+          : null,
+      });
+      commentAddedToThread = true;
+
       if (linkedLeadId) {
         await leadService.updateLeadComment(linkedLeadId, normalizedComment);
         setRows(current =>
@@ -1207,7 +1318,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
               : row
           )
         );
-      } else {
+      } else if (!linkedLeadId) {
         setRows(current =>
           current.map(row =>
             row.id === item.id
@@ -1220,10 +1331,55 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           )
         );
       }
+
+      try {
+        await commentAuditService.recordCommentAudit({
+          item,
+          previousComment: '',
+          nextComment: normalizedComment,
+          actor: user
+            ? {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                brokerId: user.brokerId,
+              }
+            : null,
+        });
+      } catch (auditError) {
+        setRowErrors(current => ({
+          ...current,
+          [item.id]:
+            auditError instanceof Error
+              ? `Comment added, but audit tracking failed: ${auditError.message}`
+              : 'Comment added, but audit tracking failed',
+        }));
+      }
     } catch (error) {
+      if (commentAddedToThread) {
+        setRows(current =>
+          current.map(row =>
+            row.id === item.id
+              ? {
+                  ...row,
+                  comment: normalizedComment,
+                  updatedAt: new Date().toISOString(),
+                }
+              : row
+          )
+        );
+      }
+
       setRowErrors(current => ({
         ...current,
-        [item.id]: error instanceof Error ? error.message : 'Failed to save comment',
+        [item.id]:
+          commentAddedToThread
+            ? error instanceof Error
+              ? `Comment added, but summary sync failed: ${error.message}`
+              : 'Comment added, but summary sync failed'
+            : error instanceof Error
+            ? error.message
+            : 'Failed to add comment',
       }));
     } finally {
       setSavingCommentId(null);
@@ -1277,10 +1433,8 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
 
   const openCommentEditor = (item: BrokerWipItem) => {
     setSelectedDealForCommentModal({
-      dealName: item.dealName,
-      comment: item.comment || '',
+      dealName: item.leadName || parseDealTitle(item.dealName).dealName,
       id: item.id,
-      updatedAt: item.updatedAt,
     });
   };
 
@@ -1294,6 +1448,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     const d = new Date(p.forecastedClosureDate);
     return d.getFullYear() === _nowDate.getFullYear() && d.getMonth() === _nowDate.getMonth();
   }).length;
+
+  const activeCommentItem = selectedDealForCommentModal
+    ? rows.find(row => row.id === selectedDealForCommentModal.id) || null
+    : null;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] space-y-5 p-1">
@@ -1595,35 +1753,12 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
               </thead>
               <tbody className="divide-y divide-stone-200">
                 {paginatedProperties.map((item, index) => {
-                  const normalizedLegalDocument = String(item.legalDocument || '').trim();
                   const normalizedComment = String(item.comment || '').trim();
-                  const statusDocuments = dedupeStatusDocumentsByStatus(item);
-                  const preferredStatusDocument = pickPreferredStatusDocument(item);
-                  const resolvedLegalDocumentId = String(
-                    normalizedLegalDocument || preferredStatusDocument?.legalDocumentId || ''
-                  ).trim();
+                  const documents = getAvailableDocumentsForItem(item);
                   const requiresComment = statusRequiresComment(item.status);
-                  const fallbackLegalDocument = legalDocumentById.get(resolvedLegalDocumentId);
                   const isMissingComment = requiresComment && !normalizedComment;
                   const rowError = rowErrors[item.id];
-                  const documentCount =
-                    statusDocuments.length > 0 ? statusDocuments.length : resolvedLegalDocumentId ? 1 : 0;
-                  const primaryDocument =
-                    statusDocuments[0] ||
-                    (preferredStatusDocument
-                      ? preferredStatusDocument
-                      : resolvedLegalDocumentId
-                      ? ({
-                          id: `legal-${item.id}`,
-                          status: item.status,
-                          documentType: '',
-                          legalDocumentId: resolvedLegalDocumentId,
-                          legalDocumentName: fallbackLegalDocument?.documentName || '',
-                          version: 1,
-                          uploadedAt: item.updatedAt,
-                          lastModifiedAt: item.updatedAt,
-                        } as WipStatusDocument)
-                      : null);
+                  const documentCount = documents.length;
                   const rowTone = index % 2 === 0 ? 'bg-white' : 'bg-stone-50/40';
                   const actionButtonClass =
                     'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-stone-500 transition-colors hover:border-blue-100 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40';
@@ -1740,14 +1875,10 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                       <td className="px-4 py-4 align-top">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (primaryDocument) {
-                              void handleOpenStatusDocument(item, primaryDocument);
-                            }
-                          }}
-                          disabled={!primaryDocument}
+                          onClick={() => openDocumentBrowser(item)}
+                          disabled={documentCount === 0}
                           className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:text-stone-400"
-                          title={primaryDocument ? 'Open linked documents' : 'No documents linked'}
+                          title={documentCount > 0 ? 'Open linked documents' : 'No documents linked'}
                         >
                           <FiFileText
                             size={15}
@@ -1911,6 +2042,139 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         status={selectedDealForDateModal?.status || ''}
       />
 
+      {selectedDocumentBrowser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeDocumentBrowser}>
+          <div className="w-full max-w-5xl rounded-2xl border border-stone-200 bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            {selectedBrowserDocument ? (
+              <>
+                <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50 px-5 py-4">
+                  <div className="min-w-0 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedBrowserDocument(null);
+                        setDocumentBrowserError(null);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-200 text-stone-600 transition-colors hover:bg-white hover:text-stone-900"
+                      title="Back to document list"
+                    >
+                      <FiArrowLeft size={16} />
+                    </button>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-semibold text-stone-900">Linked Documents</h3>
+                      <p className="truncate text-xs text-stone-500">{selectedBrowserDocument.documentName}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {selectedBrowserDocument.fileType !== 'pdf' && selectedBrowserDocument.content && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadTextFile(
+                            selectedBrowserDocument.fileName || selectedBrowserDocument.documentName,
+                            selectedBrowserDocument.content || ''
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-violet-700"
+                      >
+                        <FiDownload size={14} />
+                        Download
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={closeDocumentBrowser}
+                      className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-100"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+
+                <div className="h-[70vh] overflow-auto">
+                  {selectedBrowserDocument.fileType === 'pdf' &&
+                  selectedBrowserDocument.filePath &&
+                  !String(selectedBrowserDocument.filePath).startsWith('blob:') ? (
+                    <iframe
+                      src={`${selectedBrowserDocument.filePath}#toolbar=1&navpanes=0&scrollbar=1`}
+                      className="h-full w-full border-none"
+                      title={selectedBrowserDocument.documentName}
+                    />
+                  ) : selectedBrowserDocument.content ? (
+                    <pre className="whitespace-pre-wrap p-5 font-mono text-sm text-stone-800">
+                      {selectedBrowserDocument.content}
+                    </pre>
+                  ) : (
+                    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-stone-500">
+                      This document does not have a readable preview.
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50 px-5 py-4">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-semibold text-stone-900">Linked Documents</h3>
+                    <p className="truncate text-xs text-stone-500">{selectedDocumentBrowser.dealName}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeDocumentBrowser}
+                    className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-100"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="max-h-[70vh] overflow-y-auto p-5">
+                  <p className="mb-4 text-sm text-stone-500">Choose a document to view, then use Back to return and open another one.</p>
+                  {documentBrowserError && (
+                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {documentBrowserError}
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {selectedDocumentBrowser.documents.map(statusDoc => {
+                      const loadingKey = getStatusDocumentLoadingKey(statusDoc) || statusDoc.id;
+                      const isLoading = loadingViewDocumentId === loadingKey;
+                      const stepLabel = getStatusDocStepLabel(String(statusDoc.status));
+                      const updatedAtLabel = formatDateTime(statusDoc.lastModifiedAt || statusDoc.uploadedAt);
+                      const isFilled = isStatusDocumentFilled(statusDoc);
+                      return (
+                        <button
+                          key={statusDoc.id}
+                          type="button"
+                          onClick={() => {
+                            void handleOpenDocumentFromBrowser(statusDoc);
+                          }}
+                          disabled={isLoading}
+                          className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/40 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <FiFileText size={15} className="text-stone-400" />
+                                <p className="truncate text-sm font-semibold text-stone-900">{getStatusDocumentDisplayName(statusDoc)}</p>
+                              </div>
+                              <p className="mt-1 text-xs font-medium text-stone-500">{stepLabel}</p>
+                              <p className="mt-1 text-xs text-stone-400">{updatedAtLabel}</p>
+                            </div>
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${isFilled ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {isLoading ? 'Opening...' : isFilled ? 'Filled' : 'Template'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {selectedViewDocument && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl border border-stone-200 overflow-hidden">
@@ -1969,19 +2233,17 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       )}
 
       {/* Comment Modal */}
-      <CommentModal
+            <CommentModal
         isOpen={selectedDealForCommentModal !== null}
         onClose={() => setSelectedDealForCommentModal(null)}
         dealName={selectedDealForCommentModal?.dealName || ''}
-        comment={selectedDealForCommentModal?.comment || ''}
-        updatedAt={selectedDealForCommentModal?.updatedAt}
-        onSave={async (updatedComment: string) => {
-          if (selectedDealForCommentModal?.id) {
-            const itemToUpdate = rows.find(r => r.id === selectedDealForCommentModal.id);
-            if (itemToUpdate) {
-              await handleCommentSave(itemToUpdate, updatedComment);
-              setSelectedDealForCommentModal(null);
-            }
+        comment={activeCommentItem?.comment || ''}
+        createdAt={activeCommentItem?.createdAt}
+        updatedAt={activeCommentItem?.updatedAt}
+        item={activeCommentItem}
+        onAddComment={async (updatedComment: string) => {
+          if (activeCommentItem) {
+            await handleCommentSave(activeCommentItem, updatedComment);
           }
         }}
         isSaving={selectedDealForCommentModal?.id ? savingCommentId === selectedDealForCommentModal.id : false}
@@ -2190,3 +2452,13 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     </div>
   );
 };
+
+
+
+
+
+
+
+
+
+
