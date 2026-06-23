@@ -32,7 +32,7 @@ import { CommentModal } from './CommentModal';
 import { commentAuditService } from '@/services/commentAuditService';
 import { wipCommentService } from '@/services/wipCommentService';
 import { CanvassingSheets } from '@/components/Canvassing/CanvassingSheets';
-import { formatRand } from '@/lib/currency';
+import { formatRand, parseCurrencyInput } from '@/lib/currency';
 import { playNotificationSound } from '@/lib/notificationAudio';
 import { parseDealTitle } from '@/lib/dealTitle';
 import {
@@ -470,6 +470,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [dismissedReminderIds, setDismissedReminderIds] = useState<Set<string>>(new Set());
   const [actioningReminderIds, setActioningReminderIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingExpectedValueId, setEditingExpectedValueId] = useState<string | null>(null);
+  const [editingExpectedValueValue, setEditingExpectedValueValue] = useState<string>('');
+  const [savingExpectedValueId, setSavingExpectedValueId] = useState<string | null>(null);
   const [editingCommissionId, setEditingCommissionId] = useState<string | null>(null);
   const [editingCommissionValue, setEditingCommissionValue] = useState<string>('');
   const [savingCommissionId, setSavingCommissionId] = useState<string | null>(null);
@@ -497,6 +500,79 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
       .finally(() => setLoadingLeadDetail(false));
   }, [viewingLeadId]);
 
+  const handleSaveExpectedValue = async (item: BrokerWipItem) => {
+    const parsed = parseCurrencyInput(editingExpectedValueValue, Number(item.expectedValue || 0));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setEditingExpectedValueId(null);
+      setEditingExpectedValueValue('');
+      return;
+    }
+
+    const linkedDealId = resolveDealId(item);
+    const forecastId = String(item.forecastDealId || (!linkedDealId ? item.id || '' : '')).trim();
+
+    setSavingExpectedValueId(item.id);
+    try {
+      let nextForecastDealId = forecastId;
+      let nextUpdatedAt = new Date().toISOString();
+
+      if (forecastId) {
+        const updated = await forecastDealApiService.updateForecastDeal(forecastId, {
+          expectedValue: parsed,
+        });
+        nextForecastDealId = String(updated.id || forecastId).trim();
+        nextUpdatedAt = updated.updatedAt || nextUpdatedAt;
+      } else if (linkedDealId) {
+        const linkedDeal = await dealService.getDealById(linkedDealId);
+        const created = await forecastDealApiService.createForecastDeal({
+          dealId: linkedDealId,
+          brokerId: item.brokerId || linkedDeal.brokerId,
+          moduleType:
+            canonicalDealType(item.dealType) === 'leasing'
+              ? 'leasing'
+              : canonicalDealType(item.dealType) === 'auction'
+              ? 'auction'
+              : 'sales',
+          status: item.status || linkedDeal.status,
+          title: item.dealName || linkedDeal.title,
+          expectedValue: parsed,
+          ...(item.legalDocument ? { legalDocument: item.legalDocument } : {}),
+          ...(String(item.comment || '').trim() ? { comment: String(item.comment || '').trim() } : {}),
+          ...(item.forecastedClosureDate ? { forecastedClosureDate: item.forecastedClosureDate } : {}),
+        });
+        nextForecastDealId = String(created.id || '').trim();
+        nextUpdatedAt = created.updatedAt || nextUpdatedAt;
+      }
+
+      setRows(current =>
+        current.map(row =>
+          row.id === item.id
+            ? {
+                ...row,
+                expectedValue: parsed,
+                forecastDealId: nextForecastDealId || row.forecastDealId,
+                updatedAt: nextUpdatedAt,
+              }
+            : row
+        )
+      );
+
+      setRowErrors(current => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+    } catch (error) {
+      setRowErrors(current => ({
+        ...current,
+        [item.id]: error instanceof Error ? error.message : 'Failed to save expected value',
+      }));
+    } finally {
+      setSavingExpectedValueId(null);
+      setEditingExpectedValueId(null);
+      setEditingExpectedValueValue('');
+    }
+  };
   const handleSaveCommission = async (item: BrokerWipItem) => {
     const parsed = parseFloat(editingCommissionValue.replace(/[^\d.]/g, ''));
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -1817,8 +1893,34 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           </select>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-sm font-semibold text-stone-900 text-right align-top whitespace-nowrap">
-                        {formatRand(item.expectedValue)}
+                      <td className="px-4 py-4 text-sm text-right align-top whitespace-nowrap">
+                        {editingExpectedValueId === item.id ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingExpectedValueValue}
+                              onChange={e => setEditingExpectedValueValue(e.target.value)}
+                              onBlur={() => {
+                                void handleSaveExpectedValue(item);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  void handleSaveExpectedValue(item);
+                                }
+                                if (e.key === 'Escape') {
+                                  setEditingExpectedValueId(null);
+                                  setEditingExpectedValueValue('');
+                                }
+                              }}
+                              disabled={savingExpectedValueId === item.id}
+                              autoFocus
+                              className="w-28 rounded-lg border border-blue-200 px-2 py-1 text-right text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        ) : (
+                          <span className="font-semibold text-stone-900">{formatRand(item.expectedValue)}</span>
+                        )}
                       </td>
                       <td className="px-4 py-4 text-sm text-right align-top whitespace-nowrap">
                         {editingCommissionId === item.id ? (
@@ -1919,11 +2021,13 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                           <button
                             type="button"
                             onClick={() => {
-                              setEditingCommissionId(item.id);
-                              setEditingCommissionValue(String(item.brokerCommission ?? 0));
+                              setEditingCommissionId(null);
+                              setEditingExpectedValueId(item.id);
+                              setEditingExpectedValueValue(String(item.expectedValue ?? 0));
                             }}
+                            disabled={savingExpectedValueId === item.id}
                             className={actionButtonClass}
-                            title="Edit gross commission"
+                            title="Edit expected value"
                           >
                             <FiEdit2 size={15} />
                           </button>
@@ -2452,6 +2556,9 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     </div>
   );
 };
+
+
+
 
 
 
