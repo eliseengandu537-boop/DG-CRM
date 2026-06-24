@@ -16,9 +16,11 @@ export type NominatimResult = {
 };
 
 const BASE = 'https://nominatim.openstreetmap.org';
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let lastRequestAt = 0;
 const MIN_INTERVAL_MS = 1100; // be a bit over 1s/req
+const searchCache = new Map<string, { expiresAt: number; results: any[] }>();
 
 async function throttle() {
   const now = Date.now();
@@ -76,6 +78,55 @@ function mapRaw(raw: any): NominatimResult | null {
   };
 }
 
+function normalizeQuery(query: string): string {
+  return query.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
+}
+
+function stripLeadingStreetNumber(query: string): string {
+  return query.replace(/^\d+[a-zA-Z]?\s+/, '').trim();
+}
+
+function buildCommaVariants(query: string): string[] {
+  if (!query || query.includes(',')) return [];
+
+  const tokens = query.split(' ').filter(Boolean);
+  if (tokens.length < 3) return [];
+
+  const variants: string[] = [];
+  for (let splitIndex = 2; splitIndex < tokens.length; splitIndex += 1) {
+    const left = tokens.slice(0, splitIndex).join(' ');
+    const right = tokens.slice(splitIndex).join(' ');
+    if (left && right) {
+      variants.push(`${left}, ${right}`);
+    }
+  }
+
+  return variants;
+}
+
+function buildQueryVariants(query: string): string[] {
+  const normalized = normalizeQuery(query);
+  if (!normalized) return [];
+
+  const baseVariants = [normalized, ...buildCommaVariants(normalized)];
+  const stripped = stripLeadingStreetNumber(normalized);
+  if (stripped && stripped !== normalized) {
+    baseVariants.push(stripped, ...buildCommaVariants(stripped));
+  }
+
+  const variants: string[] = [];
+  baseVariants.forEach((variant) => {
+    const cleanVariant = normalizeQuery(variant);
+    if (!cleanVariant) return;
+    variants.push(cleanVariant);
+    if (!/\b(south africa|rsa|za)\b/i.test(cleanVariant)) {
+      variants.push(`${cleanVariant}, South Africa`);
+    }
+  });
+
+  return Array.from(new Set(variants));
+}
+
 function buildSearchUrl(
   query: string,
   options?: {
@@ -89,6 +140,7 @@ function buildSearchUrl(
   const params = new URLSearchParams({
     format: 'jsonv2',
     addressdetails: '1',
+    dedupe: '1',
     limit: String(limit),
     q: query,
   });
@@ -111,11 +163,21 @@ function buildSearchUrl(
 }
 
 async function fetchSearchJson(url: string): Promise<any[]> {
+  const cached = searchCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.results;
+  }
+
   try {
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en-ZA,en' } });
     if (!res.ok) return [];
     const json = await res.json();
-    return Array.isArray(json) ? json : [];
+    const results = Array.isArray(json) ? json : [];
+    searchCache.set(url, {
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      results,
+    });
+    return results;
   } catch {
     return [];
   }
@@ -125,15 +187,20 @@ async function fetchWithSouthAfricaFallback(
   query: string,
   options?: { limit?: number; viewbox?: [number, number, number, number]; includeNamedDetails?: boolean }
 ): Promise<any[]> {
-  const urls = [
-    buildSearchUrl(query, {
+  const variants = buildQueryVariants(query);
+  const urls = variants.flatMap((variant) => [
+    buildSearchUrl(variant, {
       ...options,
       countryCode: 'za',
     }),
-    buildSearchUrl(query, options),
-  ];
+    buildSearchUrl(variant, options),
+  ]);
+  const seenUrls = new Set<string>();
 
   for (let index = 0; index < urls.length; index += 1) {
+    if (seenUrls.has(urls[index])) continue;
+    seenUrls.add(urls[index]);
+
     await throttle();
     const results = await fetchSearchJson(urls[index]);
     if (results.length > 0) return results;
@@ -165,7 +232,7 @@ export async function searchPlaces(
 }
 
 export async function autocompleteAddress(query: string): Promise<NominatimResult[]> {
-  return searchPlaces(query, { limit: 6 });
+  return searchPlaces(query, { limit: 8 });
 }
 
 // Convenience: Google Street View URL for a given lat/lng. No API key required,
@@ -173,3 +240,4 @@ export async function autocompleteAddress(query: string): Promise<NominatimResul
 export function streetViewUrl(lat: number, lng: number, heading = 0): string {
   return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}&heading=${heading}`;
 }
+

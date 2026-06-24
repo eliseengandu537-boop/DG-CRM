@@ -28,7 +28,8 @@ export interface BrokerWipItem {
   status: string;
   legalDocument?: string;
   expectedValue: number;
-  brokerCommission: number;
+  grossCommission: number;
+  brokerCommission?: number;
   forecastedClosureDate?: string;
   actionRequired?: string;
   comment?: string;
@@ -412,13 +413,10 @@ export async function fetchBrokerPerformanceMap(): Promise<
       statusHistory: deal.statusHistory || [],
       workflowProgress: deal.workflowProgress,
       expectedValue: Number(linkedForecast?.expectedValue || deal.value || 0),
-      brokerCommission: (() => {
-        const stored = Number(linkedForecast?.brokerCommission || 0);
-        if (stored > 0) return stored;
-        const rate = deriveCommissionRate({ deal, linkedForecast });
-        const value = Number(linkedForecast?.expectedValue || deal.value || 0);
-        return roundMoney(value * rate * 0.45, 2);
-      })(),
+      grossCommission: Number(
+        linkedForecast?.grossCommission ?? linkedForecast?.commissionAmount ?? deal.grossCommission ?? 0
+      ),
+      brokerCommission: Number(linkedForecast?.brokerCommission || deal.brokerCommission || 0),
       forecastedClosureDate:
         linkedForecast?.forecastedClosureDate || deal.targetClosureDate || undefined,
       actionRequired: deriveActionRequired(status),
@@ -452,6 +450,7 @@ export async function fetchBrokerPerformanceMap(): Promise<
       statusHistory: [],
       workflowProgress: undefined,
       expectedValue: Number(forecastDeal.expectedValue || 0),
+      grossCommission: Number(forecastDeal.grossCommission ?? forecastDeal.commissionAmount ?? 0),
       brokerCommission: Number(forecastDeal.brokerCommission || 0),
       forecastedClosureDate: forecastDeal.forecastedClosureDate,
       actionRequired: deriveActionRequired(forecastDeal.status),
@@ -472,3 +471,4 @@ export async function fetchBrokerPerformanceMap(): Promise<
 
   return mapToSnapshotRecord(snapshots);
 }
+

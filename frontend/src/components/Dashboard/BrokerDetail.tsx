@@ -484,7 +484,29 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   const [ownerPopup, setOwnerPopup] = useState<{ title: string; ownerName?: string; ownerEmail?: string; ownerContactNumber?: string } | null>(null);
 
   useEffect(() => {
-    setRows(wipSheets);
+    setRows(current => {
+      const currentById = new Map(current.map(row => [row.id, row]));
+      return wipSheets.map(incoming => {
+        const local = currentById.get(incoming.id);
+        if (!local) return incoming;
+
+        const localUpdatedAt = Date.parse(String(local.updatedAt || ''));
+        const incomingUpdatedAt = Date.parse(String(incoming.updatedAt || ''));
+        const keepLocalFinancials =
+          Number.isFinite(localUpdatedAt) &&
+          (!Number.isFinite(incomingUpdatedAt) || localUpdatedAt > incomingUpdatedAt);
+
+        if (!keepLocalFinancials) return incoming;
+
+        return {
+          ...incoming,
+          expectedValue: local.expectedValue,
+          grossCommission: local.grossCommission,
+          forecastDealId: local.forecastDealId || incoming.forecastDealId,
+          updatedAt: local.updatedAt,
+        };
+      });
+    });
     setRowErrors({});
   }, [wipSheets]);
 
@@ -515,41 +537,51 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     try {
       let nextForecastDealId = forecastId;
       let nextUpdatedAt = new Date().toISOString();
+      const nextGrossCommission = Number(item.grossCommission ?? 0);
 
-      if (forecastId) {
+      if (linkedDealId) {
+        const updatedDeal = await dealService.updateDeal(linkedDealId, {
+          value: parsed,
+          grossCommission: nextGrossCommission,
+        });
+        nextUpdatedAt = updatedDeal.updatedAt || nextUpdatedAt;
+
+        if (!forecastId) {
+          const created = await forecastDealApiService.createForecastDeal({
+            dealId: linkedDealId,
+            brokerId: item.brokerId || updatedDeal.brokerId,
+            moduleType:
+              canonicalDealType(item.dealType) === 'leasing'
+                ? 'leasing'
+                : canonicalDealType(item.dealType) === 'auction'
+                ? 'auction'
+                : 'sales',
+            status: item.status || updatedDeal.status,
+            title: item.dealName || updatedDeal.title,
+            expectedValue: parsed,
+            grossCommission: nextGrossCommission,
+            ...(item.legalDocument ? { legalDocument: item.legalDocument } : {}),
+            ...(String(item.comment || '').trim() ? { comment: String(item.comment || '').trim() } : {}),
+            ...(item.forecastedClosureDate ? { forecastedClosureDate: item.forecastedClosureDate } : {}),
+          });
+          nextForecastDealId = String(created.id || '').trim();
+          nextUpdatedAt = created.updatedAt || nextUpdatedAt;
+        }
+      } else if (forecastId) {
         const updated = await forecastDealApiService.updateForecastDeal(forecastId, {
           expectedValue: parsed,
+          grossCommission: nextGrossCommission,
         });
         nextForecastDealId = String(updated.id || forecastId).trim();
         nextUpdatedAt = updated.updatedAt || nextUpdatedAt;
-      } else if (linkedDealId) {
-        const linkedDeal = await dealService.getDealById(linkedDealId);
-        const created = await forecastDealApiService.createForecastDeal({
-          dealId: linkedDealId,
-          brokerId: item.brokerId || linkedDeal.brokerId,
-          moduleType:
-            canonicalDealType(item.dealType) === 'leasing'
-              ? 'leasing'
-              : canonicalDealType(item.dealType) === 'auction'
-              ? 'auction'
-              : 'sales',
-          status: item.status || linkedDeal.status,
-          title: item.dealName || linkedDeal.title,
-          expectedValue: parsed,
-          ...(item.legalDocument ? { legalDocument: item.legalDocument } : {}),
-          ...(String(item.comment || '').trim() ? { comment: String(item.comment || '').trim() } : {}),
-          ...(item.forecastedClosureDate ? { forecastedClosureDate: item.forecastedClosureDate } : {}),
-        });
-        nextForecastDealId = String(created.id || '').trim();
-        nextUpdatedAt = created.updatedAt || nextUpdatedAt;
       }
-
       setRows(current =>
         current.map(row =>
           row.id === item.id
             ? {
                 ...row,
                 expectedValue: parsed,
+                grossCommission: nextGrossCommission,
                 forecastDealId: nextForecastDealId || row.forecastDealId,
                 updatedAt: nextUpdatedAt,
               }
@@ -574,22 +606,67 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     }
   };
   const handleSaveCommission = async (item: BrokerWipItem) => {
-    const parsed = parseFloat(editingCommissionValue.replace(/[^\d.]/g, ''));
+    const parsed = parseCurrencyInput(editingCommissionValue, Number(item.grossCommission || 0));
     if (!Number.isFinite(parsed) || parsed < 0) {
       setEditingCommissionId(null);
+      setEditingCommissionValue('');
       return;
     }
     setSavingCommissionId(item.id);
     try {
-      const forecastId = String(item.forecastDealId || item.id || '').trim();
-      if (forecastId) {
-        await forecastDealApiService.updateForecastDeal(forecastId, {
-          brokerCommission: parsed,
-        } as any);
+      const linkedDealId = resolveDealId(item);
+      const forecastId = String(item.forecastDealId || (!linkedDealId ? item.id || '' : '')).trim();
+      let nextForecastDealId = forecastId;
+      let nextUpdatedAt = new Date().toISOString();
+      let nextGrossCommission = Number(item.grossCommission || 0);
+
+      if (linkedDealId) {
+        const updatedDeal = await dealService.updateDeal(linkedDealId, {
+          grossCommission: parsed,
+        });
+        nextUpdatedAt = updatedDeal.updatedAt || nextUpdatedAt;
+        nextGrossCommission = Number(updatedDeal.grossCommission || nextGrossCommission);
+
+        if (!forecastId) {
+          const created = await forecastDealApiService.createForecastDeal({
+            dealId: linkedDealId,
+            brokerId: item.brokerId || updatedDeal.brokerId,
+            moduleType:
+              canonicalDealType(item.dealType) === 'leasing'
+                ? 'leasing'
+                : canonicalDealType(item.dealType) === 'auction'
+                ? 'auction'
+                : 'sales',
+            status: item.status || updatedDeal.status,
+            title: item.dealName || updatedDeal.title,
+            expectedValue: Number(updatedDeal.assetValue || updatedDeal.value || item.expectedValue || 0),
+            grossCommission: parsed,
+            ...(item.legalDocument ? { legalDocument: item.legalDocument } : {}),
+            ...(String(item.comment || '').trim() ? { comment: String(item.comment || '').trim() } : {}),
+            ...(item.forecastedClosureDate ? { forecastedClosureDate: item.forecastedClosureDate } : {}),
+          });
+          nextForecastDealId = String(created.id || '').trim();
+          nextUpdatedAt = created.updatedAt || nextUpdatedAt;
+          nextGrossCommission = Number(created.grossCommission || created.commissionAmount || nextGrossCommission);
+        }
+      } else if (forecastId) {
+        const updated = await forecastDealApiService.updateForecastDeal(forecastId, {
+          grossCommission: parsed,
+        });
+        nextForecastDealId = String(updated.id || forecastId).trim();
+        nextUpdatedAt = updated.updatedAt || nextUpdatedAt;
+        nextGrossCommission = Number(updated.grossCommission || updated.commissionAmount || nextGrossCommission);
       }
       setRows(current =>
         current.map(row =>
-          row.id === item.id ? { ...row, brokerCommission: parsed } : row
+          row.id === item.id
+            ? {
+                ...row,
+                grossCommission: nextGrossCommission,
+                forecastDealId: nextForecastDealId || row.forecastDealId,
+                updatedAt: nextUpdatedAt,
+              }
+            : row
         )
       );
     } catch {
@@ -597,6 +674,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     } finally {
       setSavingCommissionId(null);
       setEditingCommissionId(null);
+      setEditingCommissionValue('');
     }
   };
 
@@ -1517,7 +1595,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
   // KPI display-only computed values (UI only, no business logic)
   const totalDeals = properties.length;
   const totalExpectedValue = properties.reduce((sum, p) => sum + Number(p.expectedValue || 0), 0);
-  const totalGrossCommission = properties.reduce((sum, p) => sum + Number(p.brokerCommission || 0), 0);
+  const totalGrossCommission = properties.reduce((sum, p) => sum + Number(p.grossCommission || 0), 0);
   const _nowDate = new Date();
   const dealsClosingThisMonth = properties.filter(p => {
     if (!p.forecastedClosureDate) return false;
@@ -1952,12 +2030,12 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
                             type="button"
                             onClick={() => {
                               setEditingCommissionId(item.id);
-                              setEditingCommissionValue(String(item.brokerCommission ?? 0));
+                              setEditingCommissionValue(String(item.grossCommission ?? 0));
                             }}
                             title="Edit gross commission"
                             className="font-semibold text-stone-900 transition-colors hover:text-blue-700"
                           >
-                            {formatRand(item.brokerCommission)}
+                            {formatRand(item.grossCommission)}
                           </button>
                         )}
                       </td>
@@ -2556,16 +2634,4 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
     </div>
   );
 };
-
-
-
-
-
-
-
-
-
-
-
-
 
