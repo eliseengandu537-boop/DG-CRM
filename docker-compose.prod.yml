@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -52,3 +50,4 @@ services:
     entrypoint: /bin/sh -c "trap exit TERM; while :; do sleep 12h & wait $${!}; certbot renew; done"
 
 # Note: DATABASE_URL should target your managed PostgreSQL deployment.
+

@@ -9,7 +9,7 @@ jobs:
   deploy:
     name: Deploy to Production Server
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,39 +21,49 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e
-            
-            echo "📦 Pulling latest code..."
+            set -Eeuo pipefail
+
+            on_error() {
+              exit_code=$?
+              echo "❌ Deployment failed while running: ${BASH_COMMAND}"
+              echo "📋 Current docker compose status:"
+              docker compose -f docker-compose.prod.yml ps || true
+              echo "📋 Recent backend logs:"
+              docker compose -f docker-compose.prod.yml logs --tail=120 backend || true
+              echo "📋 Recent frontend logs:"
+              docker compose -f docker-compose.prod.yml logs --tail=120 frontend || true
+              exit "$exit_code"
+            }
+
+            trap on_error ERR
+
+            echo "📦 Syncing latest code..."
             cd ~/DG-CRM
-            
-            # Stash any local changes
-            git stash || true
-            
-            # Pull latest changes
-            git pull origin main
-            
-            echo "🔧 Rebuilding all services..."
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            echo "🧪 Validating docker compose configuration..."
+            docker compose -f docker-compose.prod.yml config -q
 
             echo "🔨 Building backend..."
             docker compose -f docker-compose.prod.yml build backend
-            # Remove any existing/stale backend container (including dangling
-            # renamed ones left by an interrupted recreate) so 'up' never fails
-            # with "container name already in use". Scoped to the backend service
-            # by name, so it never touches the postgres container.
             docker rm -f $(docker ps -aq --filter "name=dg-crm-backend-1") 2>/dev/null || true
             docker compose -f docker-compose.prod.yml up -d backend
             echo "✅ Backend redeployed"
+
+            echo "🗄️  Running database migrations..."
+            docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
+            echo "✅ Migrations applied"
 
             echo "🔨 Building frontend..."
             docker compose -f docker-compose.prod.yml build frontend
             docker rm -f $(docker ps -aq --filter "name=dg-crm-frontend-1") 2>/dev/null || true
             docker compose -f docker-compose.prod.yml up -d frontend
             echo "✅ Frontend redeployed"
-            
-            echo "🗄️  Running database migrations..."
-            docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
-            echo "✅ Migrations applied"
-            
+
+            echo "🌐 Reloading nginx..."
+            docker compose -f docker-compose.prod.yml up -d nginx
+
             echo "🎉 Deployment complete!"
             docker compose -f docker-compose.prod.yml ps
 
