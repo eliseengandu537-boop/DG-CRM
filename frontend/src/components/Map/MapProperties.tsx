@@ -1264,6 +1264,10 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         if (livePlacesQueryRef.current !== q) return;
         const mapped = results.map(mapSearchResultFromNominatim);
         setLivePlaceMatches(mapped);
+        // Show the first matched location on the map while the user is still typing
+        if (mapped.length > 0) {
+          setFocusLocation({ lat: mapped[0].lat, lng: mapped[0].lng, zoom: mapped.length === 1 ? 17 : 14 });
+        }
       } finally {
         if (livePlacesQueryRef.current === q) {
           setIsSearching(false);
@@ -1285,7 +1289,7 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
       setShowResultsPanel(true);
       setShowSearchDropdown(false);
       setHighlightedSuggestionIndex(-1);
-      setFocusLocation({ lat: result.lat, lng: result.lng, zoom: 16 });
+      setFocusLocation({ lat: result.lat, lng: result.lng, zoom: 17 });
     },
     [setSelectedProperty]
   );
@@ -1310,11 +1314,13 @@ const MapProperties: React.FC<MapPropertiesProps> = ({ onPageChange }) => {
         setActivePanel('search');
         setShowResultsPanel(true);
 
-        if (mapped.length === 1) {
-          setFocusLocation({ lat: mapped[0].lat, lng: mapped[0].lng, zoom: 16 });
-        } else if (mapInstance && mapped.length > 1) {
-          const latlngs: Array<[number, number]> = mapped.map((r) => [r.lat, r.lng]);
-          mapInstance.fitBounds(latlngs, { padding: [80, 80] });
+        // Always zoom the map to the first result so the address is immediately
+        // visible on the map regardless of how many results were returned.
+        if (mapped.length > 0) {
+          // Use a tighter zoom for a single precise address, slightly looser for
+          // multiple results so nearby pins are also visible.
+          const zoom = mapped.length === 1 ? 17 : 14;
+          setFocusLocation({ lat: mapped[0].lat, lng: mapped[0].lng, zoom });
         }
       } finally {
         setIsSearching(false);
