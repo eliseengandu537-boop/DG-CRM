@@ -150,10 +150,11 @@ export const Leads: React.FC = () => {
     let mounted = true;
 
     const loadData = async () => {
-      const [leadResult, contactResult, masterDbResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
+      const [leadResult, contactResult, masterDbPotentialResult, masterDbBuyerResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
         leadService.getAllLeads({ limit: 1000, moduleType: 'leasing' }),
         contactService.getAllContacts({ limit: 1000, moduleType: 'leasing' }),
-        customRecordService.getAllCustomRecords({ limit: 500 }),
+        customRecordService.getAllCustomRecords({ entityType: 'master_db_potential', limit: 100000 }),
+        customRecordService.getAllCustomRecords({ entityType: 'master_db_buyer', limit: 100000 }),
         stockService.getAllStockItems({ module: "leasing", limit: 1000 }),
         brokerService.getAllBrokers(),
         userService.getAllUsers(),
@@ -175,24 +176,19 @@ export const Leads: React.FC = () => {
         setContacts([]);
       }
 
-      if (masterDbResult.status === "fulfilled") {
-        const masterItems = masterDbResult.value.data
-          .filter((r: any) => r.entityType === "master_db_potential" || r.entityType === "master_db_buyer")
-          .map((r: any) => {
+      const potentialItems = masterDbPotentialResult.status === "fulfilled"
+        ? masterDbPotentialResult.value.data.map((r: any) => {
             const p = r.payload || {};
-            return {
-              id: r.id,
-              firstName: String(p.name || ""),
-              lastName: String(p.surname || ""),
-              email: String(p.email || ""),
-              phone: String(p.contactNumber || ""),
-              company: String(p.company || ""),
-              sourceLabel: r.entityType === "master_db_buyer" ? "Buyer Brief" : "Potential B&S",
-              isMasterDb: true,
-            };
-          });
-        setMasterDbContacts(masterItems);
-      }
+            return { id: r.id, firstName: String(p.name || ""), lastName: String(p.surname || ""), email: String(p.email || ""), phone: String(p.contactNumber || ""), company: String(p.company || ""), sourceLabel: "Potential B&S", isMasterDb: true };
+          })
+        : [];
+      const buyerItems = masterDbBuyerResult.status === "fulfilled"
+        ? masterDbBuyerResult.value.data.map((r: any) => {
+            const p = r.payload || {};
+            return { id: r.id, firstName: String(p.name || ""), lastName: String(p.surname || ""), email: String(p.email || ""), phone: String(p.contactNumber || ""), company: String(p.company || ""), sourceLabel: "Buyer Brief", isMasterDb: true };
+          })
+        : [];
+      setMasterDbContacts([...potentialItems, ...buyerItems]);
 
       if (stockResult.status === "fulfilled") {
         setStocks(stockResult.value.data.map((item) => mapStockRecordToLeasingStock(item)));
