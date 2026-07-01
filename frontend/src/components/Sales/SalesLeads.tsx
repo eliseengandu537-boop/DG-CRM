@@ -138,6 +138,10 @@ export const SalesLeads: React.FC = () => {
   const [adminManagerUsers, setAdminManagerUsers] = useState<any[]>([]);
   const [selectedBrokerIdForStock, setSelectedBrokerIdForStock] = useState<string>("");
   const [contactSearchQuery, setContactSearchQuery] = useState("");
+  const [masterDbContacts, setMasterDbContacts] = useState<any[]>([]);
+  const [showNewContactForm, setShowNewContactForm] = useState(false);
+  const [newContactData, setNewContactData] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "", type: "Investor" });
+  const [isSavingContact, setIsSavingContact] = useState(false);
   const [newLead, setNewLead] = useState({
     name: "",
     email: "",
@@ -165,10 +169,11 @@ export const SalesLeads: React.FC = () => {
 
     const loadData = async () => {
       setIsLoading(true);
-      const [leadResult, contactResult, investorResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
+      const [leadResult, contactResult, investorResult, masterDbResult, stockResult, brokerResult, userResult] = await Promise.allSettled([
         leadService.getAllLeads({ limit: 1000, moduleType: 'sales' }),
         contactService.getAllContacts({ limit: 1000, moduleType: 'sales' }),
         customRecordService.getAllCustomRecords({ entityType: 'investor', limit: 1000 }),
+        customRecordService.getAllCustomRecords({ limit: 500 }),
         stockService.getAllStockItems({ module: "sales", limit: 1000 }),
         brokerService.getAllBrokers(),
         userService.getAllUsers(),
@@ -209,6 +214,25 @@ export const SalesLeads: React.FC = () => {
       } else {
         console.warn("Failed to load sales contacts", contactResult.reason);
         setContacts([]);
+      }
+
+      if (masterDbResult.status === "fulfilled") {
+        const masterItems = masterDbResult.value.data
+          .filter((r: any) => r.entityType === "master_db_potential" || r.entityType === "master_db_buyer")
+          .map((r: any) => {
+            const p = r.payload || {};
+            return {
+              id: r.id,
+              firstName: String(p.name || ""),
+              lastName: String(p.surname || ""),
+              email: String(p.email || ""),
+              phone: String(p.contactNumber || ""),
+              company: String(p.company || ""),
+              sourceLabel: r.entityType === "master_db_buyer" ? "Buyer Brief" : "Potential B&S",
+              isMasterDb: true,
+            };
+          });
+        setMasterDbContacts(masterItems);
       }
 
       if (stockResult.status === "fulfilled") {
@@ -544,6 +568,22 @@ export const SalesLeads: React.FC = () => {
            contact.email.toLowerCase().includes(contactSearchQuery.toLowerCase());
   });
 
+  const combinedFilteredContacts = useMemo(() => {
+    if (!contactSearchQuery) return [];
+    const q = contactSearchQuery.toLowerCase();
+    const moduleMatches = contacts
+      .filter((c) => {
+        const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
+        return fullName.includes(q) || String(c.email || "").toLowerCase().includes(q);
+      })
+      .map((c) => ({ ...c, sourceLabel: c.type === "Investor" ? "Investor" : "Sales Contact", isMasterDb: false }));
+    const masterMatches = masterDbContacts.filter((c) => {
+      const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
+      return fullName.includes(q) || String(c.email || "").toLowerCase().includes(q);
+    });
+    return [...moduleMatches, ...masterMatches];
+  }, [contactSearchQuery, contacts, masterDbContacts]);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "New":
@@ -588,9 +628,62 @@ export const SalesLeads: React.FC = () => {
     setShowAddModal(true);
   };
 
+  const handleSaveNewContact = async () => {
+    if (!newContactData.firstName || !newContactData.email) {
+      alert("First name and email are required");
+      return;
+    }
+    setIsSavingContact(true);
+    try {
+      const created = await contactService.createContact({
+        firstName: newContactData.firstName,
+        lastName: newContactData.lastName,
+        email: newContactData.email,
+        phone: newContactData.phone || undefined,
+        company: newContactData.company || undefined,
+        type: newContactData.type || "Investor",
+        moduleType: "sales",
+      });
+      setContacts((prev) => [
+        ...prev,
+        {
+          id: created.id,
+          firstName: created.firstName || "",
+          lastName: created.lastName || "",
+          email: created.email || "",
+          phone: created.phone || "",
+          company: created.company || "",
+          position: "",
+          type: created.type || "Investor",
+          linkedProperties: [],
+          linkedDeals: [],
+          status: created.status || "Active",
+          createdDate: new Date(created.createdAt).toISOString().split("T")[0],
+          notes: "",
+          sourceLabel: "Sales Contact",
+          isMasterDb: false,
+        },
+      ]);
+      setNewLead((prev) => ({
+        ...prev,
+        contactId: created.id,
+        name: `${created.firstName || ""} ${created.lastName || ""}`.trim() || created.name || "",
+        email: created.email || "",
+        phone: created.phone || "",
+        company: created.company || "",
+      }));
+      setShowNewContactForm(false);
+      setNewContactData({ firstName: "", lastName: "", email: "", phone: "", company: "", type: "Investor" });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to create contact");
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
   const handleAddLead = async () => {
     if (!newLead.name || !newLead.email) {
-      alert("Please fill in name and email fields");
+      alert("Please select a contact or add a new one");
       return;
     }
     if (!newLead.notes) {
@@ -604,6 +697,26 @@ export const SalesLeads: React.FC = () => {
       if (total !== 100) {
         alert(`Commission split must equal 100%. Currently: ${total}%`);
         return;
+      }
+    }
+
+    // Auto-create a contact if one was filled from Master DB (no contactId yet)
+    let resolvedContactId = newLead.contactId;
+    if (!resolvedContactId && newLead.name && newLead.email) {
+      try {
+        const parts = newLead.name.trim().split(" ");
+        const autoContact = await contactService.createContact({
+          firstName: parts[0] || newLead.name,
+          lastName: parts.slice(1).join(" ") || "",
+          email: newLead.email,
+          phone: newLead.phone || undefined,
+          company: newLead.company || undefined,
+          type: "Investor",
+          moduleType: "sales",
+        });
+        resolvedContactId = autoContact.id;
+      } catch {
+        // proceed without contactId
       }
     }
 
@@ -621,7 +734,7 @@ export const SalesLeads: React.FC = () => {
         closingTimeline: newLead.closingTimeline,
         notes: newLead.notes,
         comment: newLead.notes,
-        contactId: newLead.contactId || undefined,
+        contactId: resolvedContactId || undefined,
         brokerAssigned: newLead.brokerAssigned || undefined,
         additionalBroker: newLead.additionalBroker || undefined,
         commissionSplit: newLead.commissionSplit,
@@ -742,6 +855,8 @@ export const SalesLeads: React.FC = () => {
   const handleCloseModal = () => {
     setShowAddModal(false);
     setContactSearchQuery("");
+    setShowNewContactForm(false);
+    setNewContactData({ firstName: "", lastName: "", email: "", phone: "", company: "", type: "Investor" });
     setNewLead({
       name: "",
       email: "",
@@ -899,59 +1014,130 @@ export const SalesLeads: React.FC = () => {
                 {/* Contact / Investor Selection */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-stone-700 mb-2">
-                    Select Contact / Investor <span className="text-red-500">*</span>
+                    Select Contact / Investor{" "}
+                    <span className="text-stone-400 text-xs font-normal">(contacts + Master Database)</span>
                   </label>
                   <div className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Search by name or email..."
-                      value={contactSearchQuery}
-                      onChange={(e) => setContactSearchQuery(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    />
-                    {contactSearchQuery && (
-                      <div className="border border-stone-200 rounded-lg max-h-48 overflow-y-auto shadow-sm">
-                        {filteredContacts.length > 0 ? (
-                          filteredContacts.map((contact) => (
-                            <button
-                              key={contact.id}
-                              onClick={() => {
-                                setNewLead({
-                                  ...newLead,
-                                  contactId: contact.id,
-                                  name: `${contact.firstName} ${contact.lastName}`,
-                                  email: contact.email,
-                                  phone: contact.phone,
-                                  company: contact.company,
-                                });
-                                setContactSearchQuery("");
-                              }}
-                              className="w-full text-left px-4 py-2 hover:bg-violet-50 border-b border-stone-100 last:border-b-0 transition-colors"
-                            >
+                    <div className="relative">
+                      <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={14} />
+                      <input
+                        type="text"
+                        placeholder="Search by name or email..."
+                        value={contactSearchQuery}
+                        onChange={(e) => { setContactSearchQuery(e.target.value); setShowNewContactForm(false); }}
+                        className="w-full pl-9 pr-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      />
+                    </div>
+                    {contactSearchQuery && !showNewContactForm && (
+                      <div className="border border-stone-200 rounded-lg max-h-52 overflow-y-auto shadow-sm">
+                        {combinedFilteredContacts.map((contact) => (
+                          <button
+                            key={`${contact.isMasterDb ? "mdb" : "mod"}-${contact.id}`}
+                            onClick={() => {
+                              setNewLead({
+                                ...newLead,
+                                contactId: contact.isMasterDb ? "" : contact.id,
+                                name: `${contact.firstName} ${contact.lastName}`.trim(),
+                                email: contact.email,
+                                phone: contact.phone,
+                                company: contact.company,
+                              });
+                              setContactSearchQuery("");
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-violet-50 border-b border-stone-100 last:border-b-0 transition-colors"
+                          >
+                            <div className="flex items-center justify-between">
                               <p className="font-medium text-stone-900">{contact.firstName} {contact.lastName}</p>
-                              <p className="text-xs text-stone-500">{contact.email}{contact.company ? ` · ${contact.company}` : ""}</p>
-                            </button>
-                          ))
-                        ) : (
-                          <p className="px-4 py-3 text-sm text-stone-500">No contacts found</p>
-                        )}
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${contact.isMasterDb ? "bg-blue-100 text-blue-700" : contact.sourceLabel === "Investor" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
+                                {contact.sourceLabel}
+                              </span>
+                            </div>
+                            <p className="text-xs text-stone-500">{contact.email}{contact.company ? ` · ${contact.company}` : ""}</p>
+                          </button>
+                        ))}
+                        <button
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            const parts = contactSearchQuery.trim().split(" ");
+                            setNewContactData({ firstName: parts[0] || "", lastName: parts.slice(1).join(" ") || "", email: "", phone: "", company: "", type: "Investor" });
+                            setShowNewContactForm(true);
+                            setContactSearchQuery("");
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-violet-50 border-t border-stone-200 flex items-center gap-2 text-violet-600 text-sm font-medium transition-colors"
+                        >
+                          <FiPlus size={14} />
+                          Add new contact
+                        </button>
                       </div>
                     )}
-                    {newLead.contactId ? (
+                    {newLead.name && !contactSearchQuery && !showNewContactForm && (
                       <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg flex justify-between items-center">
-                        <span className="text-sm text-violet-700 font-medium">✓ {newLead.name}{newLead.company ? ` · ${newLead.company}` : ""}</span>
+                        <div>
+                          <span className="text-sm text-violet-700 font-medium">✓ {newLead.name}</span>
+                          {newLead.email && <p className="text-xs text-violet-500">{newLead.email}{newLead.company ? ` · ${newLead.company}` : ""}</p>}
+                          {!newLead.contactId && <p className="text-xs text-amber-600 mt-0.5">From Master Database — contact will be created on save</p>}
+                        </div>
                         <button
                           onClick={() => setNewLead({ ...newLead, contactId: "", name: "", email: "", phone: "", company: "" })}
-                          className="text-xs text-stone-400 hover:text-red-500 transition-colors"
+                          className="text-xs text-stone-400 hover:text-red-500 transition-colors ml-3 shrink-0"
                         >
                           Clear
                         </button>
                       </div>
-                    ) : (
-                      <p className="text-xs text-stone-400">Start typing to search contacts already in the CRM</p>
+                    )}
+                    {!newLead.name && !contactSearchQuery && !showNewContactForm && (
+                      <p className="text-xs text-stone-400">Type a name or email to search all contacts and Master Database records</p>
                     )}
                   </div>
                 </div>
+
+                {/* Inline New Contact Form */}
+                {showNewContactForm && (
+                  <div className="md:col-span-2 border border-violet-200 rounded-lg p-4 bg-violet-50">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="font-semibold text-stone-900 text-sm">Add New Contact</h4>
+                      <button onClick={() => setShowNewContactForm(false)} className="text-stone-400 hover:text-stone-600 text-lg leading-none">×</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">First Name *</label>
+                        <input type="text" value={newContactData.firstName} onChange={(e) => setNewContactData({ ...newContactData, firstName: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="First name" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Last Name</label>
+                        <input type="text" value={newContactData.lastName} onChange={(e) => setNewContactData({ ...newContactData, lastName: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="Last name" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Email *</label>
+                        <input type="email" value={newContactData.email} onChange={(e) => setNewContactData({ ...newContactData, email: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="email@example.com" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Phone</label>
+                        <input type="text" value={newContactData.phone} onChange={(e) => setNewContactData({ ...newContactData, phone: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="Phone number" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Company</label>
+                        <input type="text" value={newContactData.company} onChange={(e) => setNewContactData({ ...newContactData, company: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="Company name" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Contact Type</label>
+                        <select value={newContactData.type} onChange={(e) => setNewContactData({ ...newContactData, type: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+                          <option>Investor</option>
+                          <option>Buyer</option>
+                          <option>Broker</option>
+                          <option>Seller</option>
+                          <option>Other</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-3 justify-end">
+                      <button onClick={() => setShowNewContactForm(false)} className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg hover:bg-stone-100 transition-colors">Cancel</button>
+                      <button onClick={handleSaveNewContact} disabled={isSavingContact} className="px-3 py-1.5 text-sm bg-violet-500 text-white rounded-lg hover:bg-violet-600 disabled:opacity-50 transition-colors">
+                        {isSavingContact ? "Saving…" : "Save Contact"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Deal Type */}
                 <div>
