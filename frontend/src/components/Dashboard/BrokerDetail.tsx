@@ -494,7 +494,7 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
         const incomingUpdatedAt = Date.parse(String(incoming.updatedAt || ''));
         const keepLocalFinancials =
           Number.isFinite(localUpdatedAt) &&
-          (!Number.isFinite(incomingUpdatedAt) || localUpdatedAt > incomingUpdatedAt);
+          (!Number.isFinite(incomingUpdatedAt) || localUpdatedAt >= incomingUpdatedAt);
 
         if (!keepLocalFinancials) return incoming;
 
@@ -566,6 +566,14 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           });
           nextForecastDealId = String(created.id || '').trim();
           nextUpdatedAt = created.updatedAt || nextUpdatedAt;
+        } else {
+          // Forecast already exists — keep it in sync with the deal
+          const updatedForecast = await forecastDealApiService.updateForecastDeal(forecastId, {
+            expectedValue: parsed,
+            grossCommission: nextGrossCommission,
+          });
+          nextForecastDealId = String(updatedForecast.id || forecastId).trim();
+          nextUpdatedAt = updatedForecast.updatedAt || nextUpdatedAt;
         }
       } else if (forecastId) {
         const updated = await forecastDealApiService.updateForecastDeal(forecastId, {
@@ -648,6 +656,14 @@ export const BrokerDetail: React.FC<BrokerDetailProps> = ({ broker, onBack, wipS
           nextForecastDealId = String(created.id || '').trim();
           nextUpdatedAt = created.updatedAt || nextUpdatedAt;
           nextGrossCommission = Number(created.grossCommission || created.commissionAmount || nextGrossCommission);
+        } else {
+          // Forecast already exists — keep it in sync with the deal
+          const updatedForecast = await forecastDealApiService.updateForecastDeal(forecastId, {
+            grossCommission: parsed,
+          });
+          nextForecastDealId = String(updatedForecast.id || forecastId).trim();
+          nextUpdatedAt = updatedForecast.updatedAt || nextUpdatedAt;
+          nextGrossCommission = Number(updatedForecast.grossCommission || updatedForecast.commissionAmount || nextGrossCommission);
         }
       } else if (forecastId) {
         const updated = await forecastDealApiService.updateForecastDeal(forecastId, {
