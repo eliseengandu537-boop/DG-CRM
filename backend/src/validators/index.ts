@@ -50,6 +50,47 @@ const optionalLongitudeSchema = z.preprocess(
   z.coerce.number().min(-180).max(180).optional()
 );
 
+function normalizeNumberishInput(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'string') return value;
+
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const cleaned = trimmed.replace(/\s+/g, '').replace(/[^\d,.-]/g, '');
+  if (!cleaned) return undefined;
+
+  const commaCount = (cleaned.match(/,/g) || []).length;
+  const dotCount = (cleaned.match(/\./g) || []).length;
+
+  if (commaCount > 0 && dotCount > 0) {
+    return cleaned.replace(/,/g, '');
+  }
+
+  if (commaCount > 0) {
+    const lastCommaIndex = cleaned.lastIndexOf(',');
+    const digitsAfterComma = cleaned.length - lastCommaIndex - 1;
+    if (digitsAfterComma > 0 && digitsAfterComma <= 2) {
+      return cleaned.replace(/\./g, '').replace(',', '.');
+    }
+    return cleaned.replace(/,/g, '');
+  }
+
+  if (dotCount > 1) {
+    return cleaned.replace(/\./g, '');
+  }
+
+  if (dotCount === 1) {
+    const lastDotIndex = cleaned.lastIndexOf('.');
+    const digitsAfterDot = cleaned.length - lastDotIndex - 1;
+    if (digitsAfterDot === 3) {
+      return cleaned.replace(/\./g, '');
+    }
+  }
+
+  return cleaned;
+}
+
 function normalizeDepartmentValue(value: unknown): 'sales' | 'leasing' | undefined {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!normalized) return undefined;
@@ -199,8 +240,21 @@ const optionalPercentSchema = z.preprocess(
   z.coerce.number().min(0).max(100).optional()
 );
 
+const nonNegativeNumberSchema = z.preprocess(
+  value => normalizeNumberishInput(value),
+  z.coerce.number().nonnegative()
+);
+
+const positiveNumberSchema = z.preprocess(
+  value => normalizeNumberishInput(value),
+  z.coerce.number().positive()
+);
+
 const optionalNonNegativeNumberSchema = z.preprocess(
-  value => (value === '' || value === null ? undefined : value),
+  value => {
+    const normalized = normalizeNumberishInput(value);
+    return normalized === '' || normalized === null ? undefined : normalized;
+  },
   z.coerce.number().nonnegative().optional()
 );
 
@@ -267,7 +321,7 @@ export const createLeadSchema = z.object({
   status: z.string().min(1).default('new'),
   brokerId: z.string().optional(),
   propertyId: z.string().optional(),
-  value: z.coerce.number().nonnegative().optional(),
+  value: optionalNonNegativeNumberSchema,
   moduleType: optionalModuleScopeSchema,
   stage: z.string().optional(),
   company: z.string().optional(),
@@ -303,7 +357,7 @@ export const createDealSchema = z.object({
   status: dealWorkflowStatusSchema.default('LOI'),
   type: dealTypeSchema,
   dealType: optionalDealTypeSchema,
-  value: z.coerce.number().positive(),
+  value: positiveNumberSchema,
   assetValue: optionalNonNegativeNumberSchema,
   commissionPercent: optionalPercentSchema,
   grossCommission: optionalNonNegativeNumberSchema,
@@ -484,14 +538,14 @@ export const createForecastDealSchema = z.object({
   moduleType: moduleScopeSchema,
   status: z.string().min(2).default('Qualified'),
   title: z.string().min(2),
-  expectedValue: z.coerce.number().nonnegative(),
+  expectedValue: nonNegativeNumberSchema,
   assetValue: optionalNonNegativeNumberSchema,
   commissionPercent: optionalPercentSchema,
   grossCommission: optionalNonNegativeNumberSchema,
   commissionRate: z.coerce.number().nonnegative().default(0),
-  commissionAmount: z.coerce.number().nonnegative().default(0),
-  companyCommission: z.coerce.number().nonnegative().default(0),
-  brokerCommission: z.coerce.number().nonnegative().default(0),
+  commissionAmount: nonNegativeNumberSchema.default(0),
+  companyCommission: nonNegativeNumberSchema.default(0),
+  brokerCommission: nonNegativeNumberSchema.default(0),
   auctionReferralPercent: optionalPercentSchema,
   auctionCommissionPercent: optionalPercentSchema,
   brokerSplitPercent: optionalPercentSchema,
@@ -529,8 +583,8 @@ export const leadWorkflowSyncSchema = z.object({
   propertyProvince: z.string().optional(),
   propertyPostalCode: z.string().optional(),
   propertyType: z.string().optional(),
-  propertyPrice: z.coerce.number().nonnegative().optional(),
-  propertyArea: z.coerce.number().nonnegative().optional(),
+  propertyPrice: optionalNonNegativeNumberSchema,
+  propertyArea: optionalNonNegativeNumberSchema,
   propertyStatus: z.string().optional(),
   legalDocumentId: z.string().optional(),
   notes: z.string().optional(),
@@ -538,17 +592,17 @@ export const leadWorkflowSyncSchema = z.object({
   dealDescription: z.string().optional(),
   dealStatus: optionalDealWorkflowStatusSchema,
   dealType: optionalDealTypeSchema,
-  dealValue: z.coerce.number().nonnegative().optional(),
+  dealValue: optionalNonNegativeNumberSchema,
   dealTargetClosureDate: z.string().datetime().optional(),
   dealClosedDate: z.string().datetime().optional(),
   brokerId: z.string().optional(),
   forecastTitle: z.string().optional(),
   forecastStatus: z.string().optional(),
-  forecastExpectedValue: z.coerce.number().nonnegative().optional(),
+  forecastExpectedValue: optionalNonNegativeNumberSchema,
   forecastCommissionRate: z.coerce.number().nonnegative().optional(),
-  forecastCommissionAmount: z.coerce.number().nonnegative().optional(),
-  forecastCompanyCommission: z.coerce.number().nonnegative().optional(),
-  forecastBrokerCommission: z.coerce.number().nonnegative().optional(),
+  forecastCommissionAmount: optionalNonNegativeNumberSchema,
+  forecastCompanyCommission: optionalNonNegativeNumberSchema,
+  forecastBrokerCommission: optionalNonNegativeNumberSchema,
   assetValue: optionalNonNegativeNumberSchema,
   commissionPercent: optionalPercentSchema,
   grossCommission: optionalNonNegativeNumberSchema,

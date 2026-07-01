@@ -99,6 +99,14 @@ export interface CreateDealRequest {
   status?: string;
   type: string;
   value: number;
+  assetValue?: number;
+  commissionPercent?: number;
+  grossCommission?: number;
+  companyCommission?: number;
+  brokerCommission?: number;
+  brokerSplitPercent?: number;
+  auctionReferralPercent?: number;
+  auctionCommissionPercent?: number;
   targetClosureDate?: string;
   closedDate?: string;
   nextAction?: string;
@@ -195,3 +203,4 @@ class DealService {
 
 export const dealService = new DealService();
 export default dealService;
+

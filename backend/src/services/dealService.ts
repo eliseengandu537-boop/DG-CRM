@@ -755,14 +755,18 @@ export class DealService {
         0
     );
     const incomingCommissionPercent = asOptionalNumber((data as any).commissionPercent);
+    const incomingGrossCommission = asOptionalNumber((data as any).grossCommission);
+    const hasManualGrossCommission = incomingGrossCommission !== undefined;
     const existingCommissionPercent = Number((existing as any).commissionPercent || 0);
     const nextCommissionPercent =
       incomingCommissionPercent !== undefined
         ? incomingCommissionPercent
+        : hasManualGrossCommission
+        ? undefined
         : existingCommissionPercent > 0
         ? existingCommissionPercent
         : undefined;
-    const nextGrossCommissionFromPayload = asOptionalNumber((data as any).grossCommission);
+    const nextGrossCommissionFromPayload = incomingGrossCommission;
     const nextGrossCommission =
       nextGrossCommissionFromPayload !== undefined
         ? nextGrossCommissionFromPayload
@@ -1144,3 +1148,4 @@ export class DealService {
 }
 
 export const dealService = new DealService();
+

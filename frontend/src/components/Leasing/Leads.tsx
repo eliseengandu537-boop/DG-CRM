@@ -15,7 +15,7 @@ import {
 import { brokerService } from "@/services/brokerService";
 import { userService } from "@/services/userService";
 import { calculateCommissionSplit } from "@/lib/dealSheetCalculations";
-import { formatRand } from "@/lib/currency";
+import { formatRand, parseCurrencyInput } from "@/lib/currency";
 import { INDUSTRY_OPTIONS } from "@/lib/industries";
 // Stock is now sourced from the API and no longer seeded from local fallback data.
 const DEFAULT_COMMISSION_RATE = 0.05;
@@ -342,8 +342,11 @@ export const Leads: React.FC = () => {
     const propertyId = await resolvePropertyIdForStock(lead, stock);
     const leadStatus = toApiLeadStatus(status);
     const dealStatus = toDealStatus(status);
-    const value = Math.max(1, Number(lead.value || 0));
-    const expectedValue = Math.max(0, Number(lead.value || 0));
+    const expectedValue = parseCurrencyInput(lead.value, 0);
+    if (expectedValue <= 0) {
+      throw new Error("Estimated deal value must be greater than 0 before linking this lead to stock.");
+    }
+    const value = expectedValue;
     const grossCommission = Math.round(expectedValue * DEFAULT_COMMISSION_RATE);
     const split = calculateCommissionSplit(grossCommission);
     const dealTitle = `${lead.name} - ${stock.propertyName}`;
@@ -429,6 +432,7 @@ export const Leads: React.FC = () => {
 
     const linkedStock = selectableStocks.find((stock) => stock.id === lead.linkedStock);
     const brokerId = await resolveBrokerId(lead, linkedStock);
+    const expectedValue = parseCurrencyInput(lead.value, 0);
     return leadService.syncLeadWorkflow(backendLeadId, {
       leadId: backendLeadId,
       status: nextStatus,
@@ -444,14 +448,19 @@ export const Leads: React.FC = () => {
       dealDescription: lead.comment || lead.notes || "",
       dealStatus: toDealStatus(nextStatus),
       dealType: "lease",
-      dealValue: Number(lead.value || 0),
+      ...(expectedValue > 0 ? { dealValue: expectedValue } : {}),
       forecastTitle: `${lead.name} - Forecast`,
       forecastStatus: nextStatus,
-      forecastExpectedValue: Number(lead.value || 0),
+      ...(expectedValue > 0 ? { forecastExpectedValue: expectedValue } : {}),
       forecastCommissionRate: DEFAULT_COMMISSION_RATE,
-      forecastCommissionAmount: Math.round(Number(lead.value || 0) * DEFAULT_COMMISSION_RATE),
-      forecastCompanyCommission: Math.round(Number(lead.value || 0) * DEFAULT_COMMISSION_RATE * 0.55),
-      forecastBrokerCommission: Math.round(Number(lead.value || 0) * DEFAULT_COMMISSION_RATE * 0.45),
+      ...(expectedValue > 0
+        ? {
+            forecastCommissionAmount: Math.round(expectedValue * DEFAULT_COMMISSION_RATE),
+            forecastCompanyCommission: Math.round(expectedValue * DEFAULT_COMMISSION_RATE * 0.55),
+            forecastBrokerCommission: Math.round(expectedValue * DEFAULT_COMMISSION_RATE * 0.45),
+            propertyPrice: expectedValue,
+          }
+        : {}),
       contactId: lead.contactId || undefined,
       comment: lead.comment || lead.notes || "",
       notes: lead.comment || lead.notes || "",
@@ -978,13 +987,17 @@ export const Leads: React.FC = () => {
                     Estimated Deal Value
                   </label>
                   <input
-                    type="number"
-                    value={newLead.value}
+                    type="text"
+                    inputMode="decimal"
+                    value={newLead.value ? String(newLead.value) : ""}
                     onChange={(e) =>
-                      setNewLead({ ...newLead, value: parseFloat(e.target.value) || 0 })
+                      setNewLead({
+                        ...newLead,
+                        value: parseCurrencyInput(e.target.value, 0),
+                      })
                     }
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="0"
+                    placeholder="e.g. 2500 or R2500"
                   />
                 </div>
 
@@ -1282,13 +1295,17 @@ export const Leads: React.FC = () => {
                     Estimated Deal Value
                   </label>
                   <input
-                    type="number"
-                    value={editingLead.value}
+                    type="text"
+                    inputMode="decimal"
+                    value={editingLead.value ? String(editingLead.value) : ""}
                     onChange={(e) =>
-                      setEditingLead({ ...editingLead, value: parseFloat(e.target.value) || 0 })
+                      setEditingLead({
+                        ...editingLead,
+                        value: parseCurrencyInput(e.target.value, 0),
+                      })
                     }
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="0"
+                    placeholder="e.g. 2500 or R2500"
                   />
                 </div>
 

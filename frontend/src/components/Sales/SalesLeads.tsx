@@ -17,7 +17,7 @@ import {
 import { brokerService } from "@/services/brokerService";
 import { userService } from "@/services/userService";
 import { calculateCommissionSplit } from "@/lib/dealSheetCalculations";
-import { formatRand } from "@/lib/currency";
+import { formatRand, parseCurrencyInput } from "@/lib/currency";
 // Stock is now sourced from the API and no longer seeded from local fallback data.
 
 const DEFAULT_COMMISSION_RATE = 0.05;
@@ -387,8 +387,11 @@ export const SalesLeads: React.FC = () => {
     const propertyId = await resolvePropertyIdForStock(lead, stock, brokerId);
     const leadStatus = toApiLeadStatus(status);
     const dealStatus = toDealStatus(status);
-    const value = Math.max(1, Number(lead.estimatedValue || 0));
-    const expectedValue = Math.max(0, Number(lead.estimatedValue || 0));
+    const expectedValue = parseCurrencyInput(lead.estimatedValue, 0);
+    if (expectedValue <= 0) {
+      throw new Error("Estimated value must be greater than 0 before linking this lead to stock.");
+    }
+    const value = expectedValue;
     const grossCommission = Math.round(expectedValue * DEFAULT_COMMISSION_RATE);
     const split = calculateCommissionSplit(grossCommission);
     const dealTitle = `${lead.name} - ${stock.propertyName}`;
@@ -484,6 +487,7 @@ export const SalesLeads: React.FC = () => {
     const linkedStock = selectableStocks.find((stock) => stock.id === lead.linkedStock);
     const brokerId = await resolveBrokerId(lead, linkedStock);
     const workflowComment = String(lead.notes || "").trim() || `Lead status synced to ${nextStatus}`;
+    const expectedValue = parseCurrencyInput(lead.estimatedValue, 0);
     const workflow = await leadService.syncLeadWorkflow(backendLeadId, {
       leadId: backendLeadId,
       status: nextStatus,
@@ -499,18 +503,23 @@ export const SalesLeads: React.FC = () => {
       dealDescription: lead.notes || "",
       dealStatus: toDealStatus(nextStatus),
       dealType: "sale",
-      dealValue: Number(lead.estimatedValue || 0),
+      ...(expectedValue > 0 ? { dealValue: expectedValue } : {}),
       propertyTitle: lead.propertyInterest || undefined,
       propertyAddress: lead.propertyInterest || undefined,
       propertyType: "Sales",
       propertyStatus: "for_sale",
       forecastTitle: `${lead.name} - Forecast`,
       forecastStatus: nextStatus,
-      forecastExpectedValue: Number(lead.estimatedValue || 0),
+      ...(expectedValue > 0 ? { forecastExpectedValue: expectedValue } : {}),
       forecastCommissionRate: DEFAULT_COMMISSION_RATE,
-      forecastCommissionAmount: Math.round(Number(lead.estimatedValue || 0) * DEFAULT_COMMISSION_RATE),
-      forecastCompanyCommission: Math.round(Number(lead.estimatedValue || 0) * DEFAULT_COMMISSION_RATE * 0.55),
-      forecastBrokerCommission: Math.round(Number(lead.estimatedValue || 0) * DEFAULT_COMMISSION_RATE * 0.45),
+      ...(expectedValue > 0
+        ? {
+            forecastCommissionAmount: Math.round(expectedValue * DEFAULT_COMMISSION_RATE),
+            forecastCompanyCommission: Math.round(expectedValue * DEFAULT_COMMISSION_RATE * 0.55),
+            forecastBrokerCommission: Math.round(expectedValue * DEFAULT_COMMISSION_RATE * 0.45),
+            propertyPrice: expectedValue,
+          }
+        : {}),
       contactId: lead.contactId || undefined,
       comment: workflowComment,
       legalDocumentId: (lead as any).legalDocumentId || undefined,
@@ -1007,13 +1016,17 @@ export const SalesLeads: React.FC = () => {
                     Estimated Value
                   </label>
                   <input
-                    type="number"
-                    value={newLead.estimatedValue}
+                    type="text"
+                    inputMode="decimal"
+                    value={newLead.estimatedValue ? String(newLead.estimatedValue) : ""}
                     onChange={(e) =>
-                      setNewLead({ ...newLead, estimatedValue: parseFloat(e.target.value) || 0 })
+                      setNewLead({
+                        ...newLead,
+                        estimatedValue: parseCurrencyInput(e.target.value, 0),
+                      })
                     }
                     className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="0"
+                    placeholder="e.g. 2500 or R2500"
                   />
                 </div>
 

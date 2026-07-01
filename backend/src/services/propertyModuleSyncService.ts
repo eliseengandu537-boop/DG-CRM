@@ -29,6 +29,19 @@ function isPropertyListingStockItem(details: unknown): boolean {
   return String(stockDetails(details).stockKind || '').trim().toLowerCase() === 'property_listing';
 }
 
+function getSuppressedStockModules(metadata: unknown): string[] {
+  const values = stockDetails(metadata).suppressedStockModules;
+  if (!Array.isArray(values)) return [];
+
+  return values.reduce<string[]>((modules, value) => {
+    const normalized = normalizeModuleScope(String(value || ''));
+    if (normalized) {
+      modules.push(normalized);
+    }
+    return modules;
+  }, []);
+}
+
 function buildAuctionPayload(property: SyncableProperty): Record<string, unknown> {
   const metadata = toPropertyMetadata(property.metadata);
 
@@ -131,8 +144,16 @@ export async function syncPropertyDerivedRecordsWithClient(
       status: normalizedStatus,
       type: property.type,
     });
+  const suppressedStockModules = getSuppressedStockModules(property.metadata);
+  const isTargetModuleSuppressed =
+    Boolean(targetModule) && suppressedStockModules.includes(String(targetModule));
 
-  if (property.deletedAt || !isStockEligiblePropertyStatus(normalizedStatus) || !targetModule) {
+  if (
+    property.deletedAt ||
+    !isStockEligiblePropertyStatus(normalizedStatus) ||
+    !targetModule ||
+    isTargetModuleSuppressed
+  ) {
     for (const listing of propertyListings) {
       if (!listing.archivedAt) {
         await tx.stockItem.update({

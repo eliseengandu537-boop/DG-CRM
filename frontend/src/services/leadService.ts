@@ -4,6 +4,7 @@
  */
 
 import apiClient from '@/lib/api';
+import { parseCurrencyInput } from '@/lib/currency';
 import { AxiosError } from 'axios';
 
 export interface Lead {
@@ -90,6 +91,44 @@ export interface PaginatedLeads {
 }
 
 class LeadService {
+  private sanitizeLeadPayload<T extends Record<string, any>>(data: T): T {
+    const payload: Record<string, unknown> = { ...data };
+
+    if (payload.value !== undefined && payload.value !== null && payload.value !== '') {
+      payload.value = parseCurrencyInput(payload.value, 0);
+    }
+
+    return payload as T;
+  }
+
+  private sanitizeWorkflowPayload<T extends Record<string, any>>(data: T): T {
+    const payload: Record<string, unknown> = { ...data };
+    const numericKeys = [
+      'propertyPrice',
+      'propertyArea',
+      'dealValue',
+      'forecastExpectedValue',
+      'forecastCommissionAmount',
+      'forecastCompanyCommission',
+      'forecastBrokerCommission',
+      'assetValue',
+      'grossCommission',
+    ];
+
+    for (const key of numericKeys) {
+      if (payload[key] === '' || payload[key] === null || payload[key] === undefined) {
+        delete payload[key];
+        continue;
+      }
+
+      if (key in payload) {
+        payload[key] = parseCurrencyInput(payload[key], 0);
+      }
+    }
+
+    return payload as T;
+  }
+
   /**
    * Get all leads with optional filtering and pagination
    */
@@ -138,7 +177,7 @@ class LeadService {
     try {
       const response = await apiClient.post<{ success: boolean; data: Lead }>(
         '/leads',
-        data
+        this.sanitizeLeadPayload(data)
       );
       return response.data.data;
     } catch (error) {
@@ -154,7 +193,7 @@ class LeadService {
     try {
       const response = await apiClient.put<{ success: boolean; data: Lead }>(
         `/leads/${id}`,
-        data
+        this.sanitizeLeadPayload(data)
       );
       return response.data.data;
     } catch (error) {
@@ -196,7 +235,7 @@ class LeadService {
           propertyId: string | null;
           stockId: string | null;
         };
-      }>(`/leads/${id}/workflow`, data);
+      }>(`/leads/${id}/workflow`, this.sanitizeWorkflowPayload(data));
       return response.data.data;
     } catch (error) {
       const axiosError = error as AxiosError<any>;

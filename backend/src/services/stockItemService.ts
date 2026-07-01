@@ -57,6 +57,42 @@ function normalizePlaceId(value: unknown): string | undefined {
   return placeId;
 }
 
+function getSuppressedStockModules(metadata: unknown): StockItem['module'][] {
+  const values = toDetailsObject(metadata).suppressedStockModules;
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .map(value => normalizeModuleScope(String(value || '')))
+    .filter((value): value is StockItem['module'] => Boolean(value));
+}
+
+function withSuppressedStockModule(
+  metadata: unknown,
+  module: StockItem['module']
+): Record<string, unknown> {
+  const nextMetadata = { ...toDetailsObject(metadata) };
+  const modules = getSuppressedStockModules(metadata);
+  if (!modules.includes(module)) {
+    modules.push(module);
+  }
+  nextMetadata.suppressedStockModules = modules;
+  return nextMetadata;
+}
+
+function withoutSuppressedStockModule(
+  metadata: unknown,
+  module: StockItem['module']
+): Record<string, unknown> {
+  const nextMetadata = { ...toDetailsObject(metadata) };
+  const modules = getSuppressedStockModules(metadata).filter(value => value !== module);
+  if (modules.length > 0) {
+    nextMetadata.suppressedStockModules = modules;
+  } else {
+    delete nextMetadata.suppressedStockModules;
+  }
+  return nextMetadata;
+}
+
 function detailString(details: Record<string, unknown>, keys: string[], fallback = ''): string {
   for (const key of keys) {
     const value = normalizeText(details[key]);
@@ -529,6 +565,21 @@ export class StockItemService {
     };
 
     const created = await prisma.$transaction(async tx => {
+      if (isPropertyListing(details)) {
+        const propertyRecord = await tx.property.findUnique({
+          where: { id: property.propertyId },
+          select: { metadata: true },
+        });
+        if (propertyRecord) {
+          await tx.property.update({
+            where: { id: property.propertyId },
+            data: {
+              metadata: withoutSuppressedStockModule(propertyRecord.metadata, moduleType) as Prisma.InputJsonValue,
+            },
+          });
+        }
+      }
+
       const stockItem = await tx.stockItem.create({
         data: {
           propertyId: property.propertyId,
@@ -637,6 +688,21 @@ export class StockItemService {
 
     const existingMapped = mapStockItem(existing as NonNullable<StockItemRecord>);
     const updated = await prisma.$transaction(async tx => {
+      if (isPropertyListing(details)) {
+        const propertyRecord = await tx.property.findUnique({
+          where: { id: property.propertyId },
+          select: { metadata: true },
+        });
+        if (propertyRecord) {
+          await tx.property.update({
+            where: { id: property.propertyId },
+            data: {
+              metadata: withoutSuppressedStockModule(propertyRecord.metadata, moduleType) as Prisma.InputJsonValue,
+            },
+          });
+        }
+      }
+
       const stockItem = await tx.stockItem.update({
         where: { id },
         data: {
@@ -694,6 +760,26 @@ export class StockItemService {
 
     const existingMapped = mapStockItem(existing as NonNullable<StockItemRecord>);
     await prisma.$transaction(async tx => {
+      const normalizedModule = normalizeModuleScope(existing.module);
+      if (normalizedModule && isPropertyListing(toDetailsObject(existing.details))) {
+        const propertyRecord = await tx.property.findUnique({
+          where: { id: existing.propertyId },
+          select: { metadata: true },
+        });
+
+        if (propertyRecord) {
+          await tx.property.update({
+            where: { id: existing.propertyId },
+            data: {
+              metadata: withSuppressedStockModule(
+                propertyRecord.metadata,
+                normalizedModule
+              ) as Prisma.InputJsonValue,
+            },
+          });
+        }
+      }
+
       await tx.stockItem.update({
         where: { id },
         data: {

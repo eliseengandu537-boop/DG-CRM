@@ -543,6 +543,12 @@ export class ForecastDealService {
         asOptionalNumber(linkedDeal?.value) ??
         0
     );
+    const incomingGrossCommission =
+      asOptionalNumber((data as any).grossCommission) ??
+      asOptionalNumber((data as any).commissionAmount);
+    const incomingCommissionPercent = asOptionalNumber((data as any).commissionPercent);
+    const explicitCommissionRate = asOptionalNumber((data as any).commissionRate);
+    const hasManualGrossCommission = incomingGrossCommission !== undefined;
     const resolvedCoBrokers = resolveCoBrokerInput(
       (data as any).coBrokers,
       (data as any).coBrokerSplits,
@@ -553,13 +559,15 @@ export class ForecastDealService {
       dealType: (data as any).dealType || linkedDeal?.type || mapModuleTypeToDealType(resolvedModuleType),
       assetValue: resolvedAssetValue,
       commissionPercent:
-        asOptionalNumber((data as any).commissionPercent) ??
-        (Number(linkedDeal?.commissionPercent || 0) > 0
+        incomingCommissionPercent ??
+        (hasManualGrossCommission && explicitCommissionRate === undefined
+          ? undefined
+          : Number(linkedDeal?.commissionPercent || 0) > 0
           ? Number(linkedDeal?.commissionPercent)
           : undefined),
-      commissionRate: asOptionalNumber((data as any).commissionRate),
+      commissionRate: explicitCommissionRate,
       grossCommission:
-        asOptionalNumber((data as any).grossCommission) ??
+        incomingGrossCommission ??
         (Number(linkedDeal?.grossCommission || 0) > 0 ? Number(linkedDeal?.grossCommission) : undefined),
       commissionAmount: asOptionalNumber((data as any).commissionAmount),
       brokerSplitPercent:
@@ -741,6 +749,12 @@ export class ForecastDealService {
         asOptionalNumber(linkedDeal?.value) ??
         0
     );
+    const incomingGrossCommission =
+      asOptionalNumber((data as any).grossCommission) ??
+      asOptionalNumber((data as any).commissionAmount);
+    const incomingCommissionPercent = asOptionalNumber((data as any).commissionPercent);
+    const explicitCommissionRate = asOptionalNumber(data.commissionRate);
+    const hasManualGrossCommission = incomingGrossCommission !== undefined;
     const resolvedCoBrokers = resolveCoBrokerInput(
       (data as any).coBrokers,
       (data as any).coBrokerSplits,
@@ -755,16 +769,17 @@ export class ForecastDealService {
         mapModuleTypeToDealType(resolvedModuleType),
       assetValue: resolvedAssetValue,
       commissionPercent:
-        asOptionalNumber((data as any).commissionPercent) ??
-        (Number((existing as any).commissionPercent || 0) > 0
+        incomingCommissionPercent ??
+        (hasManualGrossCommission && explicitCommissionRate === undefined
+          ? undefined
+          : Number((existing as any).commissionPercent || 0) > 0
           ? Number((existing as any).commissionPercent)
           : undefined),
       commissionRate:
-        asOptionalNumber((data as any).commissionRate) ??
+        explicitCommissionRate ??
         asOptionalNumber(existing.commissionRate),
       grossCommission:
-        asOptionalNumber((data as any).grossCommission) ??
-        asOptionalNumber((data as any).commissionAmount) ??
+        incomingGrossCommission ??
         (Number((existing as any).grossCommission || 0) > 0
           ? Number((existing as any).grossCommission)
           : undefined) ??
@@ -1231,3 +1246,4 @@ export class ForecastDealService {
 }
 
 export const forecastDealService = new ForecastDealService();
+

@@ -39,6 +39,7 @@ export interface CreateForecastDealRequest {
   title: string;
   expectedValue: number;
   commissionRate?: number;
+  grossCommission?: number;
   commissionAmount?: number;
   companyCommission?: number;
   brokerCommission?: number;
@@ -242,3 +243,4 @@ class ForecastDealService {
 
 export const forecastDealApiService = new ForecastDealService();
 export default forecastDealApiService;
+
